@@ -3,6 +3,8 @@ import useAlphas from './hooks/useAlphas'
 import useBetas, { getSignal } from './hooks/useBetas'
 import './index.css'
 
+// ─── Helpers ────────────────────────────────────────────────────
+
 const formatNum = (num) => {
   if (!num || num === 0) return '—'
   if (num >= 1_000_000_000) return `$${(num / 1_000_000_000).toFixed(2)}B`
@@ -22,6 +24,8 @@ const formatPrice = (price) => {
 const shortAddress = (addr) =>
   addr ? `${addr.slice(0, 4)}...${addr.slice(-4)}` : ''
 
+// ─── Navbar ─────────────────────────────────────────────────────
+
 const Navbar = ({ onListBeta }) => (
   <nav className="navbar">
     <div className="navbar-brand">
@@ -40,6 +44,8 @@ const Navbar = ({ onListBeta }) => (
   </nav>
 )
 
+// ─── Alpha Token Card ────────────────────────────────────────────
+
 const AlphaCard = ({ alpha, isSelected, onClick }) => {
   const change = parseFloat(alpha.priceChange24h) || 0
   const isPositive = change >= 0
@@ -48,7 +54,9 @@ const AlphaCard = ({ alpha, isSelected, onClick }) => {
       <div className="alpha-card-top">
         <div className="token-info">
           <div className="token-icon">
-            {alpha.logoUrl ? <img src={alpha.logoUrl} alt={alpha.symbol} /> : alpha.symbol.slice(0, 3)}
+            {alpha.logoUrl
+              ? <img src={alpha.logoUrl} alt={alpha.symbol} />
+              : alpha.symbol.slice(0, 3)}
           </div>
           <div>
             <div className="token-name">${alpha.symbol}</div>
@@ -80,6 +88,8 @@ const AlphaCard = ({ alpha, isSelected, onClick }) => {
   )
 }
 
+// ─── Alpha Board (Left Panel) ────────────────────────────────────
+
 const AlphaBoard = ({ selectedAlpha, onSelect }) => {
   const [activeTab, setActiveTab] = useState('live')
   const { liveAlphas, historicalAlphas, loading, error, lastUpdated, refresh } = useAlphas()
@@ -91,22 +101,40 @@ const AlphaBoard = ({ selectedAlpha, onSelect }) => {
       <div className="alpha-board-header">
         <span className="alpha-board-title">🎯 Runners</span>
         <div className="tab-group">
-          <button className={`tab-btn ${activeTab === 'live' ? 'active' : ''}`} onClick={() => setActiveTab('live')}>Live</button>
-          <button className={`tab-btn ${activeTab === 'past' ? 'active' : ''}`} onClick={() => setActiveTab('past')}>Past</button>
+          <button
+            className={`tab-btn ${activeTab === 'live' ? 'active' : ''}`}
+            onClick={() => setActiveTab('live')}
+          >Live</button>
+          <button
+            className={`tab-btn ${activeTab === 'past' ? 'active' : ''}`}
+            onClick={() => setActiveTab('past')}
+          >Past</button>
         </div>
       </div>
 
       {lastUpdated && activeTab === 'live' && (
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '4px 0' }}>
-          <span className="mono text-muted" style={{ fontSize: 9 }}>Updated {lastUpdated.toLocaleTimeString()}</span>
-          <button className="btn btn-ghost btn-sm" onClick={refresh} style={{ padding: '2px 8px', fontSize: 9 }}>↺ Refresh</button>
+          <span className="mono text-muted" style={{ fontSize: 9 }}>
+            Updated {lastUpdated.toLocaleTimeString()}
+          </span>
+          <button
+            className="btn btn-ghost btn-sm"
+            onClick={refresh}
+            style={{ padding: '2px 8px', fontSize: 9 }}
+          >↺ Refresh</button>
         </div>
       )}
 
       {error && (
-        <div style={{ background: 'rgba(255,68,102,0.08)', border: '1px solid rgba(255,68,102,0.3)', borderRadius: 6, padding: '8px 12px', fontSize: 11, color: 'var(--red)', fontFamily: 'var(--font-mono)' }}>
-          {error}
-        </div>
+        <div style={{
+          background: 'rgba(255,68,102,0.08)',
+          border: '1px solid rgba(255,68,102,0.3)',
+          borderRadius: 6,
+          padding: '8px 12px',
+          fontSize: 11,
+          color: 'var(--red)',
+          fontFamily: 'var(--font-mono)'
+        }}>{error}</div>
       )}
 
       <div className="alpha-list scroll-y">
@@ -123,9 +151,11 @@ const AlphaBoard = ({ selectedAlpha, onSelect }) => {
             <div className="empty-state-icon">📡</div>
             <div className="empty-state-title">No runners found in this sector right now.</div>
             <div className="empty-state-sub">Trenches might be cooked.</div>
-            <button className="btn btn-ghost btn-sm" onClick={() => setActiveTab('past')} style={{ marginTop: 12 }}>
-              View Past Alphas
-            </button>
+            <button
+              className="btn btn-ghost btn-sm"
+              onClick={() => setActiveTab('past')}
+              style={{ marginTop: 12 }}
+            >View Past Alphas</button>
           </div>
         )}
 
@@ -142,6 +172,8 @@ const AlphaBoard = ({ selectedAlpha, onSelect }) => {
   )
 }
 
+// ─── Signal + Class Badge ────────────────────────────────────────
+
 const SignalBadge = ({ beta }) => {
   const signal = getSignal(beta)
   const classMap = {
@@ -152,13 +184,34 @@ const SignalBadge = ({ beta }) => {
     WEAK: 'badge-weak',
   }
   return (
-    <span className={`badge ${classMap[signal.label] || 'badge-weak'}`}>
-      {signal.label === 'CABAL' && '🕵️ '}
-      {signal.label === 'TRENDING' && '🔥 '}
-      {signal.label}
-    </span>
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 3, alignItems: 'flex-end' }}>
+      {beta.tokenClass && (
+        <span
+          className={`badge ${
+            beta.tokenClass === 'OG'    ? 'badge-verified' :
+            beta.tokenClass === 'RIVAL' ? 'badge-cabal' :
+                                          'badge-weak'
+          }`}
+          style={{ fontSize: 8, padding: '2px 6px' }}
+        >
+          {beta.tokenClass === 'OG'    ? '👑 OG' :
+           beta.tokenClass === 'RIVAL' ? '⚔️ RIVAL' :
+                                         '🌀 SPIN'}
+        </span>
+      )}
+      <span
+        className={`badge ${classMap[signal.label] || 'badge-weak'}`}
+        style={{ fontSize: 8, padding: '2px 6px' }}
+      >
+        {signal.label === 'CABAL'    ? '🕵️ CABAL' :
+         signal.label === 'TRENDING' ? '🔥 TRENDING' :
+         signal.label}
+      </span>
+    </div>
   )
 }
+
+// ─── Beta Row ────────────────────────────────────────────────────
 
 const BetaRow = ({ beta, isPinned }) => {
   const change = parseFloat(beta.priceChange24h) || 0
@@ -172,26 +225,50 @@ const BetaRow = ({ beta, isPinned }) => {
     <div className={`beta-row ${isPinned ? 'pinned' : ''}`} onClick={handleClick}>
       <div className="token-info">
         <div className="token-icon" style={{ width: 28, height: 28, fontSize: 9 }}>
-          {beta.logoUrl ? <img src={beta.logoUrl} alt={beta.symbol} /> : beta.symbol.slice(0, 3)}
+          {beta.logoUrl
+            ? <img src={beta.logoUrl} alt={beta.symbol} />
+            : beta.symbol.slice(0, 3)}
         </div>
         <div>
-          <div style={{ fontFamily: 'var(--font-display)', fontWeight: 700, fontSize: 13, color: 'var(--text-primary)' }}>
+          <div style={{
+            fontFamily: 'var(--font-display)',
+            fontWeight: 700,
+            fontSize: 13,
+            color: 'var(--text-primary)'
+          }}>
             ${beta.symbol}
-            {isPinned && <span className="badge badge-verified" style={{ marginLeft: 6 }}>DEV VERIFIED</span>}
+            {isPinned && (
+              <span className="badge badge-verified" style={{ marginLeft: 6 }}>
+                DEV VERIFIED
+              </span>
+            )}
           </div>
           <div className="token-address">{shortAddress(beta.address)}</div>
         </div>
       </div>
-      <span className="mono" style={{ fontSize: 12, color: 'var(--text-primary)' }}>{formatNum(beta.marketCap)}</span>
-      <span className="mono" style={{ fontSize: 12, color: 'var(--text-secondary)' }}>{formatNum(beta.volume24h)}</span>
+
+      <span className="mono" style={{ fontSize: 12, color: 'var(--text-primary)' }}>
+        {formatNum(beta.marketCap)}
+      </span>
+
+      <span className="mono" style={{ fontSize: 12, color: 'var(--text-secondary)' }}>
+        {formatNum(beta.volume24h)}
+      </span>
+
       <span className={`mono token-change ${isPositive ? 'positive' : 'negative'}`} style={{ fontSize: 12 }}>
         {isPositive ? '+' : ''}{change.toFixed(1)}%
       </span>
-      <span className="mono" style={{ fontSize: 11, color: 'var(--text-muted)' }}>{beta.ageLabel}</span>
+
+      <span className="mono" style={{ fontSize: 11, color: 'var(--text-muted)' }}>
+        {beta.ageLabel}
+      </span>
+
       <SignalBadge beta={beta} />
     </div>
   )
 }
+
+// ─── Beta Panel (Right Panel) ────────────────────────────────────
 
 const BetaPanel = ({ alpha, onListBeta }) => {
   const { betas, loading, error, refresh } = useBetas(alpha)
@@ -205,7 +282,13 @@ const BetaPanel = ({ alpha, onListBeta }) => {
           </h1>
           <p className="beta-panel-subtitle">
             {alpha
-              ? <span>Surfacing derivative tokens for <span style={{ color: 'var(--neon-green)' }}>${alpha.symbol}</span> — sorted by 24h gain</span>
+              ? (
+                <span>
+                  Surfacing derivative tokens for{' '}
+                  <span style={{ color: 'var(--neon-green)' }}>${alpha.symbol}</span>
+                  {' '}— sorted by 24h gain
+                </span>
+              )
               : 'Pick a runner from the left panel to surface its beta plays'}
           </p>
         </div>
@@ -221,17 +304,21 @@ const BetaPanel = ({ alpha, onListBeta }) => {
         <div className="empty-state">
           <div className="empty-state-icon">👈</div>
           <div className="empty-state-title">No runner selected</div>
-          <div className="empty-state-sub">Select a runner from the left panel to surface its beta plays.</div>
+          <div className="empty-state-sub">
+            Select a runner from the left panel to surface its beta plays.
+          </div>
         </div>
       ) : (
         <>
-          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 12 }}>
-            <span className="badge badge-cabal">🕵️ CABAL</span>
-            <span className="mono text-muted" style={{ fontSize: 10, alignSelf: 'center' }}>= multi-signal overlap</span>
-            <span className="badge badge-strong" style={{ marginLeft: 8 }}>🔥 TRENDING</span>
-            <span className="mono text-muted" style={{ fontSize: 10, alignSelf: 'center' }}>= PumpFun + keyword</span>
-            <span className="badge badge-weak" style={{ marginLeft: 8 }}>LORE</span>
-            <span className="mono text-muted" style={{ fontSize: 10, alignSelf: 'center' }}>= narrative match</span>
+          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 12, alignItems: 'center' }}>
+            <span className="badge badge-verified" style={{ fontSize: 8, padding: '2px 6px' }}>👑 OG</span>
+            <span className="mono text-muted" style={{ fontSize: 10 }}>= original</span>
+            <span className="badge badge-cabal" style={{ fontSize: 8, padding: '2px 6px', marginLeft: 8 }}>⚔️ RIVAL</span>
+            <span className="mono text-muted" style={{ fontSize: 10 }}>= challenging the throne</span>
+            <span className="badge badge-weak" style={{ fontSize: 8, padding: '2px 6px', marginLeft: 8 }}>🌀 SPIN</span>
+            <span className="mono text-muted" style={{ fontSize: 10 }}>= riding the narrative</span>
+            <span className="badge badge-cabal" style={{ fontSize: 8, padding: '2px 6px', marginLeft: 8 }}>🕵️ CABAL</span>
+            <span className="mono text-muted" style={{ fontSize: 10 }}>= multi-signal overlap</span>
           </div>
 
           <div className="beta-table">
@@ -257,7 +344,9 @@ const BetaPanel = ({ alpha, onListBeta }) => {
               <div className="empty-state" style={{ marginTop: 24 }}>
                 <div className="empty-state-icon">📭</div>
                 <div className="empty-state-title">{error}</div>
-                <div className="empty-state-sub">Try a different runner or check back when the narrative heats up.</div>
+                <div className="empty-state-sub">
+                  Try a different runner or check back when the narrative heats up.
+                </div>
               </div>
             )}
 
@@ -271,6 +360,8 @@ const BetaPanel = ({ alpha, onListBeta }) => {
   )
 }
 
+// ─── Main App ────────────────────────────────────────────────────
+
 export default function App() {
   const [selectedAlpha, setSelectedAlpha] = useState(null)
   const [showListModal, setShowListModal] = useState(false)
@@ -279,15 +370,24 @@ export default function App() {
     <div className="app-wrapper">
       <Navbar onListBeta={() => setShowListModal(true)} />
       <div className="main-layout">
-        <AlphaBoard selectedAlpha={selectedAlpha} onSelect={setSelectedAlpha} />
-        <BetaPanel alpha={selectedAlpha} onListBeta={() => setShowListModal(true)} />
+        <AlphaBoard
+          selectedAlpha={selectedAlpha}
+          onSelect={setSelectedAlpha}
+        />
+        <BetaPanel
+          alpha={selectedAlpha}
+          onListBeta={() => setShowListModal(true)}
+        />
       </div>
+
       {showListModal && (
         <div className="modal-overlay" onClick={() => setShowListModal(false)}>
           <div className="modal" onClick={(e) => e.stopPropagation()}>
             <div className="modal-title">⚡ List Your Beta</div>
             <div className="modal-sub">Monetization flow — coming in Phase 3</div>
-            <button className="btn btn-ghost" onClick={() => setShowListModal(false)}>Close</button>
+            <button className="btn btn-ghost" onClick={() => setShowListModal(false)}>
+              Close
+            </button>
           </div>
         </div>
       )}
