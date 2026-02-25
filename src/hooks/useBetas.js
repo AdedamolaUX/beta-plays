@@ -291,7 +291,7 @@ const useBetas = (alpha) => {
 
       const merged = mergeAndScore(allResults, alpha.symbol)
       setBetas(merged)
-      if (merged.length === 0) setError('No beta plays detected yet. Market might be early.')
+      if (merged.length === 0) setError('No beta plays detected yet. Trenches might be cooked')
     } catch (err) {
       console.error('Beta detection failed:', err)
       setError('Detection engine error. Try refreshing.')

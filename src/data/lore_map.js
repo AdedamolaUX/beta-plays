@@ -227,16 +227,26 @@ const LORE_MAP = {
 // ─── Narrative Categories ────────────────────────────────────────
 // Used for Vector 16 — meta narrative detection
 export const NARRATIVE_CATEGORIES = {
-  dogs:      { label: '🐕 Dogs',     keywords: ['dog', 'wif', 'bonk', 'shib', 'doge', 'inu', 'pup', 'mutt'] },
-  cats:      { label: '🐱 Cats',     keywords: ['cat', 'mew', 'nyan', 'kitty', 'meow', 'feline'] },
-  frogs:     { label: '🐸 Frogs',    keywords: ['pepe', 'frog', 'toad', 'rare', 'feels', 'kek'] },
-  political: { label: '🇺🇸 Political', keywords: ['trump', 'biden', 'maga', 'usa', 'vote', 'election', 'boden'] },
-  ai:        { label: '🤖 AI',       keywords: ['ai', 'gpt', 'neural', 'agent', 'llm', 'robot', 'claude', 'vibe'] },
-  animals:   { label: '🦎 Animals',  keywords: ['cat', 'dog', 'bird', 'fish', 'bear', 'bull', 'ape', 'monkey'] },
-  anime:     { label: '⛩️ Anime',    keywords: ['anime', 'waifu', 'manga', 'otaku', 'kawaii', 'ninja'] },
-  space:     { label: '🚀 Space',    keywords: ['moon', 'mars', 'space', 'rocket', 'elon', 'nasa', 'galaxy'] },
-  elon:      { label: '⚡ Elon',     keywords: ['elon', 'musk', 'tesla', 'spacex', 'doge', 'x'] },
-  defi:      { label: '💰 DeFi',     keywords: ['swap', 'yield', 'farm', 'stake', 'lp', 'dao', 'vault'] },
+  dogs:      { label: '🐕 Dogs',          keywords: ['dog', 'wif', 'bonk', 'shib', 'doge', 'inu', 'pup', 'mutt', 'hound', 'puppy'] },
+  cats:      { label: '🐱 Cats',          keywords: ['cat', 'mew', 'nyan', 'kitty', 'meow', 'feline', 'kitten', 'purr'] },
+  frogs:     { label: '🐸 Frogs',         keywords: ['pepe', 'frog', 'toad', 'rare', 'feels', 'kek', 'wojak'] },
+  political: { label: '🇺🇸 Political',    keywords: ['trump', 'biden', 'maga', 'usa', 'vote', 'election', 'boden', 'kamala', 'republican', 'democrat'] },
+  ai:        { label: '🤖 AI',            keywords: ['ai', 'gpt', 'neural', 'agent', 'llm', 'robot', 'claude', 'vibe', 'artificial', 'intelligence', 'openai', 'devin'] },
+  animals:   { label: '🦎 Animals',       keywords: ['cat', 'dog', 'bird', 'fish', 'bear', 'bull', 'ape', 'monkey', 'snake', 'tiger', 'lion', 'fox', 'wolf', 'hamster', 'penguin'] },
+  anime:     { label: '⛩️ Anime',         keywords: ['anime', 'waifu', 'manga', 'otaku', 'kawaii', 'ninja', 'samurai', 'tokyo', 'senpai'] },
+  space:     { label: '🚀 Space',         keywords: ['moon', 'mars', 'space', 'rocket', 'elon', 'nasa', 'galaxy', 'star', 'comet', 'orbit', 'astro'] },
+  elon:      { label: '⚡ Elon',          keywords: ['elon', 'musk', 'tesla', 'spacex', 'doge', 'x', 'grok'] },
+  defi:      { label: '💰 DeFi',          keywords: ['swap', 'yield', 'farm', 'stake', 'lp', 'dao', 'vault', 'liquidity', 'protocol', 'finance'] },
+  gaming:    { label: '🎮 Gaming',        keywords: ['game', 'play', 'quest', 'guild', 'rpg', 'arcade', 'pixel', 'level', 'boss', 'loot', 'gamer'] },
+  food:      { label: '🍕 Food',          keywords: ['pizza', 'burger', 'taco', 'food', 'eat', 'cook', 'chef', 'bread', 'cheese', 'donut', 'cake', 'hungry'] },
+  degen:     { label: '💀 Degen',         keywords: ['rug', 'pump', 'dump', 'degen', 'ape', 'chad', 'ngmi', 'wagmi', 'gm', 'fud', 'hodl', 'rekt', 'fomo', 'trenches'] },
+  horror:    { label: '👻 Dark/Horror',   keywords: ['skull', 'death', 'dead', 'ghost', 'demon', 'devil', 'hell', 'dark', 'shadow', 'evil', 'zombie', 'blood'] },
+  sports:    { label: '🏆 Sports',        keywords: ['ball', 'sport', 'nba', 'nfl', 'soccer', 'football', 'basketball', 'goal', 'champion', 'league', 'athlete'] },
+  scifi:     { label: '🧪 Sci-Fi/Cyber',  keywords: ['cyber', 'matrix', 'neo', 'blade', 'runner', 'future', 'hack', 'neon', 'punk', 'dystopia', 'virtual'] },
+  alien:     { label: '👽 Alien/UFO',     keywords: ['alien', 'ufo', 'area51', 'extraterrestrial', 'mars', 'et', 'roswell', 'abduct'] },
+  popcult:   { label: '🎭 Pop Culture',   keywords: ['movie', 'film', 'show', 'series', 'character', 'netflix', 'disney', 'marvel', 'meme', 'viral', 'trend'] },
+  nature:    { label: '🌿 Nature',        keywords: ['sun', 'moon', 'earth', 'water', 'fire', 'wind', 'tree', 'flower', 'ocean', 'forest', 'nature', 'green'] },
+  music:     { label: '🎵 Music',         keywords: ['music', 'beat', 'bass', 'rap', 'hip', 'hop', 'song', 'dj', 'sound', 'tune', 'bop', 'wave'] },
 }
 
 // ─── Exports ────────────────────────────────────────────────────
