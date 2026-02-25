@@ -1,6 +1,8 @@
 import { useState } from 'react'
 import useAlphas from './hooks/useAlphas'
 import useBetas, { getSignal } from './hooks/useBetas'
+import useParentAlpha from './hooks/useParentAlpha'
+import { extractRootCandidates } from './hooks/useParentAlpha'
 import './index.css'
 
 // ─── Helpers ────────────────────────────────────────────────────
@@ -23,6 +25,8 @@ const formatPrice = (price) => {
 
 const shortAddress = (addr) =>
   addr ? `${addr.slice(0, 4)}...${addr.slice(-4)}` : ''
+
+const isDerivative = (symbol) => extractRootCandidates(symbol).length > 0
 
 // ─── Navbar ─────────────────────────────────────────────────────
 
@@ -49,6 +53,8 @@ const Navbar = ({ onListBeta }) => (
 const AlphaCard = ({ alpha, isSelected, onClick }) => {
   const change = parseFloat(alpha.priceChange24h) || 0
   const isPositive = change >= 0
+  const derivative = isDerivative(alpha.symbol)
+
   return (
     <div className={`card alpha-card ${isSelected ? 'active' : ''}`} onClick={onClick}>
       <div className="alpha-card-top">
@@ -59,7 +65,14 @@ const AlphaCard = ({ alpha, isSelected, onClick }) => {
               : alpha.symbol.slice(0, 3)}
           </div>
           <div>
-            <div className="token-name">${alpha.symbol}</div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+              <div className="token-name">${alpha.symbol}</div>
+              {derivative && (
+                <span className="badge badge-new" style={{ fontSize: 7, padding: '1px 5px' }}>
+                  DERIVATIVE
+                </span>
+              )}
+            </div>
             <div className="token-address">{shortAddress(alpha.address)}</div>
           </div>
         </div>
@@ -129,10 +142,8 @@ const AlphaBoard = ({ selectedAlpha, onSelect }) => {
         <div style={{
           background: 'rgba(255,68,102,0.08)',
           border: '1px solid rgba(255,68,102,0.3)',
-          borderRadius: 6,
-          padding: '8px 12px',
-          fontSize: 11,
-          color: 'var(--red)',
+          borderRadius: 6, padding: '8px 12px',
+          fontSize: 11, color: 'var(--red)',
           fontFamily: 'var(--font-mono)'
         }}>{error}</div>
       )}
@@ -189,14 +200,12 @@ const SignalBadge = ({ beta }) => {
         <span
           className={`badge ${
             beta.tokenClass === 'OG'    ? 'badge-verified' :
-            beta.tokenClass === 'RIVAL' ? 'badge-cabal' :
-                                          'badge-weak'
+            beta.tokenClass === 'RIVAL' ? 'badge-cabal' : 'badge-weak'
           }`}
           style={{ fontSize: 8, padding: '2px 6px' }}
         >
           {beta.tokenClass === 'OG'    ? '👑 OG' :
-           beta.tokenClass === 'RIVAL' ? '⚔️ RIVAL' :
-                                         '🌀 SPIN'}
+           beta.tokenClass === 'RIVAL' ? '⚔️ RIVAL' : '🌀 SPIN'}
         </span>
       )}
       <span
@@ -204,8 +213,7 @@ const SignalBadge = ({ beta }) => {
         style={{ fontSize: 8, padding: '2px 6px' }}
       >
         {signal.label === 'CABAL'    ? '🕵️ CABAL' :
-         signal.label === 'TRENDING' ? '🔥 TRENDING' :
-         signal.label}
+         signal.label === 'TRENDING' ? '🔥 TRENDING' : signal.label}
       </span>
     </div>
   )
@@ -217,12 +225,11 @@ const BetaRow = ({ beta, isPinned }) => {
   const change = parseFloat(beta.priceChange24h) || 0
   const isPositive = change >= 0
 
-  const handleClick = () => {
-    if (beta.dexUrl) window.open(beta.dexUrl, '_blank')
-  }
-
   return (
-    <div className={`beta-row ${isPinned ? 'pinned' : ''}`} onClick={handleClick}>
+    <div
+      className={`beta-row ${isPinned ? 'pinned' : ''}`}
+      onClick={() => beta.dexUrl && window.open(beta.dexUrl, '_blank')}
+    >
       <div className="token-info">
         <div className="token-icon" style={{ width: 28, height: 28, fontSize: 9 }}>
           {beta.logoUrl
@@ -231,39 +238,100 @@ const BetaRow = ({ beta, isPinned }) => {
         </div>
         <div>
           <div style={{
-            fontFamily: 'var(--font-display)',
-            fontWeight: 700,
-            fontSize: 13,
-            color: 'var(--text-primary)'
+            fontFamily: 'var(--font-display)', fontWeight: 700,
+            fontSize: 13, color: 'var(--text-primary)'
           }}>
             ${beta.symbol}
             {isPinned && (
-              <span className="badge badge-verified" style={{ marginLeft: 6 }}>
-                DEV VERIFIED
-              </span>
+              <span className="badge badge-verified" style={{ marginLeft: 6 }}>DEV VERIFIED</span>
             )}
           </div>
           <div className="token-address">{shortAddress(beta.address)}</div>
         </div>
       </div>
-
       <span className="mono" style={{ fontSize: 12, color: 'var(--text-primary)' }}>
         {formatNum(beta.marketCap)}
       </span>
-
       <span className="mono" style={{ fontSize: 12, color: 'var(--text-secondary)' }}>
         {formatNum(beta.volume24h)}
       </span>
-
       <span className={`mono token-change ${isPositive ? 'positive' : 'negative'}`} style={{ fontSize: 12 }}>
         {isPositive ? '+' : ''}{change.toFixed(1)}%
       </span>
-
       <span className="mono" style={{ fontSize: 11, color: 'var(--text-muted)' }}>
         {beta.ageLabel}
       </span>
-
       <SignalBadge beta={beta} />
+    </div>
+  )
+}
+
+// ─── Parent Alpha Card ───────────────────────────────────────────
+
+const ParentAlphaCard = ({ parent }) => {
+  const change = parseFloat(parent.priceChange24h) || 0
+  const isPositive = change >= 0
+
+  return (
+    <div
+      onClick={() => parent.dexUrl && window.open(parent.dexUrl, '_blank')}
+      style={{
+        background: 'rgba(0, 212, 255, 0.04)',
+        border: '1px solid rgba(0, 212, 255, 0.3)',
+        borderRadius: 10,
+        padding: '14px 16px',
+        cursor: 'pointer',
+        marginBottom: 8,
+        transition: 'all 0.15s ease',
+      }}
+    >
+      {/* Header label */}
+      <div style={{
+        fontFamily: 'var(--font-mono)', fontSize: 9, fontWeight: 700,
+        color: 'var(--cyan)', letterSpacing: 1.5, textTransform: 'uppercase',
+        marginBottom: 10
+      }}>
+        🧬 Parent Alpha — Root of this narrative
+      </div>
+
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+        <div className="token-info">
+          <div className="token-icon" style={{ width: 40, height: 40, border: '1px solid rgba(0,212,255,0.4)' }}>
+            {parent.logoUrl
+              ? <img src={parent.logoUrl} alt={parent.symbol} />
+              : parent.symbol.slice(0, 3)}
+          </div>
+          <div>
+            <div style={{
+              fontFamily: 'var(--font-display)', fontWeight: 800,
+              fontSize: 16, color: 'var(--text-primary)'
+            }}>
+              ${parent.symbol}
+            </div>
+            <div className="token-address">{shortAddress(parent.address)}</div>
+          </div>
+        </div>
+        <div style={{ display: 'flex', gap: 20, alignItems: 'center' }}>
+          <div className="metric">
+            <span className="metric-label">MCAP</span>
+            <span className="metric-value">{formatNum(parent.marketCap)}</span>
+          </div>
+          <div className="metric">
+            <span className="metric-label">Vol 24h</span>
+            <span className="metric-value">{formatNum(parent.volume24h)}</span>
+          </div>
+          <div className={`token-change ${isPositive ? 'positive' : 'negative'}`} style={{ fontSize: 15 }}>
+            {isPositive ? '+' : ''}{change.toFixed(1)}%
+          </div>
+        </div>
+      </div>
+
+      <div style={{
+        marginTop: 10, fontFamily: 'var(--font-mono)', fontSize: 10,
+        color: 'var(--text-muted)'
+      }}>
+        ⚠️ If parent dumps, this runner likely follows. Watch both.
+      </div>
     </div>
   )
 }
@@ -271,7 +339,8 @@ const BetaRow = ({ beta, isPinned }) => {
 // ─── Beta Panel (Right Panel) ────────────────────────────────────
 
 const BetaPanel = ({ alpha, onListBeta }) => {
-  const { betas, loading, error, refresh } = useBetas(alpha)
+  const { betas, loading: betasLoading, error, refresh } = useBetas(alpha)
+  const { parent, loading: parentLoading } = useParentAlpha(alpha)
 
   return (
     <section className="beta-panel">
@@ -310,17 +379,27 @@ const BetaPanel = ({ alpha, onListBeta }) => {
         </div>
       ) : (
         <>
+          {/* Parent Alpha Section */}
+          {parentLoading && (
+            <div className="skeleton" style={{ height: 100, borderRadius: 10, marginBottom: 8 }} />
+          )}
+          {!parentLoading && parent && (
+            <ParentAlphaCard parent={parent} />
+          )}
+
+          {/* Legend */}
           <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 12, alignItems: 'center' }}>
             <span className="badge badge-verified" style={{ fontSize: 8, padding: '2px 6px' }}>👑 OG</span>
             <span className="mono text-muted" style={{ fontSize: 10 }}>= original</span>
             <span className="badge badge-cabal" style={{ fontSize: 8, padding: '2px 6px', marginLeft: 8 }}>⚔️ RIVAL</span>
-            <span className="mono text-muted" style={{ fontSize: 10 }}>= challenging the throne</span>
+            <span className="mono text-muted" style={{ fontSize: 10 }}>= challenging throne</span>
             <span className="badge badge-weak" style={{ fontSize: 8, padding: '2px 6px', marginLeft: 8 }}>🌀 SPIN</span>
-            <span className="mono text-muted" style={{ fontSize: 10 }}>= riding the narrative</span>
+            <span className="mono text-muted" style={{ fontSize: 10 }}>= riding narrative</span>
             <span className="badge badge-cabal" style={{ fontSize: 8, padding: '2px 6px', marginLeft: 8 }}>🕵️ CABAL</span>
-            <span className="mono text-muted" style={{ fontSize: 10 }}>= multi-signal overlap</span>
+            <span className="mono text-muted" style={{ fontSize: 10 }}>= multi-signal</span>
           </div>
 
+          {/* Beta Table */}
           <div className="beta-table">
             <div className="beta-table-header">
               <span>Token</span>
@@ -331,7 +410,7 @@ const BetaPanel = ({ alpha, onListBeta }) => {
               <span>Signal</span>
             </div>
 
-            {loading && (
+            {betasLoading && (
               <>
                 <div className="skeleton loading-row" />
                 <div className="skeleton loading-row" />
@@ -340,7 +419,7 @@ const BetaPanel = ({ alpha, onListBeta }) => {
               </>
             )}
 
-            {!loading && error && betas.length === 0 && (
+            {!betasLoading && error && betas.length === 0 && (
               <div className="empty-state" style={{ marginTop: 24 }}>
                 <div className="empty-state-icon">📭</div>
                 <div className="empty-state-title">{error}</div>
@@ -350,7 +429,7 @@ const BetaPanel = ({ alpha, onListBeta }) => {
               </div>
             )}
 
-            {!loading && betas.map((beta, i) => (
+            {!betasLoading && betas.map((beta, i) => (
               <BetaRow key={beta.id || i} beta={beta} isPinned={false} />
             ))}
           </div>
