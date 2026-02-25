@@ -3,52 +3,72 @@ import axios from 'axios'
 
 const DEXSCREENER_BASE = 'https://api.dexscreener.com'
 
-// ─── Reverse Morphology ──────────────────────────────────────────
-// Given a runner's symbol, try to find its root/parent token.
-// Strategy: strip known prefixes and suffixes, search for the remainder.
+// ─── Edit Distance (Levenshtein) ─────────────────────────────────
+// Measures how many character changes separate two strings.
+// PIPPKIN vs PIPPIN = 1 change = very likely related.
+// PIPPKIN vs BONK = 6 changes = unrelated.
+const editDistance = (a, b) => {
+  const m = a.length, n = b.length
+  const dp = Array.from({ length: m + 1 }, (_, i) =>
+    Array.from({ length: n + 1 }, (_, j) => (i === 0 ? j : j === 0 ? i : 0))
+  )
+  for (let i = 1; i <= m; i++) {
+    for (let j = 1; j <= n; j++) {
+      dp[i][j] = a[i - 1] === b[j - 1]
+        ? dp[i - 1][j - 1]
+        : 1 + Math.min(dp[i - 1][j], dp[i][j - 1], dp[i - 1][j - 1])
+    }
+  }
+  return dp[m][n]
+}
 
-const STRIP_PREFIXES = [
-  'BABY', 'MINI', 'MICRO', 'GIGA', 'MEGA', 'SUPER', 'BASED',
-  'REAL', 'OG', 'TURBO', 'CHAD', 'RETRO', 'FAT', 'TINY', 'THE',
-]
+// ─── Similarity score 0-1 ────────────────────────────────────────
+const similarity = (a, b) => {
+  const maxLen = Math.max(a.length, b.length)
+  if (maxLen === 0) return 1
+  return 1 - editDistance(a.toUpperCase(), b.toUpperCase()) / maxLen
+}
 
-const STRIP_SUFFIXES = [
-  'INU', 'WIF', 'HAT', 'CAT', 'DOG', 'AI', 'GPT', 'DAO',
-  'FI', 'X', '2', '3', 'PLUS', 'PRO', 'MOON', 'PUMP', 'KIN',
-  'KY', 'LY', 'ISH', 'WIFHAT', 'WIFCAT',
-]
-
+// ─── Generate search queries from runner symbol ──────────────────
+// Strategy: search with progressively shorter prefixes of the symbol
+// so "PIPPKIN" generates queries: "PIPPK", "PIPP", "PIPP", "PIP"
+// DEXScreener substring search will surface "PIPPIN" for "PIPP"
 export const extractRootCandidates = (symbol) => {
   const s = symbol.toUpperCase()
   const candidates = new Set()
 
-  // Try stripping each prefix
-  STRIP_PREFIXES.forEach((prefix) => {
-    if (s.startsWith(prefix) && s.length > prefix.length + 2) {
-      candidates.add(s.slice(prefix.length))
-    }
-  })
+  // Progressively shorter prefixes (min 3 chars)
+  for (let len = s.length - 1; len >= 3; len--) {
+    candidates.add(s.slice(0, len))
+  }
 
-  // Try stripping each suffix
+  // Also try stripping known suffixes for direct ticker matches
+  const STRIP_SUFFIXES = [
+    'KIN', 'KY', 'LY', 'ISH', 'INU', 'WIF', 'HAT', 'CAT',
+    'DOG', 'AI', 'DAO', 'MOON', 'PUMP', 'WIFHAT',
+  ]
   STRIP_SUFFIXES.forEach((suffix) => {
     if (s.endsWith(suffix) && s.length > suffix.length + 2) {
       candidates.add(s.slice(0, s.length - suffix.length))
     }
   })
 
-  // Try partial string match — first 4+ characters as root
-  if (s.length >= 6) {
-    candidates.add(s.slice(0, 4))
-    candidates.add(s.slice(0, 5))
-  }
+  // Strip known prefixes
+  const STRIP_PREFIXES = [
+    'BABY', 'MINI', 'MICRO', 'GIGA', 'MEGA', 'SUPER',
+    'REAL', 'OG', 'TURBO', 'CHAD', 'FAT', 'TINY',
+  ]
+  STRIP_PREFIXES.forEach((prefix) => {
+    if (s.startsWith(prefix) && s.length > prefix.length + 2) {
+      candidates.add(s.slice(prefix.length))
+    }
+  })
 
-  // Remove the symbol itself
   candidates.delete(s)
-
   return Array.from(candidates)
 }
 
-// ─── Format parent alpha ─────────────────────────────────────────
+// ─── Format parent ───────────────────────────────────────────────
 const formatParent = (pair) => ({
   id: pair.pairAddress || pair.baseToken?.address,
   symbol: pair.baseToken?.symbol || '???',
@@ -70,24 +90,37 @@ const useParentAlpha = (alpha) => {
   const [loading, setLoading] = useState(false)
 
   const findParent = useCallback(async () => {
-    if (!alpha) { setParent(null); return }
+    if (!alpha || alpha.isSzn) { setParent(null); return }
 
     setLoading(true)
     setParent(null)
 
-    const candidates = extractRootCandidates(alpha.symbol)
-    if (candidates.length === 0) { setLoading(false); return }
+    // Only search with a few distinct prefix lengths to avoid hammering API
+    const symbol = alpha.symbol.toUpperCase()
+    const queries = new Set()
+
+    // Take prefix slices of 3, 4, 5 chars max — enough to find parent
+    for (let len = Math.min(symbol.length - 1, 6); len >= 3; len--) {
+      queries.add(symbol.slice(0, len))
+    }
+
+    // Also strip known suffixes for exact ticker match
+    const STRIP_SUFFIXES = ['KIN', 'KY', 'LY', 'ISH', 'INU', 'WIF', 'HAT', 'CAT', 'DOG']
+    STRIP_SUFFIXES.forEach((suffix) => {
+      if (symbol.endsWith(suffix) && symbol.length > suffix.length + 2) {
+        queries.add(symbol.slice(0, symbol.length - suffix.length))
+      }
+    })
 
     try {
-      // Search each candidate in parallel
       const searches = await Promise.allSettled(
-        candidates.slice(0, 6).map((candidate) =>
-          axios.get(`${DEXSCREENER_BASE}/latest/dex/search?q=${candidate}`)
+        Array.from(queries).slice(0, 5).map((q) =>
+          axios.get(`${DEXSCREENER_BASE}/latest/dex/search?q=${q}`)
         )
       )
 
       let bestMatch = null
-      let bestMcap = 0
+      let bestScore = 0
 
       searches.forEach((result) => {
         if (result.status !== 'fulfilled') return
@@ -96,19 +129,21 @@ const useParentAlpha = (alpha) => {
         pairs
           .filter((p) =>
             p.chainId === 'solana' &&
-            // Parent must have higher mcap than the derivative
             (p.marketCap || p.fdv || 0) > (alpha.marketCap || 0) &&
-            // Parent must have meaningful liquidity
             (p.liquidity?.usd || 0) > 10000 &&
-            // Must not be the same token
             p.baseToken?.address !== alpha.address &&
-            p.baseToken?.symbol?.toUpperCase() !== alpha.symbol.toUpperCase()
+            p.baseToken?.symbol?.toUpperCase() !== symbol
           )
           .forEach((p) => {
-            const mcap = p.marketCap || p.fdv || 0
-            // Pick the highest mcap match as the most likely parent
-            if (mcap > bestMcap) {
-              bestMcap = mcap
+            const candidateSymbol = p.baseToken?.symbol?.toUpperCase() || ''
+
+            // Score by similarity — higher = more likely parent
+            const sim = similarity(symbol, candidateSymbol)
+
+            // Must be at least 60% similar to be considered a parent
+            // This prevents totally unrelated high-mcap tokens from matching
+            if (sim >= 0.6 && sim > bestScore) {
+              bestScore = sim
               bestMatch = p
             }
           })
