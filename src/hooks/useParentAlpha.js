@@ -142,7 +142,7 @@ const useParentAlpha = (alpha) => {
 
             // Must be at least 60% similar to be considered a parent
             // This prevents totally unrelated high-mcap tokens from matching
-            if (sim >= 0.6 && sim > bestScore) {
+            if (sim >= 0.75 && sim > bestScore) {
               bestScore = sim
               bestMatch = p
             }
