@@ -1,109 +1,250 @@
-// ─── LORE MAP ───────────────────────────────────────────────────
-// Maps alpha token symbols to related search terms the detection
-// engine should query. Think of this as the "degen brain" —
-// the cultural knowledge of how narratives relate.
-//
-// Format: { SYMBOL: { terms: [...], concepts: [...] } }
-// terms   = exact search strings to query on DEXScreener
-// concepts = narrative tags used for PumpFun signal matching
+// ─── LORE MAP + TICKER MORPHOLOGY ENGINE ────────────────────────
+
+// ─── Morphology Pattern Generator ───────────────────────────────
+// Given an alpha ticker, generates 20-30 candidate beta tickers
+// based on patterns observed in degen memecoin culture.
+
+export const generateTickerVariants = (symbol) => {
+  const s = symbol.toUpperCase()
+  const l = symbol.toLowerCase()
+
+  const variants = new Set()
+
+  // ── Prefix patterns ──
+  const prefixes = ['BABY', 'MINI', 'MIKO', 'MICRO', 'GIGA', 'MEGA', 'SUPER',
+    'BASED', 'REAL', 'OG', 'THE', 'RETRO', 'TURBO', 'CHAD', 'DEGEN']
+  prefixes.forEach(p => variants.add(`${p}${s}`))
+
+  // ── Suffix patterns ──
+  const suffixes = ['INU', 'WIF', 'HAT', 'CAT', 'DOG', 'AI', 'GPT',
+    'DAO', 'FI', 'X', '2', '3', 'PLUS', 'PRO', 'MOON', 'PUMP']
+  suffixes.forEach(sfx => variants.add(`${s}${sfx}`))
+
+  // ── Compound patterns ──
+  variants.add(`${s}WIF`)
+  variants.add(`WIF${s}`)
+  variants.add(`${s}CAT`)
+  variants.add(`CAT${s}`)
+  variants.add(`${s}DOG`)
+  variants.add(`DOG${s}`)
+
+  // ── Opposite / mirror patterns ──
+  const opposites = {
+    BULL: ['BEAR'],
+    BEAR: ['BULL'],
+    MOON: ['DOOM', 'RUG'],
+    LONG: ['SHORT'],
+    UP: ['DOWN'],
+    PUMP: ['DUMP'],
+    RICH: ['POOR'],
+    CHAD: ['VIRGIN', 'BETA'],
+    DAY: ['NIGHT'],
+    SUN: ['MOON'],
+    HOT: ['COLD'],
+    FAST: ['SLOW'],
+    BIG: ['SMALL', 'TINY'],
+    GOOD: ['EVIL', 'BAD'],
+    LIGHT: ['DARK'],
+    TRUMP: ['BIDEN', 'KAMALA', 'BODEN'],
+    BIDEN: ['TRUMP'],
+    PEPE: ['WOJAK'],
+    WOJAK: ['PEPE'],
+  }
+  if (opposites[s]) opposites[s].forEach(o => variants.add(o))
+
+  // ── Companion / universe patterns ──
+  const companions = {
+    TRUMP: ['MELANIA', 'BARRON', 'IVANKA', 'MAGA', 'BARON'],
+    MELANIA: ['TRUMP', 'BARRON'],
+    BONNIE: ['CLYDE'],
+    CLYDE: ['BONNIE'],
+    TOM: ['JERRY'],
+    JERRY: ['TOM'],
+    BATMAN: ['ROBIN', 'JOKER', 'GOTHAM'],
+    JOKER: ['BATMAN', 'HARLEY'],
+    WIF: ['HAT', 'CATWIF', 'WIFCAT', 'BABYWIF'],
+    HAT: ['WIF', 'DOGHAT'],
+    BONK: ['BABYBONK', 'BONKWIF', 'MEGABONK'],
+    PEPE: ['RARE', 'FEELSGOOD', 'PEPEWIF', 'PEEPO'],
+    DOGE: ['SHIB', 'FLOKI', 'BABYDOGE', 'DOGECOIN'],
+    SHIB: ['DOGE', 'LEASH', 'BONE'],
+    SOL: ['BONK', 'WIF', 'POPCAT'],
+    AI: ['AGI', 'GPT', 'NEURAL', 'ROBOT', 'AGENT'],
+    ELON: ['MUSK', 'TESLA', 'SPACEX', 'MARS', 'X'],
+    MUSK: ['ELON', 'TESLA', 'DOGE'],
+    POPCAT: ['POPDOG', 'POPELON', 'POPWIF'],
+    MYRO: ['BABYMYRO', 'MYROCAT', 'MYROWIF'],
+  }
+  if (companions[s]) companions[s].forEach(c => variants.add(c))
+
+  // ── Size variants ──
+  variants.add(`BABY${s}`)
+  variants.add(`GIGA${s}`)
+  variants.add(`MINI${s}`)
+  variants.add(`MEGA${s}`)
+  variants.add(`FAT${s}`)
+  variants.add(`TINY${s}`)
+
+  // ── Remove the alpha itself ──
+  variants.delete(s)
+
+  return Array.from(variants)
+}
+
+// ─── LORE MAP ────────────────────────────────────────────────────
+// Manually curated narrative relationships.
+// terms   = exact search strings for DEXScreener
+// concepts = narrative tags for PumpFun + category matching
 
 const LORE_MAP = {
-  // ── Dog / Hat narrative ──────────────────────────────────────
+  // ── Dog / Hat narrative ──
   WIF: {
     terms: ['catwif', 'babywif', 'wifhat', 'hat', 'dogwif', 'wif'],
     concepts: ['dog', 'hat', 'wif', 'dogwifhat'],
+    category: 'dogs',
+    universe: 'dogwifhat',
   },
   BONK: {
     terms: ['babybonk', 'bonkwif', 'megabonk', 'bonk'],
     concepts: ['bonk', 'dog', 'solana'],
+    category: 'dogs',
+    universe: 'solana-dogs',
   },
   MYRO: {
     terms: ['babymyro', 'myrowif', 'myro'],
     concepts: ['myro', 'dog', 'solana'],
+    category: 'dogs',
+    universe: 'solana-dogs',
   },
 
-  // ── Cat narrative ────────────────────────────────────────────
+  // ── Cat narrative ──
   POPCAT: {
     terms: ['popdog', 'popelon', 'pop', 'cat'],
     concepts: ['cat', 'pop', 'meme'],
+    category: 'cats',
+    universe: 'pop-memes',
   },
   MEW: {
     terms: ['babymew', 'mewwif', 'mew', 'cat'],
     concepts: ['cat', 'mew', 'solana'],
-  },
-  NYAN: {
-    terms: ['nyancat', 'nyan', 'cat', 'rainbow'],
-    concepts: ['cat', 'nyan', 'rainbow'],
+    category: 'cats',
+    universe: 'solana-cats',
   },
 
-  // ── Political narrative ──────────────────────────────────────
+  // ── Political narrative ──
   TRUMP: {
-    terms: ['maga', 'america', 'usa', 'biden', 'melania', 'baron', 'ivanka'],
+    terms: ['maga', 'america', 'usa', 'biden', 'melania', 'barron', 'ivanka'],
     concepts: ['trump', 'maga', 'political', 'usa'],
+    category: 'political',
+    universe: 'trump-family',
   },
   BODEN: {
     terms: ['biden', 'joe', 'hunter', 'kamala', 'boden'],
     concepts: ['political', 'biden', 'usa'],
+    category: 'political',
+    universe: 'us-politics',
   },
-  MAGA: {
-    terms: ['trump', 'america', 'usa', 'republican', 'maga'],
-    concepts: ['maga', 'trump', 'political'],
+  MELANIA: {
+    terms: ['trump', 'barron', 'melania'],
+    concepts: ['trump', 'political', 'usa'],
+    category: 'political',
+    universe: 'trump-family',
   },
 
-  // ── AI / Tech narrative ──────────────────────────────────────
+  // ── AI / Tech narrative ──
   AI16Z: {
-    terms: ['ai', 'agent', 'eliza', 'degenai', 'vc'],
+    terms: ['ai', 'agent', 'eliza', 'degenai', 'vc', 'a16z'],
     concepts: ['ai', 'agent', 'tech'],
+    category: 'ai',
+    universe: 'ai-agents',
   },
   GOAT: {
     terms: ['goat', 'ai', 'terminal', 'truth'],
     concepts: ['ai', 'goat', 'terminal'],
+    category: 'ai',
+    universe: 'ai-terminal',
+  },
+  CLAUDE: {
+    terms: ['claude', 'anthropic', 'ai', 'llm', 'sonnet'],
+    concepts: ['ai', 'claude', 'anthropic'],
+    category: 'ai',
+    universe: 'ai-models',
+  },
+  GPT: {
+    terms: ['gpt', 'openai', 'chatgpt', 'ai', 'llm'],
+    concepts: ['ai', 'gpt', 'openai'],
+    category: 'ai',
+    universe: 'ai-models',
   },
 
-  // ── Frog narrative ──────────────────────────────────────────
+  // ── Frog narrative ──
   PEPE: {
-    terms: ['pepe', 'frog', 'rare', 'feels'],
+    terms: ['pepe', 'frog', 'rare', 'feels', 'pepewif', 'peepo'],
     concepts: ['pepe', 'frog', 'meme'],
+    category: 'frogs',
+    universe: 'pepe',
   },
 
-  // ── Elon / Space narrative ───────────────────────────────────
+  // ── Elon / Space narrative ──
   ELON: {
     terms: ['doge', 'spacex', 'mars', 'tesla', 'musk', 'x'],
     concepts: ['elon', 'space', 'doge'],
+    category: 'elon',
+    universe: 'elon-musk',
   },
   DOGE: {
-    terms: ['babydoge', 'dogecoin', 'doge', 'shib', 'elon'],
+    terms: ['babydoge', 'dogecoin', 'doge', 'shib', 'elon', 'floki'],
     concepts: ['doge', 'dog', 'elon'],
+    category: 'dogs',
+    universe: 'doge-ecosystem',
   },
 
-  // ── Peanut / Squirrel narrative ──────────────────────────────
+  // ── Peanut / Squirrel narrative ──
   PNUT: {
     terms: ['peanut', 'squirrel', 'nut', 'pnut'],
     concepts: ['peanut', 'squirrel', 'viral'],
+    category: 'animals',
+    universe: 'viral-animals',
   },
 
-  // ── Anime narrative ─────────────────────────────────────────
+  // ── Anime / Waifu narrative ──
   ANIME: {
-    terms: ['anime', 'waifu', 'nft', 'otaku'],
+    terms: ['anime', 'waifu', 'otaku', 'manga', 'kawaii'],
     concepts: ['anime', 'waifu', 'japan'],
+    category: 'anime',
+    universe: 'anime',
   },
 
-  // ── Solana ecosystem ────────────────────────────────────────
-  SOL: {
-    terms: ['solana', 'sol', 'phantom', 'saga'],
-    concepts: ['solana', 'layer1', 'ecosystem'],
+  // ── Vibecoding / Dev narrative ──
+  VIBE: {
+    terms: ['vibecode', 'vibecoding', 'cursor', 'devin', 'coder'],
+    concepts: ['vibe', 'coding', 'ai', 'dev'],
+    category: 'ai',
+    universe: 'vibecoding',
   },
 }
 
-// Generic fallback: if no lore entry exists, we derive search terms
-// from the symbol itself (prefix/suffix pattern matching)
+// ─── Narrative Categories ────────────────────────────────────────
+// Used for Vector 16 — meta narrative detection
+export const NARRATIVE_CATEGORIES = {
+  dogs:      { label: '🐕 Dogs',     keywords: ['dog', 'wif', 'bonk', 'shib', 'doge', 'inu', 'pup', 'mutt'] },
+  cats:      { label: '🐱 Cats',     keywords: ['cat', 'mew', 'nyan', 'kitty', 'meow', 'feline'] },
+  frogs:     { label: '🐸 Frogs',    keywords: ['pepe', 'frog', 'toad', 'rare', 'feels', 'kek'] },
+  political: { label: '🇺🇸 Political', keywords: ['trump', 'biden', 'maga', 'usa', 'vote', 'election', 'boden'] },
+  ai:        { label: '🤖 AI',       keywords: ['ai', 'gpt', 'neural', 'agent', 'llm', 'robot', 'claude', 'vibe'] },
+  animals:   { label: '🦎 Animals',  keywords: ['cat', 'dog', 'bird', 'fish', 'bear', 'bull', 'ape', 'monkey'] },
+  anime:     { label: '⛩️ Anime',    keywords: ['anime', 'waifu', 'manga', 'otaku', 'kawaii', 'ninja'] },
+  space:     { label: '🚀 Space',    keywords: ['moon', 'mars', 'space', 'rocket', 'elon', 'nasa', 'galaxy'] },
+  elon:      { label: '⚡ Elon',     keywords: ['elon', 'musk', 'tesla', 'spacex', 'doge', 'x'] },
+  defi:      { label: '💰 DeFi',     keywords: ['swap', 'yield', 'farm', 'stake', 'lp', 'dao', 'vault'] },
+}
+
+// ─── Exports ────────────────────────────────────────────────────
+
 export const getSearchTerms = (symbol) => {
   const upper = symbol.toUpperCase()
   const entry = LORE_MAP[upper]
-
   if (entry) return entry.terms
-
-  // Fallback: search for the symbol directly
   return [symbol.toLowerCase()]
 }
 
@@ -111,6 +252,16 @@ export const getConcepts = (symbol) => {
   const upper = symbol.toUpperCase()
   const entry = LORE_MAP[upper]
   return entry?.concepts || [symbol.toLowerCase()]
+}
+
+export const getCategory = (symbol) => {
+  const upper = symbol.toUpperCase()
+  return LORE_MAP[upper]?.category || null
+}
+
+export const getUniverse = (symbol) => {
+  const upper = symbol.toUpperCase()
+  return LORE_MAP[upper]?.universe || null
 }
 
 export default LORE_MAP

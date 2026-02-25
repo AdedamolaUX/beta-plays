@@ -1,13 +1,12 @@
 import { useState, useEffect, useCallback } from 'react'
 import axios from 'axios'
-import { getSearchTerms, getConcepts } from '../data/lore_map'
+import { getSearchTerms, getConcepts, generateTickerVariants } from '../data/lore_map'
 
 const DEXSCREENER_BASE = 'https://api.dexscreener.com'
 const PUMPFUN_BASE = 'https://frontend-api.pump.fun'
 const MIN_LIQUIDITY = 5000
 
 // ─── Heat Score ──────────────────────────────────────────────────
-// MCAP / age in hours. High heat on a young token = coordinated money.
 const getHeatScore = (beta) => {
   const ageMs = beta.pairCreatedAt ? Date.now() - beta.pairCreatedAt : null
   if (!ageMs || ageMs <= 0) return 0
@@ -16,9 +15,7 @@ const getHeatScore = (beta) => {
 }
 
 // ─── OG / RIVAL / SPIN classifier ───────────────────────────────
-// Groups tokens by symbol, then classifies each relative to the group
 const classifyTokens = (betas) => {
-  // Group by uppercase symbol
   const groups = {}
   betas.forEach((b) => {
     const sym = b.symbol.toUpperCase()
@@ -30,12 +27,10 @@ const classifyTokens = (betas) => {
 
   Object.values(groups).forEach((group) => {
     if (group.length === 1) {
-      // Only one token with this symbol — no classification needed
       classified.push({ ...group[0], tokenClass: null })
       return
     }
 
-    // Sort by age — oldest first (lowest pairCreatedAt = oldest)
     const sorted = [...group].sort((a, b) => {
       const aAge = a.pairCreatedAt || Infinity
       const bAge = b.pairCreatedAt || Infinity
@@ -51,16 +46,10 @@ const classifyTokens = (betas) => {
         classified.push({ ...token, tokenClass: 'OG' })
         return
       }
-
-      // RIVAL: newer but mcap >= 80% of OG or volume > OG volume
       const isRival =
         (token.marketCap || 0) >= ogMcap * 0.8 ||
         (token.volume24h || 0) > ogVolume
-
-      classified.push({
-        ...token,
-        tokenClass: isRival ? 'RIVAL' : 'SPIN',
-      })
+      classified.push({ ...token, tokenClass: isRival ? 'RIVAL' : 'SPIN' })
     })
   })
 
@@ -69,13 +58,13 @@ const classifyTokens = (betas) => {
 
 // ─── Signal scoring ──────────────────────────────────────────────
 const getSignal = (beta) => {
-  if (
-    beta.signalSources?.includes('pumpfun') &&
-    beta.signalSources?.includes('keyword')
-  ) return { label: 'CABAL', tier: 4 }
-  if (beta.signalSources?.includes('pumpfun')) return { label: 'TRENDING', tier: 3 }
-  if (beta.signalSources?.includes('keyword')) return { label: 'STRONG', tier: 2 }
-  if (beta.signalSources?.includes('lore')) return { label: 'LORE', tier: 1 }
+  const sources = beta.signalSources || []
+  if (sources.includes('pumpfun') && sources.includes('keyword')) return { label: 'CABAL', tier: 4 }
+  if (sources.includes('morphology') && sources.includes('keyword')) return { label: 'CABAL', tier: 4 }
+  if (sources.includes('pumpfun')) return { label: 'TRENDING', tier: 3 }
+  if (sources.includes('morphology')) return { label: 'STRONG', tier: 2 }
+  if (sources.includes('keyword')) return { label: 'STRONG', tier: 2 }
+  if (sources.includes('lore')) return { label: 'LORE', tier: 1 }
   return { label: 'WEAK', tier: 0 }
 }
 
@@ -121,14 +110,13 @@ const fetchKeywordBetas = async (alphaSymbol) => {
       const res = await axios.get(`${DEXSCREENER_BASE}/latest/dex/search?q=${term}`)
       const pairs = res.data?.pairs || []
       pairs
-        .filter(
-          (p) =>
-            p.chainId === 'solana' &&
-            (p.liquidity?.usd || 0) >= MIN_LIQUIDITY &&
-            p.baseToken?.symbol !== 'SOL' &&
-            p.baseToken?.symbol !== 'USDC'
+        .filter(p =>
+          p.chainId === 'solana' &&
+          (p.liquidity?.usd || 0) >= MIN_LIQUIDITY &&
+          p.baseToken?.symbol !== 'SOL' &&
+          p.baseToken?.symbol !== 'USDC'
         )
-        .forEach((p) => results.push({ pair: p, sources: ['keyword'] }))
+        .forEach(p => results.push({ pair: p, sources: ['keyword'] }))
     } catch (err) {
       console.warn(`Keyword search failed for "${term}":`, err.message)
     }
@@ -145,14 +133,13 @@ const fetchLoreBetas = async (alphaSymbol) => {
       const res = await axios.get(`${DEXSCREENER_BASE}/latest/dex/search?q=${concept}`)
       const pairs = res.data?.pairs || []
       pairs
-        .filter(
-          (p) =>
-            p.chainId === 'solana' &&
-            (p.liquidity?.usd || 0) >= MIN_LIQUIDITY &&
-            p.baseToken?.symbol !== 'SOL' &&
-            p.baseToken?.symbol !== 'USDC'
+        .filter(p =>
+          p.chainId === 'solana' &&
+          (p.liquidity?.usd || 0) >= MIN_LIQUIDITY &&
+          p.baseToken?.symbol !== 'SOL' &&
+          p.baseToken?.symbol !== 'USDC'
         )
-        .forEach((p) => results.push({ pair: p, sources: ['lore'] }))
+        .forEach(p => results.push({ pair: p, sources: ['lore'] }))
     } catch (err) {
       console.warn(`Lore search failed for "${concept}":`, err.message)
     }
@@ -160,7 +147,45 @@ const fetchLoreBetas = async (alphaSymbol) => {
   return results
 }
 
-// ─── Signal 3: PumpFun trending ──────────────────────────────────
+// ─── Signal 3: Ticker morphology engine (Vector 9) ───────────────
+const fetchMorphologyBetas = async (alphaSymbol) => {
+  const variants = generateTickerVariants(alphaSymbol)
+  const results = []
+
+  // Batch into groups of 5 to avoid hammering the API
+  const batches = []
+  for (let i = 0; i < Math.min(variants.length, 25); i += 5) {
+    batches.push(variants.slice(i, i + 5))
+  }
+
+  for (const batch of batches) {
+    await Promise.allSettled(
+      batch.map(async (variant) => {
+        try {
+          const res = await axios.get(
+            `${DEXSCREENER_BASE}/latest/dex/search?q=${variant}`
+          )
+          const pairs = res.data?.pairs || []
+          pairs
+            .filter(p =>
+              p.chainId === 'solana' &&
+              (p.liquidity?.usd || 0) >= MIN_LIQUIDITY &&
+              p.baseToken?.symbol?.toUpperCase() === variant.toUpperCase() &&
+              p.baseToken?.symbol !== 'SOL' &&
+              p.baseToken?.symbol !== 'USDC'
+            )
+            .forEach(p => results.push({ pair: p, sources: ['morphology'] }))
+        } catch (err) {
+          // Silent fail per variant — morphology is best-effort
+        }
+      })
+    )
+  }
+
+  return results
+}
+
+// ─── Signal 4: PumpFun trending ──────────────────────────────────
 const fetchPumpFunBetas = async (alphaSymbol) => {
   const concepts = getConcepts(alphaSymbol)
   const results = []
@@ -175,9 +200,7 @@ const fetchPumpFunBetas = async (alphaSymbol) => {
         const nameL = (coin.name || '').toLowerCase()
         const symL = (coin.symbol || '').toLowerCase()
         const descL = (coin.description || '').toLowerCase()
-        return concepts.some(
-          (c) => nameL.includes(c) || symL.includes(c) || descL.includes(c)
-        )
+        return concepts.some(c => nameL.includes(c) || symL.includes(c) || descL.includes(c))
       })
       .slice(0, 10)
       .forEach((coin) => {
@@ -213,7 +236,6 @@ const mergeAndScore = (rawResults, alphaSymbol) => {
     const key = pair.baseToken?.address || pair.pairAddress
     const sym = (pair.baseToken?.symbol || '').toUpperCase()
     if (!key) return
-    // Strip the alpha itself
     if (sym === alphaSymbol.toUpperCase()) return
 
     if (seen.has(key)) {
@@ -225,16 +247,11 @@ const mergeAndScore = (rawResults, alphaSymbol) => {
   })
 
   const deduped = Array.from(seen.values()).filter(
-    (b) =>
-      b.symbol !== 'SOL' &&
-      b.symbol !== 'USDC' &&
-      b.symbol !== 'USDT'
+    b => b.symbol !== 'SOL' && b.symbol !== 'USDC' && b.symbol !== 'USDT'
   )
 
-  // Classify OG / RIVAL / SPIN within same-name groups
   const classified = classifyTokens(deduped)
 
-  // Sort: 24h % gain descending
   return classified
     .sort((a, b) => {
       const changeA = parseFloat(a.priceChange24h) || 0
@@ -257,15 +274,18 @@ const useBetas = (alpha) => {
     setBetas([])
 
     try {
-      const [keywordResults, loreResults, pumpResults] = await Promise.allSettled([
-        fetchKeywordBetas(alpha.symbol),
-        fetchLoreBetas(alpha.symbol),
-        fetchPumpFunBetas(alpha.symbol),
-      ])
+      const [keywordResults, loreResults, morphResults, pumpResults] =
+        await Promise.allSettled([
+          fetchKeywordBetas(alpha.symbol),
+          fetchLoreBetas(alpha.symbol),
+          fetchMorphologyBetas(alpha.symbol),
+          fetchPumpFunBetas(alpha.symbol),
+        ])
 
       const allResults = [
         ...(keywordResults.status === 'fulfilled' ? keywordResults.value : []),
         ...(loreResults.status === 'fulfilled' ? loreResults.value : []),
+        ...(morphResults.status === 'fulfilled' ? morphResults.value : []),
         ...(pumpResults.status === 'fulfilled' ? pumpResults.value : []),
       ]
 
