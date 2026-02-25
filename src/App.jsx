@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import useAlphas from './hooks/useAlphas'
+import useBetas, { getSignal } from './hooks/useBetas'
 import './index.css'
 
 const formatNum = (num) => {
@@ -141,47 +142,134 @@ const AlphaBoard = ({ selectedAlpha, onSelect }) => {
   )
 }
 
-const BetaPanel = ({ alpha }) => (
-  <section className="beta-panel">
-    <div className="beta-panel-header">
-      <div className="beta-panel-title-group">
-        <h1 className="beta-panel-title">
-          {alpha ? `Beta Plays for $${alpha.symbol}` : 'Select a Runner'}
-        </h1>
-        <p className="beta-panel-subtitle">
-          {alpha
-            ? <span>Surfacing derivative tokens for <span style={{ color: 'var(--neon-green)' }}>${alpha.symbol}</span></span>
-            : 'Pick a runner from the left panel to surface its beta plays'}
-        </p>
-      </div>
-      {alpha && <button className="btn btn-secondary btn-sm">Sort ↕</button>}
-    </div>
+const SignalBadge = ({ beta }) => {
+  const signal = getSignal(beta)
+  const classMap = {
+    CABAL: 'badge-cabal',
+    TRENDING: 'badge-strong',
+    STRONG: 'badge-strong',
+    LORE: 'badge-weak',
+    WEAK: 'badge-weak',
+  }
+  return (
+    <span className={`badge ${classMap[signal.label] || 'badge-weak'}`}>
+      {signal.label === 'CABAL' && '🕵️ '}
+      {signal.label === 'TRENDING' && '🔥 '}
+      {signal.label}
+    </span>
+  )
+}
 
-    {!alpha ? (
-      <div className="empty-state">
-        <div className="empty-state-icon">👈</div>
-        <div className="empty-state-title">No runner selected</div>
-        <div className="empty-state-sub">Select a runner from the left panel to surface its beta plays.</div>
-      </div>
-    ) : (
-      <div className="beta-table">
-        <div className="beta-table-header">
-          <span>Token</span>
-          <span>MCAP</span>
-          <span>24h Vol</span>
-          <span>24h %</span>
-          <span>Age</span>
-          <span>Signal</span>
+const BetaRow = ({ beta, isPinned }) => {
+  const change = parseFloat(beta.priceChange24h) || 0
+  const isPositive = change >= 0
+
+  const handleClick = () => {
+    if (beta.dexUrl) window.open(beta.dexUrl, '_blank')
+  }
+
+  return (
+    <div className={`beta-row ${isPinned ? 'pinned' : ''}`} onClick={handleClick}>
+      <div className="token-info">
+        <div className="token-icon" style={{ width: 28, height: 28, fontSize: 9 }}>
+          {beta.logoUrl ? <img src={beta.logoUrl} alt={beta.symbol} /> : beta.symbol.slice(0, 3)}
         </div>
-        <div className="empty-state" style={{ marginTop: 24 }}>
-          <div className="empty-state-icon">🔍</div>
-          <div className="empty-state-title">Scanning for beta plays...</div>
-          <div className="empty-state-sub">Mapping derivative tokens for ${alpha.symbol}. Detection engine coming next.</div>
+        <div>
+          <div style={{ fontFamily: 'var(--font-display)', fontWeight: 700, fontSize: 13, color: 'var(--text-primary)' }}>
+            ${beta.symbol}
+            {isPinned && <span className="badge badge-verified" style={{ marginLeft: 6 }}>DEV VERIFIED</span>}
+          </div>
+          <div className="token-address">{shortAddress(beta.address)}</div>
         </div>
       </div>
-    )}
-  </section>
-)
+      <span className="mono" style={{ fontSize: 12, color: 'var(--text-primary)' }}>{formatNum(beta.marketCap)}</span>
+      <span className="mono" style={{ fontSize: 12, color: 'var(--text-secondary)' }}>{formatNum(beta.volume24h)}</span>
+      <span className={`mono token-change ${isPositive ? 'positive' : 'negative'}`} style={{ fontSize: 12 }}>
+        {isPositive ? '+' : ''}{change.toFixed(1)}%
+      </span>
+      <span className="mono" style={{ fontSize: 11, color: 'var(--text-muted)' }}>{beta.ageLabel}</span>
+      <SignalBadge beta={beta} />
+    </div>
+  )
+}
+
+const BetaPanel = ({ alpha, onListBeta }) => {
+  const { betas, loading, error, refresh } = useBetas(alpha)
+
+  return (
+    <section className="beta-panel">
+      <div className="beta-panel-header">
+        <div className="beta-panel-title-group">
+          <h1 className="beta-panel-title">
+            {alpha ? `Beta Plays for $${alpha.symbol}` : 'Select a Runner'}
+          </h1>
+          <p className="beta-panel-subtitle">
+            {alpha
+              ? <span>Surfacing derivative tokens for <span style={{ color: 'var(--neon-green)' }}>${alpha.symbol}</span> — sorted by 24h gain</span>
+              : 'Pick a runner from the left panel to surface its beta plays'}
+          </p>
+        </div>
+        {alpha && (
+          <div style={{ display: 'flex', gap: 8 }}>
+            <button className="btn btn-ghost btn-sm" onClick={refresh}>↺ Rescan</button>
+            <button className="btn btn-amber btn-sm" onClick={onListBeta}>⚡ List Beta</button>
+          </div>
+        )}
+      </div>
+
+      {!alpha ? (
+        <div className="empty-state">
+          <div className="empty-state-icon">👈</div>
+          <div className="empty-state-title">No runner selected</div>
+          <div className="empty-state-sub">Select a runner from the left panel to surface its beta plays.</div>
+        </div>
+      ) : (
+        <>
+          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 12 }}>
+            <span className="badge badge-cabal">🕵️ CABAL</span>
+            <span className="mono text-muted" style={{ fontSize: 10, alignSelf: 'center' }}>= multi-signal overlap</span>
+            <span className="badge badge-strong" style={{ marginLeft: 8 }}>🔥 TRENDING</span>
+            <span className="mono text-muted" style={{ fontSize: 10, alignSelf: 'center' }}>= PumpFun + keyword</span>
+            <span className="badge badge-weak" style={{ marginLeft: 8 }}>LORE</span>
+            <span className="mono text-muted" style={{ fontSize: 10, alignSelf: 'center' }}>= narrative match</span>
+          </div>
+
+          <div className="beta-table">
+            <div className="beta-table-header">
+              <span>Token</span>
+              <span>MCAP</span>
+              <span>24h Vol</span>
+              <span>24h %</span>
+              <span>Age</span>
+              <span>Signal</span>
+            </div>
+
+            {loading && (
+              <>
+                <div className="skeleton loading-row" />
+                <div className="skeleton loading-row" />
+                <div className="skeleton loading-row" />
+                <div className="skeleton loading-row" />
+              </>
+            )}
+
+            {!loading && error && betas.length === 0 && (
+              <div className="empty-state" style={{ marginTop: 24 }}>
+                <div className="empty-state-icon">📭</div>
+                <div className="empty-state-title">{error}</div>
+                <div className="empty-state-sub">Try a different runner or check back when the narrative heats up.</div>
+              </div>
+            )}
+
+            {!loading && betas.map((beta, i) => (
+              <BetaRow key={beta.id || i} beta={beta} isPinned={false} />
+            ))}
+          </div>
+        </>
+      )}
+    </section>
+  )
+}
 
 export default function App() {
   const [selectedAlpha, setSelectedAlpha] = useState(null)
@@ -192,7 +280,7 @@ export default function App() {
       <Navbar onListBeta={() => setShowListModal(true)} />
       <div className="main-layout">
         <AlphaBoard selectedAlpha={selectedAlpha} onSelect={setSelectedAlpha} />
-        <BetaPanel alpha={selectedAlpha} />
+        <BetaPanel alpha={selectedAlpha} onListBeta={() => setShowListModal(true)} />
       </div>
       {showListModal && (
         <div className="modal-overlay" onClick={() => setShowListModal(false)}>
