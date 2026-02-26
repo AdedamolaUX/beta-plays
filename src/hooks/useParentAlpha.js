@@ -83,6 +83,9 @@ const STRIP_SUFFIXES = [
 const STRIP_PREFIXES = [
   'BABY', 'MINI', 'MICRO', 'GIGA', 'MEGA', 'SUPER',
   'REAL', 'OG', 'TURBO', 'CHAD', 'FAT', 'TINY',
+  'MEAN', 'DARK', 'EVIL', 'BASED', 'LITTLE', 'BIG',
+  'GOOD', 'BAD', 'MAD', 'SAD', 'GLAD', 'WILD',
+  'HOLY', 'DEGEN', 'ALPHA', 'BASED', 'PURE',
 ]
 
 export const extractRootCandidates = (symbol) => {

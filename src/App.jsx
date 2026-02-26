@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useMemo } from 'react'
 import useAlphas from './hooks/useAlphas'
 import useBetas, { getSignal, getWavePhase, getMcapRatio } from './hooks/useBetas'
 import useParentAlpha from './hooks/useParentAlpha'
@@ -31,6 +31,7 @@ const shortAddress = (addr) =>
 const KNOWN_PREFIXES = [
   'BABY', 'MINI', 'MICRO', 'GIGA', 'MEGA', 'SUPER', 'BASED',
   'REAL', 'TURBO', 'CHAD', 'FAT', 'TINY', 'LITTLE', 'BIG',
+  'MEAN', 'EVIL', 'DARK', 'WILD', 'MAD', 'DEGEN',
 ]
 const KNOWN_SUFFIXES = [
   'KIN', 'INU', 'WIF', 'HAT', 'CAT', 'DOG', 'AI',
@@ -38,8 +39,8 @@ const KNOWN_SUFFIXES = [
 ]
 const isDerivative = (symbol) => {
   const s = symbol.toUpperCase()
-  const hasPrefix = KNOWN_PREFIXES.some((p)   => s.startsWith(p)  && s.length > p.length   + 1)
-  const hasSuffix = KNOWN_SUFFIXES.some((sfx) => s.endsWith(sfx)  && s.length > sfx.length + 1)
+  const hasPrefix = KNOWN_PREFIXES.some((p)   => s.startsWith(p) && s.length > p.length   + 1)
+  const hasSuffix = KNOWN_SUFFIXES.some((sfx) => s.endsWith(sfx) && s.length > sfx.length + 1)
   return hasPrefix || hasSuffix
 }
 
@@ -54,6 +55,17 @@ const isParentCooling = (parentAddress) => {
   } catch {
     return false
   }
+}
+
+// ─── Search filter ───────────────────────────────────────────────
+const matchesSearch = (alpha, query) => {
+  if (!query) return true
+  const q = query.toLowerCase()
+  return (
+    (alpha.symbol || '').toLowerCase().includes(q) ||
+    (alpha.name   || '').toLowerCase().includes(q) ||
+    (alpha.address|| '').toLowerCase().includes(q)
+  )
 }
 
 // ─── Navbar ─────────────────────────────────────────────────────
@@ -195,13 +207,31 @@ const AlphaCard = ({ alpha, isSelected, onClick }) => {
 // ─── Alpha Board ─────────────────────────────────────────────────
 
 const AlphaBoard = ({ selectedAlpha, onSelect }) => {
-  const [activeTab, setActiveTab] = useState('live')
+  const [activeTab,    setActiveTab]    = useState('live')
+  const [searchQuery,  setSearchQuery]  = useState('')
   const { liveAlphas, coolingAlphas, legends, loading, error, lastUpdated, refresh } = useAlphas()
   const sznCards = useNarrativeSzn(liveAlphas)
 
-  const displayList =
+  const rawList =
     activeTab === 'live'    ? liveAlphas    :
     activeTab === 'cooling' ? coolingAlphas : legends
+
+  // Apply search filter across all tabs
+  const displayList = useMemo(() =>
+    searchQuery ? rawList.filter(a => matchesSearch(a, searchQuery)) : rawList,
+    [rawList, searchQuery]
+  )
+
+  // Also filter szn cards
+  const filteredSzn = useMemo(() =>
+    searchQuery
+      ? sznCards.filter(s =>
+          s.label.toLowerCase().includes(searchQuery.toLowerCase()) ||
+          s.tokens.some(t => matchesSearch(t, searchQuery))
+        )
+      : sznCards,
+    [sznCards, searchQuery]
+  )
 
   const isEmpty = !loading && displayList.length === 0
 
@@ -217,6 +247,38 @@ const AlphaBoard = ({ selectedAlpha, onSelect }) => {
         <span className="alpha-board-title">🎯 Runners</span>
       </div>
 
+      {/* Search box */}
+      <div style={{ flexShrink: 0, marginBottom: 6 }}>
+        <div style={{
+          display: 'flex', alignItems: 'center', gap: 6,
+          background: 'var(--surface-2)', border: '1px solid var(--border)',
+          borderRadius: 'var(--radius-md)', padding: '5px 10px',
+          transition: 'border-color 0.15s',
+        }}>
+          <span style={{ fontSize: 11, color: 'var(--text-muted)' }}>🔍</span>
+          <input
+            type="text"
+            placeholder="Search runners..."
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            style={{
+              background: 'transparent', border: 'none', outline: 'none',
+              fontFamily: 'var(--font-mono)', fontSize: 11,
+              color: 'var(--text-primary)', width: '100%',
+            }}
+          />
+          {searchQuery && (
+            <button
+              onClick={() => setSearchQuery('')}
+              style={{
+                background: 'none', border: 'none', cursor: 'pointer',
+                color: 'var(--text-muted)', fontSize: 12, padding: 0, lineHeight: 1,
+              }}
+            >✕</button>
+          )}
+        </div>
+      </div>
+
       {/* Three tabs */}
       <div style={{
         display: 'flex', gap: 3,
@@ -228,7 +290,7 @@ const AlphaBoard = ({ selectedAlpha, onSelect }) => {
           <button
             key={key}
             className={`tab-btn ${activeTab === key ? 'active' : ''}`}
-            onClick={() => setActiveTab(key)}
+            onClick={() => { setActiveTab(key); setSearchQuery('') }}
             style={{ flex: 1, fontSize: 9, padding: '5px 6px' }}
           >
             {label}
@@ -243,25 +305,36 @@ const AlphaBoard = ({ selectedAlpha, onSelect }) => {
       </div>
 
       {/* Tab descriptions */}
-      <div style={{ flexShrink: 0, paddingBottom: 4 }}>
-        {activeTab === 'live' && (
-          <p style={{ fontFamily: 'var(--font-mono)', fontSize: 9, color: 'var(--text-muted)', lineHeight: 1.5 }}>
-            Tokens with positive price action right now.
-          </p>
-        )}
-        {activeTab === 'cooling' && (
-          <p style={{ fontFamily: 'var(--font-mono)', fontSize: 9, color: 'var(--cyan)', lineHeight: 1.5 }}>
-            Tokens down in the last 24h — retracing or consolidating. Watch for second leg entry.
-          </p>
-        )}
-        {activeTab === 'legends' && (
-          <p style={{ fontFamily: 'var(--font-mono)', fontSize: 9, color: 'var(--amber)', lineHeight: 1.5 }}>
-            Established narrative anchors. Still spawn betas when they move.
-          </p>
-        )}
-      </div>
+      {!searchQuery && (
+        <div style={{ flexShrink: 0, paddingBottom: 4 }}>
+          {activeTab === 'live' && (
+            <p style={{ fontFamily: 'var(--font-mono)', fontSize: 9, color: 'var(--text-muted)', lineHeight: 1.5 }}>
+              Tokens with positive price action right now.
+            </p>
+          )}
+          {activeTab === 'cooling' && (
+            <p style={{ fontFamily: 'var(--font-mono)', fontSize: 9, color: 'var(--cyan)', lineHeight: 1.5 }}>
+              Tokens down in the last 24h — retracing or consolidating. Watch for second leg entry.
+            </p>
+          )}
+          {activeTab === 'legends' && (
+            <p style={{ fontFamily: 'var(--font-mono)', fontSize: 9, color: 'var(--amber)', lineHeight: 1.5 }}>
+              Established narrative anchors. Still spawn betas when they move.
+            </p>
+          )}
+        </div>
+      )}
 
-      {lastUpdated && activeTab === 'live' && (
+      {/* Search result count */}
+      {searchQuery && (
+        <div style={{ flexShrink: 0, paddingBottom: 4 }}>
+          <p style={{ fontFamily: 'var(--font-mono)', fontSize: 9, color: 'var(--text-muted)', lineHeight: 1.5 }}>
+            {displayList.length} result{displayList.length !== 1 ? 's' : ''} for "{searchQuery}"
+          </p>
+        </div>
+      )}
+
+      {lastUpdated && activeTab === 'live' && !searchQuery && (
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexShrink: 0 }}>
           <span className="mono text-muted" style={{ fontSize: 9 }}>
             Updated {lastUpdated.toLocaleTimeString()}
@@ -281,7 +354,7 @@ const AlphaBoard = ({ selectedAlpha, onSelect }) => {
       )}
 
       <div className="alpha-list">
-        {loading && activeTab === 'live' && (
+        {loading && activeTab === 'live' && !searchQuery && (
           <>
             <div className="skeleton loading-row" />
             <div className="skeleton loading-row" />
@@ -290,7 +363,7 @@ const AlphaBoard = ({ selectedAlpha, onSelect }) => {
         )}
 
         {/* Empty states */}
-        {!loading && isEmpty && activeTab === 'live' && (
+        {!loading && isEmpty && !searchQuery && activeTab === 'live' && (
           <div className="empty-state">
             <div className="empty-state-icon">📡</div>
             <div className="empty-state-title">No runners right now.</div>
@@ -301,7 +374,7 @@ const AlphaBoard = ({ selectedAlpha, onSelect }) => {
           </div>
         )}
 
-        {!loading && isEmpty && activeTab === 'cooling' && (
+        {!loading && isEmpty && !searchQuery && activeTab === 'cooling' && (
           <div className="empty-state">
             <div className="empty-state-icon">❄️</div>
             <div className="empty-state-title">No retracing tokens right now.</div>
@@ -314,15 +387,26 @@ const AlphaBoard = ({ selectedAlpha, onSelect }) => {
           </div>
         )}
 
-        {/* Szn cards — live tab only */}
-        {!loading && activeTab === 'live' && sznCards.length > 0 && (
+        {!loading && isEmpty && searchQuery && (
+          <div className="empty-state">
+            <div className="empty-state-icon">🔍</div>
+            <div className="empty-state-title">No results for "{searchQuery}"</div>
+            <div className="empty-state-sub">Try a different symbol or name.</div>
+            <button className="btn btn-ghost btn-sm" onClick={() => setSearchQuery('')} style={{ marginTop: 12 }}>
+              Clear Search
+            </button>
+          </div>
+        )}
+
+        {/* Szn cards — live tab only, hidden when searching */}
+        {!loading && activeTab === 'live' && !searchQuery && filteredSzn.length > 0 && (
           <>
             <div style={{
               fontFamily: 'var(--font-mono)', fontSize: 9, fontWeight: 700,
               color: 'var(--text-muted)', textTransform: 'uppercase',
               letterSpacing: 1, padding: '4px 0 6px',
             }}>🌊 Active Narratives</div>
-            {sznCards.map((szn) => (
+            {filteredSzn.map((szn) => (
               <SznCard
                 key={szn.id}
                 szn={szn}
@@ -435,8 +519,8 @@ const BetaRow = ({ beta, alpha, isPinned, trenchOnly }) => {
             <span style={{ fontFamily: 'var(--font-display)', fontWeight: 700, fontSize: 13, color: 'var(--text-primary)' }}>
               ${beta.symbol}
             </span>
-            {isLPPair && <span className="badge badge-cabal"    style={{ fontSize: 7, padding: '1px 4px' }}>🔗 PAIRED</span>}
-            {isTrench  && <span className="badge badge-new"     style={{ fontSize: 7, padding: '1px 4px' }}>⛏️ TRENCH</span>}
+            {isLPPair && <span className="badge badge-cabal"     style={{ fontSize: 7, padding: '1px 4px' }}>🔗 PAIRED</span>}
+            {isTrench  && <span className="badge badge-new"      style={{ fontSize: 7, padding: '1px 4px' }}>⛏️ TRENCH</span>}
             {isPinned  && <span className="badge badge-verified" style={{ fontSize: 7, padding: '1px 4px' }}>DEV VERIFIED</span>}
           </div>
           <div style={{ display: 'flex', gap: 6, alignItems: 'center', marginTop: 1 }}>
@@ -536,8 +620,8 @@ const SznPanel = ({ szn, onListBeta }) => {
   }
   const sortMap = {
     change: (a, b) => (parseFloat(b.priceChange24h) || 0) - (parseFloat(a.priceChange24h) || 0),
-    volume: (a, b) => (b.volume24h || 0)              - (a.volume24h || 0),
-    mcap:   (a, b) => (b.marketCap || 0)              - (a.marketCap || 0),
+    volume: (a, b) => (b.volume24h || 0) - (a.volume24h || 0),
+    mcap:   (a, b) => (b.marketCap || 0) - (a.marketCap || 0),
   }
   const displayed = [...szn.tokens].filter(filterMap[mcapFilter]).sort(sortMap[sortBy])
 

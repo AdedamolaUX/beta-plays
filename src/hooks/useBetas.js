@@ -16,6 +16,8 @@ const DECOMP_SUFFIXES = [
 const DECOMP_PREFIXES = [
   'BABY', 'MINI', 'MICRO', 'GIGA', 'MEGA', 'SUPER',
   'REAL', 'TURBO', 'CHAD', 'FAT', 'TINY', 'DARK', 'ULTRA',
+  'MEAN', 'EVIL', 'BASED', 'LITTLE', 'BIG', 'GOOD',
+  'BAD', 'MAD', 'WILD', 'HOLY', 'DEGEN', 'PURE',
 ]
 
 const decomposeSymbol = (symbol) => {
