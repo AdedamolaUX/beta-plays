@@ -23,7 +23,7 @@ const saveParentAsCooling = (parent, derivative) => {
       lastSeen:     now,
       isCooling:    true,
       // Label surfaces the narrative context — not internal mechanism
-      coolingLabel: `Down ${Math.abs(change).toFixed(1)}% — watching for reversal`,
+      coolingLabel: 'Watching for reversal',
       // Tag so we know why it's here
       coolingReason: `Derivative $${derivative.symbol} running while parent consolidates`,
     }

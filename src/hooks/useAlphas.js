@@ -82,7 +82,7 @@ const loadHistoricalByPriceAction = (currentAddresses) => {
         historicalCooling.push({
           ...a,
           isCooling:    true,
-          coolingLabel: `Down ${Math.abs(change).toFixed(1)}% — watching for reversal`,
+          coolingLabel: 'Watching for reversal',
         })
       }
     })
@@ -249,7 +249,7 @@ const classifyByPriceAction = (alphas) => {
       cooling.push({
         ...alpha,
         isCooling:    true,
-        coolingLabel: `Down ${Math.abs(change).toFixed(1)}% — watching for reversal`,
+        coolingLabel: 'Watching for reversal',
       })
     }
   })
