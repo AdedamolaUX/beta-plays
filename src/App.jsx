@@ -44,6 +44,19 @@ const isDerivative = (symbol) => {
   return hasPrefix || hasSuffix
 }
 
+// ─── Check if parent is in Cooling (localStorage) ───────────────
+const isParentCooling = (parentAddress) => {
+  try {
+    const stored = JSON.parse(localStorage.getItem('betaplays_seen_alphas') || '{}')
+    const entry  = stored[parentAddress]
+    if (!entry) return false
+    const age = Date.now() - entry.lastSeen
+    return age > 0 && age <= 30 * 24 * 60 * 60 * 1000
+  } catch {
+    return false
+  }
+}
+
 // ─── Navbar ─────────────────────────────────────────────────────
 
 const Navbar = ({ onListBeta }) => (
@@ -68,13 +81,13 @@ const Navbar = ({ onListBeta }) => (
 
 const SznCard = ({ szn, isSelected, onClick }) => {
   const isPositive = szn.avgChange >= 0
-  const topThree = szn.tokens.slice(0, 3)
+  const topThree   = szn.tokens.slice(0, 3)
   return (
     <div
       className={`card szn-card ${isSelected ? 'active' : ''}`}
       onClick={onClick}
       style={{
-        background: isSelected ? 'rgba(0,212,255,0.08)' : 'rgba(0,212,255,0.03)',
+        background:  isSelected ? 'rgba(0,212,255,0.08)' : 'rgba(0,212,255,0.03)',
         borderColor: isSelected ? 'var(--cyan)' : 'rgba(0,212,255,0.2)',
       }}
     >
@@ -99,14 +112,18 @@ const SznCard = ({ szn, isSelected, onClick }) => {
           <div key={t.id} style={{
             flex: 1, background: 'rgba(255,255,255,0.04)',
             borderRadius: 6, padding: '4px 6px',
-            fontFamily: 'var(--font-mono)', fontSize: 9,
+            fontFamily: 'var(--font-mono)', fontSize: 9, overflow: 'hidden',
           }}>
-            <div style={{ color: 'var(--text-secondary)', fontWeight: 700 }}>${t.symbol}</div>
-<div style={{
-  color: (parseFloat(t.priceChange24h) || 0) >= 0 ? 'var(--neon-green)' : 'var(--red)',
-  fontSize: 8,
-}}>
-              {(parseFloat(t.priceChange24h) || 0) >= 0 ? '+' : ''}{(parseFloat(t.priceChange24h) || 0).toFixed(0)}%
+            <div style={{
+              color: 'var(--text-secondary)', fontWeight: 700,
+              whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis',
+            }}>${t.symbol}</div>
+            <div style={{
+              color: (parseFloat(t.priceChange24h) || 0) >= 0 ? 'var(--neon-green)' : 'var(--red)',
+              fontSize: 8, whiteSpace: 'nowrap',
+            }}>
+              {(parseFloat(t.priceChange24h) || 0) >= 0 ? '+' : ''}
+              {(parseFloat(t.priceChange24h) || 0).toFixed(0)}%
             </div>
           </div>
         ))}
@@ -118,7 +135,7 @@ const SznCard = ({ szn, isSelected, onClick }) => {
 // ─── Alpha Token Card ────────────────────────────────────────────
 
 const AlphaCard = ({ alpha, isSelected, onClick }) => {
-  const change = parseFloat(alpha.priceChange24h) || 0
+  const change     = parseFloat(alpha.priceChange24h) || 0
   const isPositive = change >= 0
   const derivative = isDerivative(alpha.symbol)
 
@@ -178,24 +195,19 @@ const AlphaCard = ({ alpha, isSelected, onClick }) => {
 
 const AlphaBoard = ({ selectedAlpha, onSelect }) => {
   const [activeTab, setActiveTab] = useState('live')
-  const {
-    liveAlphas, coolingAlphas, legends,
-    loading, error, lastUpdated, refresh,
-  } = useAlphas()
-
+  const { liveAlphas, coolingAlphas, legends, loading, error, lastUpdated, refresh } = useAlphas()
   const sznCards = useNarrativeSzn(liveAlphas)
 
   const displayList =
     activeTab === 'live'    ? liveAlphas    :
-    activeTab === 'cooling' ? coolingAlphas :
-    legends
+    activeTab === 'cooling' ? coolingAlphas : legends
 
   const isEmpty = !loading && displayList.length === 0
 
   const tabs = [
-    { key: 'live',    label: '🔥 Live',    count: liveAlphas.length },
+    { key: 'live',    label: '🔥 Live',    count: liveAlphas.length    },
     { key: 'cooling', label: '❄️ Cooling', count: coolingAlphas.length },
-    { key: 'legends', label: '🏆 Legends', count: legends.length },
+    { key: 'legends', label: '🏆 Legends', count: legends.length       },
   ]
 
   return (
@@ -204,7 +216,6 @@ const AlphaBoard = ({ selectedAlpha, onSelect }) => {
         <span className="alpha-board-title">🎯 Runners</span>
       </div>
 
-      {/* Three tabs */}
       <div style={{
         display: 'flex', gap: 3,
         background: 'var(--surface-2)', padding: 3,
@@ -223,15 +234,12 @@ const AlphaBoard = ({ selectedAlpha, onSelect }) => {
               <span style={{
                 marginLeft: 4, fontSize: 8,
                 color: activeTab === key ? 'var(--neon-green)' : 'var(--text-muted)',
-              }}>
-                {count}
-              </span>
+              }}>{count}</span>
             )}
           </button>
         ))}
       </div>
 
-      {/* Tab descriptions */}
       <div style={{ flexShrink: 0, paddingBottom: 4 }}>
         {activeTab === 'live' && (
           <p style={{ fontFamily: 'var(--font-mono)', fontSize: 9, color: 'var(--text-muted)', lineHeight: 1.5 }}>
@@ -279,7 +287,6 @@ const AlphaBoard = ({ selectedAlpha, onSelect }) => {
           </>
         )}
 
-        {/* Empty states */}
         {!loading && isEmpty && activeTab === 'live' && (
           <div className="empty-state">
             <div className="empty-state-icon">📡</div>
@@ -296,7 +303,7 @@ const AlphaBoard = ({ selectedAlpha, onSelect }) => {
             <div className="empty-state-icon">❄️</div>
             <div className="empty-state-title">No cooling runners yet.</div>
             <div className="empty-state-sub">
-              This tab fills automatically as live runners retrace. Check back after the market moves.
+              Fills automatically as live runners retrace. Check back after the market moves.
             </div>
             <button className="btn btn-ghost btn-sm" onClick={() => setActiveTab('legends')} style={{ marginTop: 12 }}>
               View Legends
@@ -304,7 +311,6 @@ const AlphaBoard = ({ selectedAlpha, onSelect }) => {
           </div>
         )}
 
-        {/* Szn cards — live tab only */}
         {!loading && activeTab === 'live' && sznCards.length > 0 && (
           <>
             <div style={{
@@ -347,8 +353,12 @@ const AlphaBoard = ({ selectedAlpha, onSelect }) => {
 const SignalBadge = ({ beta }) => {
   const signal = getSignal(beta)
   const classMap = {
-    CABAL: 'badge-cabal', TRENDING: 'badge-strong',
-    STRONG: 'badge-strong', LORE: 'badge-weak', WEAK: 'badge-weak',
+    CABAL:    'badge-cabal',
+    TRENDING: 'badge-strong',
+    STRONG:   'badge-strong',
+    LORE:     'badge-weak',
+    WEAK:     'badge-weak',
+    LP_PAIR:  'badge-cabal',
   }
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 3, alignItems: 'flex-end' }}>
@@ -361,7 +371,9 @@ const SignalBadge = ({ beta }) => {
         </span>
       )}
       <span className={`badge ${classMap[signal.label] || 'badge-weak'}`} style={{ fontSize: 8, padding: '2px 6px' }}>
-        {signal.label === 'CABAL' ? '🕵️ CABAL' : signal.label === 'TRENDING' ? '🔥 TRENDING' : signal.label}
+        {signal.label === 'CABAL'    ? '🕵️ CABAL'   :
+         signal.label === 'TRENDING' ? '🔥 TRENDING' :
+         signal.label === 'LP_PAIR'  ? '🔗 LP PAIR'  : signal.label}
       </span>
     </div>
   )
@@ -393,17 +405,19 @@ const McapRatioBadge = ({ ratio }) => {
 // ─── Beta Row ────────────────────────────────────────────────────
 
 const BetaRow = ({ beta, alpha, isPinned, trenchOnly }) => {
-  const change = parseFloat(beta.priceChange24h) || 0
+  const change     = parseFloat(beta.priceChange24h) || 0
   const isPositive = change >= 0
-  const wave = getWavePhase(alpha, beta)
-  const isTrench = (beta.marketCap || 0) < 100_000
+  const wave       = getWavePhase(alpha, beta)
+  const isTrench   = (beta.marketCap || 0) < 100_000
+  const isLPPair   = beta.signalSources?.includes('lp_pair')
 
   if (trenchOnly && !isTrench) return null
 
   return (
     <div
-      className={`beta-row ${isPinned ? 'pinned' : ''}`}
+      className={`beta-row ${isPinned ? 'pinned' : ''} ${isLPPair ? 'lp-pair' : ''}`}
       onClick={() => beta.dexUrl && window.open(beta.dexUrl, '_blank')}
+      style={isLPPair ? { borderColor: 'var(--cyan)', background: 'rgba(0,212,255,0.04)' } : {}}
     >
       <div className="token-info">
         <div className="token-icon" style={{ width: 28, height: 28, fontSize: 9 }}>
@@ -414,8 +428,9 @@ const BetaRow = ({ beta, alpha, isPinned, trenchOnly }) => {
             <span style={{ fontFamily: 'var(--font-display)', fontWeight: 700, fontSize: 13, color: 'var(--text-primary)' }}>
               ${beta.symbol}
             </span>
-            {isTrench && <span className="badge badge-new" style={{ fontSize: 7, padding: '1px 4px' }}>⛏️ TRENCH</span>}
-            {isPinned && <span className="badge badge-verified" style={{ fontSize: 7, padding: '1px 4px' }}>DEV VERIFIED</span>}
+            {isLPPair && <span className="badge badge-cabal" style={{ fontSize: 7, padding: '1px 4px' }}>🔗 PAIRED</span>}
+            {isTrench  && <span className="badge badge-new"  style={{ fontSize: 7, padding: '1px 4px' }}>⛏️ TRENCH</span>}
+            {isPinned  && <span className="badge badge-verified" style={{ fontSize: 7, padding: '1px 4px' }}>DEV VERIFIED</span>}
           </div>
           <div style={{ display: 'flex', gap: 6, alignItems: 'center', marginTop: 1 }}>
             <span className="token-address">{shortAddress(beta.address)}</span>
@@ -442,8 +457,10 @@ const BetaRow = ({ beta, alpha, isPinned, trenchOnly }) => {
 // ─── Parent Alpha Card ───────────────────────────────────────────
 
 const ParentAlphaCard = ({ parent }) => {
-  const change = parseFloat(parent.priceChange24h) || 0
-  const isPositive = change >= 0
+  const change      = parseFloat(parent.priceChange24h) || 0
+  const isPositive  = change >= 0
+  const isCooling   = isParentCooling(parent.address)
+
   return (
     <div
       onClick={() => parent.dexUrl && window.open(parent.dexUrl, '_blank')}
@@ -456,7 +473,15 @@ const ParentAlphaCard = ({ parent }) => {
       <div style={{
         fontFamily: 'var(--font-mono)', fontSize: 9, fontWeight: 700,
         color: 'var(--cyan)', letterSpacing: 1.5, textTransform: 'uppercase', marginBottom: 10,
-      }}>🧬 Parent Alpha — Root of this narrative</div>
+        display: 'flex', alignItems: 'center', gap: 8,
+      }}>
+        🧬 Parent Alpha — Root of this narrative
+        {isCooling && (
+          <span className="badge badge-weak" style={{ fontSize: 7, padding: '1px 6px' }}>
+            ❄️ COOLING — Second leg may be incoming
+          </span>
+        )}
+      </div>
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
         <div className="token-info">
           <div className="token-icon" style={{ width: 40, height: 40, border: '1px solid rgba(0,212,255,0.4)' }}>
@@ -493,7 +518,7 @@ const ParentAlphaCard = ({ parent }) => {
 // ─── Szn Panel ───────────────────────────────────────────────────
 
 const SznPanel = ({ szn, onListBeta }) => {
-  const [sortBy, setSortBy] = useState('change')
+  const [sortBy,     setSortBy]     = useState('change')
   const [mcapFilter, setMcapFilter] = useState('all')
 
   const filterMap = {
@@ -548,7 +573,7 @@ const SznPanel = ({ szn, onListBeta }) => {
           </div>
         )}
         {displayed.map((token, i) => {
-          const change = parseFloat(token.priceChange24h) || 0
+          const change     = parseFloat(token.priceChange24h) || 0
           const isPositive = change >= 0
           return (
             <div key={token.id || i} className="beta-row"
@@ -582,9 +607,9 @@ const SznPanel = ({ szn, onListBeta }) => {
 
 const BetaPanel = ({ alpha, onListBeta }) => {
   const { betas, loading: betasLoading, error, refresh } = useBetas(alpha)
-  const { parent, loading: parentLoading } = useParentAlpha(alpha)
-  const [trenchOnly, setTrenchOnly] = useState(false)
-  const [mcapFilter, setMcapFilter] = useState('all')
+  const { parent, loading: parentLoading }               = useParentAlpha(alpha)
+  const [trenchOnly, setTrenchOnly]   = useState(false)
+  const [mcapFilter, setMcapFilter]   = useState('all')
 
   const mcapFilterFn = {
     all:   () => true,
@@ -595,7 +620,7 @@ const BetaPanel = ({ alpha, onListBeta }) => {
   }
 
   const filteredBetas = betas.filter(mcapFilterFn[mcapFilter])
-  const trenchCount = betas.filter(b => (b.marketCap || 0) < 100_000).length
+  const trenchCount   = betas.filter(b => (b.marketCap || 0) < 100_000).length
 
   return (
     <section className="beta-panel">
@@ -629,7 +654,6 @@ const BetaPanel = ({ alpha, onListBeta }) => {
           {parentLoading && <div className="skeleton" style={{ height: 100, borderRadius: 10, marginBottom: 8 }} />}
           {!parentLoading && parent && <ParentAlphaCard parent={parent} />}
 
-          {/* Filters */}
           <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center', flexShrink: 0 }}>
             <div style={{ display: 'flex', gap: 4, background: 'var(--surface-2)', padding: 3, borderRadius: 8, border: '1px solid var(--border)' }}>
               {[['all','All'],['large','>$10M'],['mid','$1M-10M'],['small','$100K-1M'],['micro','<$100K']].map(([key, label]) => (
@@ -646,28 +670,27 @@ const BetaPanel = ({ alpha, onListBeta }) => {
             </button>
           </div>
 
-          {/* Legend */}
           <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center', flexShrink: 0 }}>
             <span className="badge badge-verified" style={{ fontSize: 8, padding: '2px 6px' }}>👑 OG</span>
             <span className="mono text-muted" style={{ fontSize: 10 }}> = original</span>
-            <span className="badge badge-cabal" style={{ fontSize: 8, padding: '2px 6px', marginLeft: 8 }}>⚔️ RIVAL</span>
+            <span className="badge badge-cabal"    style={{ fontSize: 8, padding: '2px 6px', marginLeft: 8 }}>⚔️ RIVAL</span>
             <span className="mono text-muted" style={{ fontSize: 10 }}> = challenging throne</span>
-            <span className="badge badge-weak" style={{ fontSize: 8, padding: '2px 6px', marginLeft: 8 }}>🌀 SPIN</span>
+            <span className="badge badge-weak"     style={{ fontSize: 8, padding: '2px 6px', marginLeft: 8 }}>🌀 SPIN</span>
             <span className="mono text-muted" style={{ fontSize: 10 }}> = riding narrative</span>
-            <span className="badge badge-cabal" style={{ fontSize: 8, padding: '2px 6px', marginLeft: 8 }}>🕵️ CABAL</span>
+            <span className="badge badge-cabal"    style={{ fontSize: 8, padding: '2px 6px', marginLeft: 8 }}>🕵️ CABAL</span>
             <span className="mono text-muted" style={{ fontSize: 10 }}> = multi-signal</span>
+            <span className="badge badge-cabal"    style={{ fontSize: 8, padding: '2px 6px', marginLeft: 8 }}>🔗 LP PAIR</span>
+            <span className="mono text-muted" style={{ fontSize: 10 }}> = direct pair</span>
           </div>
 
-          {/* Wave timing legend */}
           <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', alignItems: 'center', flexShrink: 0 }}>
             <span style={{ fontFamily: 'var(--font-mono)', fontSize: 9, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: 1 }}>Timing:</span>
-            <span style={{ fontFamily: 'var(--font-mono)', fontSize: 9, color: 'var(--neon-green)', fontWeight: 700 }}>🌊 WAVE &lt;6h</span>
-            <span style={{ fontFamily: 'var(--font-mono)', fontSize: 9, color: 'var(--amber)',      fontWeight: 700 }}>📈 2ND LEG 6-24h</span>
+            <span style={{ fontFamily: 'var(--font-mono)', fontSize: 9, color: 'var(--neon-green)',     fontWeight: 700 }}>🌊 WAVE &lt;6h</span>
+            <span style={{ fontFamily: 'var(--font-mono)', fontSize: 9, color: 'var(--amber)',          fontWeight: 700 }}>📈 2ND LEG 6-24h</span>
             <span style={{ fontFamily: 'var(--font-mono)', fontSize: 9, color: 'var(--text-secondary)', fontWeight: 700 }}>🕐 LATE 1-7d</span>
-            <span style={{ fontFamily: 'var(--font-mono)', fontSize: 9, color: 'var(--text-muted)',  fontWeight: 700 }}>🧊 COLD 7d+</span>
+            <span style={{ fontFamily: 'var(--font-mono)', fontSize: 9, color: 'var(--text-muted)',     fontWeight: 700 }}>🧊 COLD 7d+</span>
           </div>
 
-          {/* Beta table */}
           <div className="beta-table">
             <div className="beta-table-header">
               <span>Token</span><span>MCAP / Room</span><span>24h Vol</span><span>24h %</span><span>Age</span><span>Signal</span>
@@ -717,8 +740,8 @@ const BetaPanel = ({ alpha, onListBeta }) => {
 // ─── Main App ────────────────────────────────────────────────────
 
 export default function App() {
-  const [selectedAlpha, setSelectedAlpha] = useState(null)
-  const [showListModal, setShowListModal] = useState(false)
+  const [selectedAlpha,  setSelectedAlpha]  = useState(null)
+  const [showListModal,  setShowListModal]   = useState(false)
   const isSzn = selectedAlpha?.isSzn === true
 
   return (
@@ -727,7 +750,7 @@ export default function App() {
       <div className="main-layout">
         <AlphaBoard selectedAlpha={selectedAlpha} onSelect={setSelectedAlpha} />
         {isSzn
-          ? <SznPanel szn={selectedAlpha} onListBeta={() => setShowListModal(true)} />
+          ? <SznPanel  szn={selectedAlpha}   onListBeta={() => setShowListModal(true)} />
           : <BetaPanel alpha={selectedAlpha} onListBeta={() => setShowListModal(true)} />
         }
       </div>
