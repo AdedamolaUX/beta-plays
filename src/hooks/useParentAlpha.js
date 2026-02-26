@@ -4,34 +4,33 @@ import axios from 'axios'
 const DEXSCREENER_BASE = 'https://api.dexscreener.com'
 const STORAGE_KEY      = 'betaplays_seen_alphas'
 
-// ─── Write parent to localStorage cooling pool ───────────────────
-// Called when: derivative is pumping AND parent is down.
-// This is proactive cooling — the parent didn't need to fall out of
-// the Live feed naturally. We detected the setup and surfaced it.
-const saveParentAsCooling = (parent, derivative) => {
+// ─── Save parent to localStorage ────────────────────────────────
+// Save ALL detected parents unconditionally.
+// loadHistoricalByPriceAction in useAlphas.js will classify them:
+// positive 24h → surfaces in Live
+// negative 24h → surfaces in Cooling
+// This means $PIPPIN at +9.4% shows in Live, $Aliens at -44% shows in Cooling.
+// No special cases needed — the existing classifier handles it.
+const saveParentToHistory = (parent, derivative) => {
   try {
     const existing = JSON.parse(localStorage.getItem(STORAGE_KEY) || '{}')
     const now      = Date.now()
-    const change   = parseFloat(parent.priceChange24h) || 0
-
-    // Only write if parent is genuinely negative
-    if (change >= 0) return
 
     existing[parent.address] = {
       ...parent,
-      firstSeen:    existing[parent.address]?.firstSeen || now,
-      lastSeen:     now,
-      isCooling:    true,
-      // Label surfaces the narrative context — not internal mechanism
-      coolingLabel: 'Watching for reversal',
-      // Tag so we know why it's here
-      coolingReason: `Derivative $${derivative.symbol} running while parent consolidates`,
+      firstSeen:     existing[parent.address]?.firstSeen || now,
+      lastSeen:      now,
+      coolingReason: `Parent of $${derivative.symbol}`,
     }
 
     localStorage.setItem(STORAGE_KEY, JSON.stringify(existing))
-    console.log(`[ProactiveCooling] $${parent.symbol} added — $${derivative.symbol} running while parent is down ${Math.abs(change).toFixed(1)}%`)
+
+    const change = parseFloat(parent.priceChange24h) || 0
+    console.log(
+      `[ParentDetected] $${parent.symbol} ${change >= 0 ? '→ Live' : '→ Cooling'} (${change >= 0 ? '+' : ''}${change.toFixed(1)}%) via $${derivative.symbol}`
+    )
   } catch (err) {
-    console.warn('Failed to save parent to cooling:', err.message)
+    console.warn('Failed to save parent to history:', err.message)
   }
 }
 
@@ -72,9 +71,10 @@ const similarity = (runner, candidate) => {
 }
 
 // ─── Compound ticker decomposition ──────────────────────────────
-// ALIENSCOPE → ['ALIEN', 'SCOPE', 'ALIENS']
+// ALIENSCOPE → ['ALIEN', 'SCOPE']
 // WIFHAT     → ['WIF', 'HAT']
 // TRUMPCAT   → ['TRUMP', 'CAT']
+// PIPPKIN    → ['PIPP', 'PIPPIN' prefix slices...]
 const STRIP_SUFFIXES = [
   'SCOPE', 'COIN', 'TOKEN', 'SWAP', 'PLAY', 'GAME',
   'KIN', 'KY', 'LY', 'ISH', 'INU', 'WIF', 'HAT', 'CAT',
@@ -106,7 +106,7 @@ export const extractRootCandidates = (symbol) => {
     }
   })
 
-  // CamelCase split
+  // CamelCase split: AlienScope → ALIEN, SCOPE
   const camelParts = symbol
     .replace(/([A-Z][a-z]+)/g, ' $1')
     .replace(/([A-Z]+)(?=[A-Z][a-z])/g, ' $1')
@@ -187,17 +187,12 @@ const useParentAlpha = (alpha) => {
       const foundParent = bestMatch ? formatParent(bestMatch) : null
       setParent(foundParent)
 
-      // ── Proactive Cooling ────────────────────────────────────────
-      // If the derivative (alpha) is pumping AND the parent is down,
-      // write the parent to localStorage cooling immediately.
-      // It will surface in the Cooling tab on the next render cycle.
+      // ── Save parent to localStorage unconditionally ──────────────
+      // Positive parent → will appear in Live via loadHistoricalByPriceAction
+      // Negative parent → will appear in Cooling via loadHistoricalByPriceAction
+      // The classifier in useAlphas.js handles placement, not this hook
       if (foundParent) {
-        const derivativeChange = parseFloat(alpha.priceChange24h) || 0
-        const parentChange     = parseFloat(foundParent.priceChange24h) || 0
-
-        if (derivativeChange > 0 && parentChange < 0) {
-          saveParentAsCooling(foundParent, alpha)
-        }
+        saveParentToHistory(foundParent, alpha)
       }
 
     } catch (err) {
