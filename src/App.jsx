@@ -102,7 +102,10 @@ const SznCard = ({ szn, isSelected, onClick }) => {
             fontFamily: 'var(--font-mono)', fontSize: 9,
           }}>
             <div style={{ color: 'var(--text-secondary)', fontWeight: 700 }}>${t.symbol}</div>
-            <div style={{ color: (parseFloat(t.priceChange24h) || 0) >= 0 ? 'var(--neon-green)' : 'var(--red)', fontSize: 8 }}>
+<div style={{
+  color: (parseFloat(t.priceChange24h) || 0) >= 0 ? 'var(--neon-green)' : 'var(--red)',
+  fontSize: 8,
+}}>
               {(parseFloat(t.priceChange24h) || 0) >= 0 ? '+' : ''}{(parseFloat(t.priceChange24h) || 0).toFixed(0)}%
             </div>
           </div>

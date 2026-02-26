@@ -350,6 +350,10 @@ body {
   font-size: 15px;
   font-weight: 700;
   color: var(--text-primary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 140px;
 }
 
 .token-address {
