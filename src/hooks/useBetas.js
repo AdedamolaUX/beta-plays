@@ -6,8 +6,44 @@ const DEXSCREENER_BASE = 'https://api.dexscreener.com'
 const PUMPFUN_BASE = 'https://frontend-api.pump.fun'
 const MIN_LIQUIDITY = 5000
 
+// ─── Wave Phase Detection (Vector 3) ────────────────────────────
+// Determines which phase of the narrative cycle a beta is in
+// relative to the alpha's pump timestamp.
+
+export const getWavePhase = (alpha, beta) => {
+  // Use alpha's earliest recorded activity as pump start
+  // We approximate this from the alpha's pairCreatedAt or volume spike
+  const alphaAge = alpha?.pairCreatedAt
+    ? Date.now() - alpha.pairCreatedAt
+    : null
+
+  const betaAge = beta?.pairCreatedAt
+    ? Date.now() - beta.pairCreatedAt
+    : null
+
+  if (!betaAge) return { label: 'UNKNOWN', color: 'var(--text-muted)', tier: 0 }
+
+  const betaHours = betaAge / 3600000
+
+  // If beta is newer than alpha by a meaningful margin,
+  // it was likely spawned in response to the alpha pumping
+  if (betaHours < 6)   return { label: '🌊 WAVE',    color: 'var(--neon-green)', tier: 3, hours: betaHours }
+  if (betaHours < 24)  return { label: '📈 2ND LEG', color: 'var(--amber)',      tier: 2, hours: betaHours }
+  if (betaHours < 168) return { label: '🕐 LATE',    color: 'var(--text-secondary)', tier: 1, hours: betaHours }
+  return               { label: '🧊 COLD',    color: 'var(--text-muted)',  tier: 0, hours: betaHours }
+}
+
+// ─── MCAP Ratio Scoring (Vector 4) ──────────────────────────────
+// How much room does this beta have relative to the alpha?
+// Alpha at $50M, beta at $500K = 100x room = HOT ratio
+
+export const getMcapRatio = (alphaMcap, betaMcap) => {
+  if (!alphaMcap || !betaMcap || betaMcap === 0) return null
+  return Math.round(alphaMcap / betaMcap)
+}
+
 // ─── Heat Score ──────────────────────────────────────────────────
-const getHeatScore = (beta) => {
+export const getHeatScore = (beta) => {
   const ageMs = beta.pairCreatedAt ? Date.now() - beta.pairCreatedAt : null
   if (!ageMs || ageMs <= 0) return 0
   const ageHours = ageMs / 3600000
@@ -57,15 +93,15 @@ const classifyTokens = (betas) => {
 }
 
 // ─── Signal scoring ──────────────────────────────────────────────
-const getSignal = (beta) => {
+export const getSignal = (beta) => {
   const sources = beta.signalSources || []
-  if (sources.includes('pumpfun') && sources.includes('keyword')) return { label: 'CABAL', tier: 4 }
-  if (sources.includes('morphology') && sources.includes('keyword')) return { label: 'CABAL', tier: 4 }
-  if (sources.includes('pumpfun')) return { label: 'TRENDING', tier: 3 }
-  if (sources.includes('morphology')) return { label: 'STRONG', tier: 2 }
-  if (sources.includes('keyword')) return { label: 'STRONG', tier: 2 }
-  if (sources.includes('lore')) return { label: 'LORE', tier: 1 }
-  return { label: 'WEAK', tier: 0 }
+  if (sources.includes('pumpfun') && sources.includes('keyword'))   return { label: 'CABAL',    tier: 4 }
+  if (sources.includes('morphology') && sources.includes('keyword')) return { label: 'CABAL',    tier: 4 }
+  if (sources.includes('pumpfun'))                                   return { label: 'TRENDING', tier: 3 }
+  if (sources.includes('morphology'))                                return { label: 'STRONG',   tier: 2 }
+  if (sources.includes('keyword'))                                   return { label: 'STRONG',   tier: 2 }
+  if (sources.includes('lore'))                                      return { label: 'LORE',     tier: 1 }
+  return                                                                    { label: 'WEAK',     tier: 0 }
 }
 
 // ─── Format pair ─────────────────────────────────────────────────
@@ -95,6 +131,7 @@ const formatBeta = (pair, sources = []) => {
     logoUrl: pair.info?.imageUrl || null,
     pairCreatedAt: pair.pairCreatedAt || null,
     ageLabel,
+    ageMs,
     signalSources: sources,
     tokenClass: null,
     dexUrl: pair.url || `https://dexscreener.com/solana/${pair.pairAddress}`,
@@ -147,12 +184,11 @@ const fetchLoreBetas = async (alphaSymbol) => {
   return results
 }
 
-// ─── Signal 3: Ticker morphology engine (Vector 9) ───────────────
+// ─── Signal 3: Ticker morphology engine ─────────────────────────
 const fetchMorphologyBetas = async (alphaSymbol) => {
   const variants = generateTickerVariants(alphaSymbol)
   const results = []
 
-  // Batch into groups of 5 to avoid hammering the API
   const batches = []
   for (let i = 0; i < Math.min(variants.length, 25); i += 5) {
     batches.push(variants.slice(i, i + 5))
@@ -162,9 +198,7 @@ const fetchMorphologyBetas = async (alphaSymbol) => {
     await Promise.allSettled(
       batch.map(async (variant) => {
         try {
-          const res = await axios.get(
-            `${DEXSCREENER_BASE}/latest/dex/search?q=${variant}`
-          )
+          const res = await axios.get(`${DEXSCREENER_BASE}/latest/dex/search?q=${variant}`)
           const pairs = res.data?.pairs || []
           pairs
             .filter(p =>
@@ -176,7 +210,7 @@ const fetchMorphologyBetas = async (alphaSymbol) => {
             )
             .forEach(p => results.push({ pair: p, sources: ['morphology'] }))
         } catch (err) {
-          // Silent fail per variant — morphology is best-effort
+          // Silent fail per variant
         }
       })
     )
@@ -198,7 +232,7 @@ const fetchPumpFunBetas = async (alphaSymbol) => {
     coins
       .filter((coin) => {
         const nameL = (coin.name || '').toLowerCase()
-        const symL = (coin.symbol || '').toLowerCase()
+        const symL  = (coin.symbol || '').toLowerCase()
         const descL = (coin.description || '').toLowerCase()
         return concepts.some(c => nameL.includes(c) || symL.includes(c) || descL.includes(c))
       })
@@ -229,7 +263,7 @@ const fetchPumpFunBetas = async (alphaSymbol) => {
 }
 
 // ─── Merge, dedupe, classify, sort ───────────────────────────────
-const mergeAndScore = (rawResults, alphaSymbol) => {
+const mergeAndScore = (rawResults, alphaSymbol, alphaMcap) => {
   const seen = new Map()
 
   rawResults.forEach(({ pair, sources }) => {
@@ -252,7 +286,12 @@ const mergeAndScore = (rawResults, alphaSymbol) => {
 
   const classified = classifyTokens(deduped)
 
+  // Attach mcap ratio to each beta
   return classified
+    .map(b => ({
+      ...b,
+      mcapRatio: getMcapRatio(alphaMcap, b.marketCap),
+    }))
     .sort((a, b) => {
       const changeA = parseFloat(a.priceChange24h) || 0
       const changeB = parseFloat(b.priceChange24h) || 0
@@ -284,14 +323,14 @@ const useBetas = (alpha) => {
 
       const allResults = [
         ...(keywordResults.status === 'fulfilled' ? keywordResults.value : []),
-        ...(loreResults.status === 'fulfilled' ? loreResults.value : []),
-        ...(morphResults.status === 'fulfilled' ? morphResults.value : []),
-        ...(pumpResults.status === 'fulfilled' ? pumpResults.value : []),
+        ...(loreResults.status   === 'fulfilled' ? loreResults.value   : []),
+        ...(morphResults.status  === 'fulfilled' ? morphResults.value  : []),
+        ...(pumpResults.status   === 'fulfilled' ? pumpResults.value   : []),
       ]
 
-      const merged = mergeAndScore(allResults, alpha.symbol)
+      const merged = mergeAndScore(allResults, alpha.symbol, alpha.marketCap)
       setBetas(merged)
-      if (merged.length === 0) setError('No beta plays detected yet. Trenches might be cooked')
+      if (merged.length === 0) setError('No beta plays detected yet. Trenches might be cooked.')
     } catch (err) {
       console.error('Beta detection failed:', err)
       setError('Detection engine error. Try refreshing.')
@@ -305,5 +344,4 @@ const useBetas = (alpha) => {
   return { betas, loading, error, refresh: fetchBetas }
 }
 
-export { getSignal, getHeatScore }
 export default useBetas

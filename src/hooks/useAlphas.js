@@ -1,116 +1,181 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 import axios from 'axios'
-import HISTORICAL_ALPHAS from '../data/historical_alphas'
+import LEGENDS from '../data/historical_alphas'
 
-// DEXScreener public API — no key needed
 const DEXSCREENER_BASE = 'https://api.dexscreener.com'
 
-// Minimum 24h volume to qualify as a "runner" ($500k)
-const MIN_VOLUME_USD = 500000
+// ─── localStorage keys ───────────────────────────────────────────
+const STORAGE_KEY = 'betaplays_seen_alphas'
+const COOLING_MAX_AGE_MS = 30 * 24 * 60 * 60 * 1000 // 30 days
 
-// Formats a raw DEXScreener pair into our standard alpha shape
-const formatPair = (pair) => ({
-  id: pair.pairAddress,
+// ─── Persist alphas to localStorage ─────────────────────────────
+// Every time a token appears in Live, we record it with a timestamp.
+// When it falls out of Live, it becomes a Cooling candidate.
+
+const saveToHistory = (alphas) => {
+  try {
+    const existing = JSON.parse(localStorage.getItem(STORAGE_KEY) || '{}')
+    const now = Date.now()
+    alphas.forEach((alpha) => {
+      if (!alpha.address) return
+      // Update or create entry — always refresh lastSeen
+      existing[alpha.address] = {
+        ...alpha,
+        firstSeen: existing[alpha.address]?.firstSeen || now,
+        lastSeen: now,
+      }
+    })
+    // Prune entries older than 30 days
+    Object.keys(existing).forEach((addr) => {
+      if (now - existing[addr].lastSeen > COOLING_MAX_AGE_MS) {
+        delete existing[addr]
+      }
+    })
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(existing))
+  } catch (err) {
+    console.warn('Failed to save alphas to history:', err.message)
+  }
+}
+
+// ─── Load cooling alphas from localStorage ───────────────────────
+// Cooling = was seen in Live, but NOT in current Live feed,
+// and was last seen within the last 30 days.
+
+const loadCoolingAlphas = (liveAlphas) => {
+  try {
+    const existing = JSON.parse(localStorage.getItem(STORAGE_KEY) || '{}')
+    const now = Date.now()
+    const liveAddresses = new Set(liveAlphas.map((a) => a.address))
+
+    return Object.values(existing)
+      .filter((alpha) => {
+        const age = now - alpha.lastSeen
+        const isStillLive = liveAddresses.has(alpha.address)
+        return !isStillLive && age <= COOLING_MAX_AGE_MS
+      })
+      .map((alpha) => ({
+        ...alpha,
+        isCooling: true,
+        coolingAge: Date.now() - alpha.lastSeen,
+        coolingLabel: getCoolingLabel(Date.now() - alpha.lastSeen),
+      }))
+      .sort((a, b) => b.lastSeen - a.lastSeen) // Most recently cooled first
+  } catch (err) {
+    console.warn('Failed to load cooling alphas:', err.message)
+    return []
+  }
+}
+
+const getCoolingLabel = (ageMs) => {
+  const hours = ageMs / 3600000
+  const days = ageMs / 86400000
+  if (hours < 1)  return 'Cooled <1h ago'
+  if (hours < 24) return `Cooled ${Math.floor(hours)}h ago`
+  if (days < 7)   return `Cooled ${Math.floor(days)}d ago`
+  return `Cooled ${Math.floor(days)}d ago`
+}
+
+// ─── Format DEXScreener pair as alpha ───────────────────────────
+const formatAlpha = (pair) => ({
+  id: pair.pairAddress || pair.baseToken?.address,
   symbol: pair.baseToken?.symbol || '???',
   name: pair.baseToken?.name || 'Unknown',
   address: pair.baseToken?.address || '',
+  pairAddress: pair.pairAddress || '',
   priceUsd: pair.priceUsd || '0',
   priceChange24h: pair.priceChange?.h24 || 0,
   volume24h: pair.volume?.h24 || 0,
   marketCap: pair.marketCap || pair.fdv || 0,
   liquidity: pair.liquidity?.usd || 0,
-  pairAddress: pair.pairAddress || '',
-  isHistorical: false,
   logoUrl: pair.info?.imageUrl || null,
+  pairCreatedAt: pair.pairCreatedAt || null,
+  isHistorical: false,
+  isLegend: false,
+  dexUrl: pair.url || `https://dexscreener.com/solana/${pair.pairAddress}`,
 })
 
+// ─── Main hook ───────────────────────────────────────────────────
 const useAlphas = () => {
-  const [liveAlphas, setLiveAlphas] = useState([])
-  const [loading, setLoading] = useState(true)
-  const [error, setError] = useState(null)
-  const [lastUpdated, setLastUpdated] = useState(null)
+  const [liveAlphas,    setLiveAlphas]    = useState([])
+  const [coolingAlphas, setCoolingAlphas] = useState([])
+  const [legends,       setLegends]       = useState(LEGENDS)
+  const [loading,       setLoading]       = useState(true)
+  const [error,         setError]         = useState(null)
+  const [lastUpdated,   setLastUpdated]   = useState(null)
 
-  const fetchLiveAlphas = async () => {
+  const fetchLive = useCallback(async () => {
+    setLoading(true)
+    setError(null)
     try {
-      setLoading(true)
-      setError(null)
+      const res = await axios.get(`${DEXSCREENER_BASE}/token-boosts/top/v1`, {
+        timeout: 10000,
+      })
 
-      // Fetch top boosted/trending tokens on Solana from DEXScreener
-      const response = await axios.get(
-        `${DEXSCREENER_BASE}/token-boosts/top/v1`
-      )
+      const boosts = res.data || []
+      const solanaBoosts = boosts.filter((b) => b.chainId === 'solana').slice(0, 20)
 
-      const allTokens = response.data || []
-
-      // Filter to Solana only and extract addresses
-      const solanaTokens = allTokens
-        .filter((t) => t.chainId === 'solana')
-        .slice(0, 20) // top 20 boosted
-
-      if (solanaTokens.length === 0) {
-        setLiveAlphas([])
+      if (solanaBoosts.length === 0) {
+        setError('No live runners detected. Trenches might be cooked.')
         setLoading(false)
         return
       }
 
-      // Fetch pair data for each token address to get price/volume/mcap
-      const addresses = solanaTokens
-        .map((t) => t.tokenAddress)
-        .filter(Boolean)
-        .join(',')
-
-      const pairResponse = await axios.get(
-        `${DEXSCREENER_BASE}/latest/dex/tokens/${addresses}`
+      // Fetch pair data for each boosted token
+      const pairResults = await Promise.allSettled(
+        solanaBoosts.map((boost) =>
+          axios.get(`${DEXSCREENER_BASE}/latest/dex/tokens/${boost.tokenAddress}`)
+        )
       )
 
-      const pairs = pairResponse.data?.pairs || []
+      const alphas = []
+      pairResults.forEach((result) => {
+        if (result.status !== 'fulfilled') return
+        const pairs = result.value.data?.pairs || []
+        const best = pairs
+          .filter((p) => p.chainId === 'solana')
+          .sort((a, b) => (b.volume?.h24 || 0) - (a.volume?.h24 || 0))[0]
+        if (best) alphas.push(formatAlpha(best))
+      })
 
-      // Filter: Solana chain, minimum volume, not a stablecoin
-      const runners = pairs
-        .filter(
-          (p) =>
-            p.chainId === 'solana' &&
-            (p.volume?.h24 || 0) >= MIN_VOLUME_USD &&
-            p.baseToken?.symbol !== 'USDC' &&
-            p.baseToken?.symbol !== 'USDT' &&
-            p.baseToken?.symbol !== 'SOL'
-        )
-        // Sort by 24h price change descending — biggest movers first
-        .sort((a, b) => (b.priceChange?.h24 || 0) - (a.priceChange?.h24 || 0))
-        // Deduplicate by base token address
-        .filter(
-          (pair, index, self) =>
-            index ===
-            self.findIndex((p) => p.baseToken?.address === pair.baseToken?.address)
-        )
-        .slice(0, 15)
-        .map(formatPair)
+      const sorted = alphas.sort(
+        (a, b) => (parseFloat(b.priceChange24h) || 0) - (parseFloat(a.priceChange24h) || 0)
+      )
 
-      setLiveAlphas(runners)
+      // Save to localStorage before setting state
+      saveToHistory(sorted)
+
+      setLiveAlphas(sorted)
+      setCoolingAlphas(loadCoolingAlphas(sorted))
       setLastUpdated(new Date())
     } catch (err) {
-      console.error('DEXScreener fetch failed:', err)
-      setError('Failed to fetch live runners. Showing past alphas.')
-      setLiveAlphas([])
+      console.error('Failed to fetch live alphas:', err.message)
+      setError('Feed unavailable. Check connection.')
     } finally {
       setLoading(false)
     }
-  }
-
-  useEffect(() => {
-    fetchLiveAlphas()
-    // Refresh every 60 seconds
-    const interval = setInterval(fetchLiveAlphas, 60000)
-    return () => clearInterval(interval)
   }, [])
+
+  // Initial fetch
+  useEffect(() => {
+    // Load cooling from storage immediately (before network)
+    setCoolingAlphas(loadCoolingAlphas([]))
+    fetchLive()
+  }, [fetchLive])
+
+  // Auto-refresh every 60s
+  useEffect(() => {
+    const interval = setInterval(fetchLive, 60_000)
+    return () => clearInterval(interval)
+  }, [fetchLive])
 
   return {
     liveAlphas,
-    historicalAlphas: HISTORICAL_ALPHAS,
+    coolingAlphas,
+    legends,
     loading,
     error,
     lastUpdated,
-    refresh: fetchLiveAlphas,
+    refresh: fetchLive,
   }
 }
 
