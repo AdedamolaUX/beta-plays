@@ -3,20 +3,65 @@ import axios from 'axios'
 import { getSearchTerms, getConcepts, generateTickerVariants } from '../data/lore_map'
 
 const DEXSCREENER_BASE = 'https://api.dexscreener.com'
-const PUMPFUN_BASE = 'https://frontend-api.pump.fun'
-const MIN_LIQUIDITY = 5000
+const PUMPFUN_BASE     = 'https://frontend-api.pump.fun'
+const MIN_LIQUIDITY    = 5000
+
+// ─── Compound ticker decomposition ──────────────────────────────
+// ALIENSCOPE → ['ALIEN', 'SCOPE']
+// WIFHAT     → ['WIF', 'HAT']
+// TRUMPCAT   → ['TRUMP', 'CAT']
+// Dramatically improves beta detection for composite named tokens
+
+const DECOMP_SUFFIXES = [
+  'SCOPE', 'COIN', 'TOKEN', 'SWAP', 'PLAY', 'GAME', 'WORLD',
+  'LAND', 'ZONE', 'CAT', 'DOG', 'HAT', 'WIF', 'INU', 'DAO',
+  'MOON', 'PUMP', 'STAR', 'KING', 'LORD', 'APE', 'BOY', 'MAN',
+]
+const DECOMP_PREFIXES = [
+  'BABY', 'MINI', 'MICRO', 'GIGA', 'MEGA', 'SUPER',
+  'REAL', 'TURBO', 'CHAD', 'FAT', 'TINY', 'DARK', 'ULTRA',
+]
+
+const decomposeSymbol = (symbol) => {
+  const s = symbol.toUpperCase()
+  const parts = new Set()
+
+  // Suffix stripping: ALIENSCOPE → ALIEN (root) + SCOPE (suffix)
+  DECOMP_SUFFIXES.forEach((suffix) => {
+    if (s.endsWith(suffix) && s.length > suffix.length + 2) {
+      const root = s.slice(0, s.length - suffix.length)
+      if (root.length >= 3) {
+        parts.add(root)
+        parts.add(suffix)
+      }
+    }
+  })
+
+  // Prefix stripping: BABYPEPE → PEPE
+  DECOMP_PREFIXES.forEach((prefix) => {
+    if (s.startsWith(prefix) && s.length > prefix.length + 2) {
+      const root = s.slice(prefix.length)
+      if (root.length >= 3) parts.add(root)
+    }
+  })
+
+  // CamelCase split: AlienScope → ALIEN, SCOPE
+  const camelParts = symbol
+    .replace(/([A-Z][a-z]+)/g, ' $1')
+    .replace(/([A-Z]+)(?=[A-Z][a-z])/g, ' $1')
+    .trim()
+    .split(/\s+/)
+    .filter(p => p.length >= 3)
+  camelParts.forEach(p => parts.add(p.toUpperCase()))
+
+  // Remove the original symbol itself — we already search that via keyword
+  parts.delete(s)
+
+  return Array.from(parts)
+}
 
 // ─── Wave Phase Detection (Vector 3) ────────────────────────────
-// Determines which phase of the narrative cycle a beta is in
-// relative to the alpha's pump timestamp.
-
 export const getWavePhase = (alpha, beta) => {
-  // Use alpha's earliest recorded activity as pump start
-  // We approximate this from the alpha's pairCreatedAt or volume spike
-  const alphaAge = alpha?.pairCreatedAt
-    ? Date.now() - alpha.pairCreatedAt
-    : null
-
   const betaAge = beta?.pairCreatedAt
     ? Date.now() - beta.pairCreatedAt
     : null
@@ -25,29 +70,16 @@ export const getWavePhase = (alpha, beta) => {
 
   const betaHours = betaAge / 3600000
 
-  // If beta is newer than alpha by a meaningful margin,
-  // it was likely spawned in response to the alpha pumping
-  if (betaHours < 6)   return { label: '🌊 WAVE',    color: 'var(--neon-green)', tier: 3, hours: betaHours }
-  if (betaHours < 24)  return { label: '📈 2ND LEG', color: 'var(--amber)',      tier: 2, hours: betaHours }
+  if (betaHours < 6)   return { label: '🌊 WAVE',    color: 'var(--neon-green)',     tier: 3, hours: betaHours }
+  if (betaHours < 24)  return { label: '📈 2ND LEG', color: 'var(--amber)',          tier: 2, hours: betaHours }
   if (betaHours < 168) return { label: '🕐 LATE',    color: 'var(--text-secondary)', tier: 1, hours: betaHours }
-  return               { label: '🧊 COLD',    color: 'var(--text-muted)',  tier: 0, hours: betaHours }
+  return                      { label: '🧊 COLD',    color: 'var(--text-muted)',     tier: 0, hours: betaHours }
 }
 
-// ─── MCAP Ratio Scoring (Vector 4) ──────────────────────────────
-// How much room does this beta have relative to the alpha?
-// Alpha at $50M, beta at $500K = 100x room = HOT ratio
-
+// ─── MCAP Ratio (Vector 4) ───────────────────────────────────────
 export const getMcapRatio = (alphaMcap, betaMcap) => {
   if (!alphaMcap || !betaMcap || betaMcap === 0) return null
   return Math.round(alphaMcap / betaMcap)
-}
-
-// ─── Heat Score ──────────────────────────────────────────────────
-export const getHeatScore = (beta) => {
-  const ageMs = beta.pairCreatedAt ? Date.now() - beta.pairCreatedAt : null
-  if (!ageMs || ageMs <= 0) return 0
-  const ageHours = ageMs / 3600000
-  return beta.marketCap / Math.max(ageHours, 0.5)
 }
 
 // ─── OG / RIVAL / SPIN classifier ───────────────────────────────
@@ -60,89 +92,81 @@ const classifyTokens = (betas) => {
   })
 
   const classified = []
-
   Object.values(groups).forEach((group) => {
     if (group.length === 1) {
       classified.push({ ...group[0], tokenClass: null })
       return
     }
-
-    const sorted = [...group].sort((a, b) => {
-      const aAge = a.pairCreatedAt || Infinity
-      const bAge = b.pairCreatedAt || Infinity
-      return aAge - bAge
-    })
-
+    const sorted = [...group].sort((a, b) => (a.pairCreatedAt || Infinity) - (b.pairCreatedAt || Infinity))
     const og = sorted[0]
-    const ogMcap = og.marketCap || 1
-    const ogVolume = og.volume24h || 1
-
     sorted.forEach((token, index) => {
-      if (index === 0) {
-        classified.push({ ...token, tokenClass: 'OG' })
-        return
-      }
+      if (index === 0) { classified.push({ ...token, tokenClass: 'OG' }); return }
       const isRival =
-        (token.marketCap || 0) >= ogMcap * 0.8 ||
-        (token.volume24h || 0) > ogVolume
+        (token.marketCap || 0) >= (og.marketCap || 1) * 0.8 ||
+        (token.volume24h || 0) > (og.volume24h || 1)
       classified.push({ ...token, tokenClass: isRival ? 'RIVAL' : 'SPIN' })
     })
   })
-
   return classified
 }
 
 // ─── Signal scoring ──────────────────────────────────────────────
 export const getSignal = (beta) => {
   const sources = beta.signalSources || []
-  if (sources.includes('pumpfun') && sources.includes('keyword'))   return { label: 'CABAL',    tier: 4 }
-  if (sources.includes('morphology') && sources.includes('keyword')) return { label: 'CABAL',    tier: 4 }
-  if (sources.includes('pumpfun'))                                   return { label: 'TRENDING', tier: 3 }
-  if (sources.includes('morphology'))                                return { label: 'STRONG',   tier: 2 }
-  if (sources.includes('keyword'))                                   return { label: 'STRONG',   tier: 2 }
-  if (sources.includes('lore'))                                      return { label: 'LORE',     tier: 1 }
-  return                                                                    { label: 'WEAK',     tier: 0 }
+  if (sources.includes('pumpfun')   && sources.includes('keyword'))   return { label: 'CABAL',    tier: 4 }
+  if (sources.includes('morphology')&& sources.includes('keyword'))   return { label: 'CABAL',    tier: 4 }
+  if (sources.includes('pumpfun'))                                     return { label: 'TRENDING', tier: 3 }
+  if (sources.includes('morphology'))                                  return { label: 'STRONG',   tier: 2 }
+  if (sources.includes('keyword'))                                     return { label: 'STRONG',   tier: 2 }
+  if (sources.includes('lore'))                                        return { label: 'LORE',     tier: 1 }
+  return                                                                      { label: 'WEAK',     tier: 0 }
 }
 
-// ─── Format pair ─────────────────────────────────────────────────
+// ─── Format pair → beta ──────────────────────────────────────────
 const formatBeta = (pair, sources = []) => {
-  const ageMs = pair.pairCreatedAt ? Date.now() - pair.pairCreatedAt : null
-  const ageDays = ageMs ? Math.floor(ageMs / 86400000) : null
+  const ageMs    = pair.pairCreatedAt ? Date.now() - pair.pairCreatedAt : null
+  const ageDays  = ageMs ? Math.floor(ageMs / 86400000) : null
   const ageHours = ageMs ? Math.floor((ageMs % 86400000) / 3600000) : null
-
   let ageLabel = '—'
   if (ageDays !== null) {
-    if (ageDays > 0) ageLabel = `${ageDays}d`
-    else if (ageHours !== null) ageLabel = `${ageHours}h`
-    else ageLabel = '<1h'
+    if (ageDays > 0)       ageLabel = `${ageDays}d`
+    else if (ageHours > 0) ageLabel = `${ageHours}h`
+    else                   ageLabel = '<1h'
   }
 
   return {
-    id: pair.pairAddress || pair.baseToken?.address,
-    symbol: pair.baseToken?.symbol || '???',
-    name: pair.baseToken?.name || 'Unknown',
-    address: pair.baseToken?.address || '',
-    pairAddress: pair.pairAddress || '',
-    priceUsd: pair.priceUsd || '0',
+    id:            pair.pairAddress || pair.baseToken?.address,
+    symbol:        pair.baseToken?.symbol || '???',
+    name:          pair.baseToken?.name   || 'Unknown',
+    address:       pair.baseToken?.address || '',
+    pairAddress:   pair.pairAddress || '',
+    priceUsd:      pair.priceUsd || '0',
     priceChange24h: pair.priceChange?.h24 || 0,
-    volume24h: pair.volume?.h24 || 0,
-    marketCap: pair.marketCap || pair.fdv || 0,
-    liquidity: pair.liquidity?.usd || 0,
-    logoUrl: pair.info?.imageUrl || null,
-    pairCreatedAt: pair.pairCreatedAt || null,
+    volume24h:     pair.volume?.h24    || 0,
+    marketCap:     pair.marketCap || pair.fdv || 0,
+    liquidity:     pair.liquidity?.usd || 0,
+    logoUrl:       pair.info?.imageUrl || null,
+    pairCreatedAt: pair.pairCreatedAt  || null,
     ageLabel,
     ageMs,
     signalSources: sources,
-    tokenClass: null,
-    dexUrl: pair.url || `https://dexscreener.com/solana/${pair.pairAddress}`,
+    tokenClass:    null,
+    dexUrl:        pair.url || `https://dexscreener.com/solana/${pair.pairAddress}`,
   }
 }
 
-// ─── Signal 1: Keyword search ────────────────────────────────────
+// ─── Signal 1: Keyword + compound decomposition search ───────────
 const fetchKeywordBetas = async (alphaSymbol) => {
   const terms = getSearchTerms(alphaSymbol)
-  const results = []
-  for (const term of terms.slice(0, 4)) {
+
+  // Add compound decomposition terms
+  // ALIENSCOPE → also search ALIEN, SCOPE
+  const decomposed = decomposeSymbol(alphaSymbol)
+
+  const allTerms = [...new Set([...terms, ...decomposed])].slice(0, 8)
+  const results  = []
+
+  for (const term of allTerms) {
     try {
       const res = await axios.get(`${DEXSCREENER_BASE}/latest/dex/search?q=${term}`)
       const pairs = res.data?.pairs || []
@@ -164,7 +188,7 @@ const fetchKeywordBetas = async (alphaSymbol) => {
 // ─── Signal 2: Lore/concept matching ────────────────────────────
 const fetchLoreBetas = async (alphaSymbol) => {
   const concepts = getConcepts(alphaSymbol)
-  const results = []
+  const results  = []
   for (const concept of concepts.slice(0, 3)) {
     try {
       const res = await axios.get(`${DEXSCREENER_BASE}/latest/dex/search?q=${concept}`)
@@ -187,13 +211,11 @@ const fetchLoreBetas = async (alphaSymbol) => {
 // ─── Signal 3: Ticker morphology engine ─────────────────────────
 const fetchMorphologyBetas = async (alphaSymbol) => {
   const variants = generateTickerVariants(alphaSymbol)
-  const results = []
-
-  const batches = []
+  const results  = []
+  const batches  = []
   for (let i = 0; i < Math.min(variants.length, 25); i += 5) {
     batches.push(variants.slice(i, i + 5))
   }
-
   for (const batch of batches) {
     await Promise.allSettled(
       batch.map(async (variant) => {
@@ -209,19 +231,20 @@ const fetchMorphologyBetas = async (alphaSymbol) => {
               p.baseToken?.symbol !== 'USDC'
             )
             .forEach(p => results.push({ pair: p, sources: ['morphology'] }))
-        } catch (err) {
-          // Silent fail per variant
-        }
+        } catch (err) { /* silent */ }
       })
     )
   }
-
   return results
 }
 
 // ─── Signal 4: PumpFun trending ──────────────────────────────────
 const fetchPumpFunBetas = async (alphaSymbol) => {
-  const concepts = getConcepts(alphaSymbol)
+  // Use both lore concepts AND decomposed subwords for matching
+  const concepts  = getConcepts(alphaSymbol)
+  const decomposed = decomposeSymbol(alphaSymbol).map(d => d.toLowerCase())
+  const allTerms  = [...new Set([...concepts, ...decomposed])]
+
   const results = []
   try {
     const res = await axios.get(
@@ -231,26 +254,26 @@ const fetchPumpFunBetas = async (alphaSymbol) => {
     const coins = res.data || []
     coins
       .filter((coin) => {
-        const nameL = (coin.name || '').toLowerCase()
-        const symL  = (coin.symbol || '').toLowerCase()
+        const nameL = (coin.name        || '').toLowerCase()
+        const symL  = (coin.symbol      || '').toLowerCase()
         const descL = (coin.description || '').toLowerCase()
-        return concepts.some(c => nameL.includes(c) || symL.includes(c) || descL.includes(c))
+        return allTerms.some(t => nameL.includes(t) || symL.includes(t) || descL.includes(t))
       })
       .slice(0, 10)
       .forEach((coin) => {
         results.push({
           pair: {
-            pairAddress: coin.mint,
-            baseToken: { symbol: coin.symbol, name: coin.name, address: coin.mint },
-            priceUsd: coin.usd_market_cap
+            pairAddress:  coin.mint,
+            baseToken:    { symbol: coin.symbol, name: coin.name, address: coin.mint },
+            priceUsd:     coin.usd_market_cap
               ? String(coin.usd_market_cap / (coin.total_supply || 1e9))
               : '0',
             priceChange: { h24: 0 },
-            volume: { h24: coin.volume || 0 },
-            marketCap: coin.usd_market_cap || 0,
-            liquidity: { usd: coin.virtual_sol_reserves ? coin.virtual_sol_reserves * 150 : 0 },
-            info: { imageUrl: coin.image_uri || null },
-            url: `https://pump.fun/${coin.mint}`,
+            volume:      { h24: coin.volume || 0 },
+            marketCap:   coin.usd_market_cap || 0,
+            liquidity:   { usd: coin.virtual_sol_reserves ? coin.virtual_sol_reserves * 150 : 0 },
+            info:        { imageUrl: coin.image_uri || null },
+            url:         `https://pump.fun/${coin.mint}`,
             pairCreatedAt: coin.created_timestamp,
           },
           sources: ['pumpfun'],
@@ -262,7 +285,7 @@ const fetchPumpFunBetas = async (alphaSymbol) => {
   return results
 }
 
-// ─── Merge, dedupe, classify, sort ───────────────────────────────
+// ─── Merge, dedupe, classify, score ─────────────────────────────
 const mergeAndScore = (rawResults, alphaSymbol, alphaMcap) => {
   const seen = new Map()
 
@@ -281,30 +304,22 @@ const mergeAndScore = (rawResults, alphaSymbol, alphaMcap) => {
   })
 
   const deduped = Array.from(seen.values()).filter(
-    b => b.symbol !== 'SOL' && b.symbol !== 'USDC' && b.symbol !== 'USDT'
+    b => !['SOL', 'USDC', 'USDT'].includes(b.symbol)
   )
 
   const classified = classifyTokens(deduped)
 
-  // Attach mcap ratio to each beta
   return classified
-    .map(b => ({
-      ...b,
-      mcapRatio: getMcapRatio(alphaMcap, b.marketCap),
-    }))
-    .sort((a, b) => {
-      const changeA = parseFloat(a.priceChange24h) || 0
-      const changeB = parseFloat(b.priceChange24h) || 0
-      return changeB - changeA
-    })
+    .map(b => ({ ...b, mcapRatio: getMcapRatio(alphaMcap, b.marketCap) }))
+    .sort((a, b) => (parseFloat(b.priceChange24h) || 0) - (parseFloat(a.priceChange24h) || 0))
     .slice(0, 30)
 }
 
 // ─── Main hook ───────────────────────────────────────────────────
 const useBetas = (alpha) => {
-  const [betas, setBetas] = useState([])
+  const [betas,   setBetas]   = useState([])
   const [loading, setLoading] = useState(false)
-  const [error, setError] = useState(null)
+  const [error,   setError]   = useState(null)
 
   const fetchBetas = useCallback(async () => {
     if (!alpha) { setBetas([]); return }

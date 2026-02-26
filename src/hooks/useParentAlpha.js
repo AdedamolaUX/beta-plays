@@ -3,10 +3,7 @@ import axios from 'axios'
 
 const DEXSCREENER_BASE = 'https://api.dexscreener.com'
 
-// ─── Edit Distance (Levenshtein) ─────────────────────────────────
-// Measures how many character changes separate two strings.
-// PIPPKIN vs PIPPIN = 1 change = very likely related.
-// PIPPKIN vs BONK = 6 changes = unrelated.
+// ─── Edit Distance ───────────────────────────────────────────────
 const editDistance = (a, b) => {
   const m = a.length, n = b.length
   const dp = Array.from({ length: m + 1 }, (_, i) =>
@@ -22,34 +19,57 @@ const editDistance = (a, b) => {
   return dp[m][n]
 }
 
-// ─── Similarity score 0-1 ────────────────────────────────────────
-const similarity = (a, b) => {
-  const maxLen = Math.max(a.length, b.length)
-  if (maxLen === 0) return 1
-  return 1 - editDistance(a.toUpperCase(), b.toUpperCase()) / maxLen
-}
+// ─── Similarity scoring ──────────────────────────────────────────
+// Key insight: if candidate is a PREFIX of the runner's symbol,
+// that's the strongest possible parent signal — score it at 0.95.
+// ALIEN is a prefix of ALIENSCOPE → 0.95 (passes 0.75 threshold)
+// PIPPIN vs PIPPKIN → edit distance = 1 → ~0.83 (passes)
+// STORE vs STORJ → edit distance = 2/5 → ~0.60 (fails, correct)
 
-// ─── Generate search queries from runner symbol ──────────────────
-// Strategy: search with progressively shorter prefixes of the symbol
-// so "PIPPKIN" generates queries: "PIPPK", "PIPP", "PIPP", "PIP"
-// DEXScreener substring search will surface "PIPPIN" for "PIPP"
-export const extractRootCandidates = (symbol) => {
-  const s = symbol.toUpperCase()
-  const candidates = new Set()
+const similarity = (runner, candidate) => {
+  const a = runner.toUpperCase()
+  const b = candidate.toUpperCase()
 
-  // Progressively shorter prefixes (min 3 chars)
-  for (let len = s.length - 1; len >= 3; len--) {
-    candidates.add(s.slice(0, len))
+  // Strongest signal: candidate is a clean prefix of runner
+  // e.g. ALIEN in ALIENSCOPE, WIF in WIFHAT, TRUMP in TRUMPCAT
+  if (a.startsWith(b) && b.length >= 3) {
+    // Score by how much of the runner the candidate covers
+    const coverage = b.length / a.length
+    return 0.75 + (coverage * 0.2) // 0.75-0.95 range
   }
 
-  // Also try stripping known suffixes for direct ticker matches
+  // Second signal: runner is a prefix of candidate (rarer but valid)
+  if (b.startsWith(a) && a.length >= 3) {
+    return 0.80
+  }
+
+  // Fallback: edit distance similarity
+  const maxLen = Math.max(a.length, b.length)
+  if (maxLen === 0) return 1
+  return 1 - editDistance(a, b) / maxLen
+}
+
+// ─── Generate search queries ─────────────────────────────────────
+// For compound tickers like ALIENSCOPE, we extract the component
+// words as additional candidates: ALIEN, SCOPE
+const splitCompoundTicker = (symbol) => {
+  const s = symbol.toUpperCase()
+  const parts = new Set()
+
+  // Prefix slices (min 4 chars to avoid noise)
+  for (let len = Math.min(s.length - 1, 8); len >= 4; len--) {
+    parts.add(s.slice(0, len))
+  }
+
+  // Strip known suffixes
   const STRIP_SUFFIXES = [
+    'SCOPE', 'COIN', 'TOKEN', 'SWAP', 'PLAY', 'GAME',
     'KIN', 'KY', 'LY', 'ISH', 'INU', 'WIF', 'HAT', 'CAT',
     'DOG', 'AI', 'DAO', 'MOON', 'PUMP', 'WIFHAT',
   ]
   STRIP_SUFFIXES.forEach((suffix) => {
     if (s.endsWith(suffix) && s.length > suffix.length + 2) {
-      candidates.add(s.slice(0, s.length - suffix.length))
+      parts.add(s.slice(0, s.length - suffix.length))
     }
   })
 
@@ -60,33 +80,35 @@ export const extractRootCandidates = (symbol) => {
   ]
   STRIP_PREFIXES.forEach((prefix) => {
     if (s.startsWith(prefix) && s.length > prefix.length + 2) {
-      candidates.add(s.slice(prefix.length))
+      parts.add(s.slice(prefix.length))
     }
   })
 
-  candidates.delete(s)
-  return Array.from(candidates)
+  parts.delete(s)
+  return Array.from(parts)
 }
+
+export const extractRootCandidates = splitCompoundTicker
 
 // ─── Format parent ───────────────────────────────────────────────
 const formatParent = (pair) => ({
-  id: pair.pairAddress || pair.baseToken?.address,
-  symbol: pair.baseToken?.symbol || '???',
-  name: pair.baseToken?.name || 'Unknown',
-  address: pair.baseToken?.address || '',
-  pairAddress: pair.pairAddress || '',
-  priceUsd: pair.priceUsd || '0',
+  id:            pair.pairAddress || pair.baseToken?.address,
+  symbol:        pair.baseToken?.symbol || '???',
+  name:          pair.baseToken?.name   || 'Unknown',
+  address:       pair.baseToken?.address || '',
+  pairAddress:   pair.pairAddress || '',
+  priceUsd:      pair.priceUsd || '0',
   priceChange24h: pair.priceChange?.h24 || 0,
-  volume24h: pair.volume?.h24 || 0,
-  marketCap: pair.marketCap || pair.fdv || 0,
-  liquidity: pair.liquidity?.usd || 0,
-  logoUrl: pair.info?.imageUrl || null,
-  dexUrl: pair.url || `https://dexscreener.com/solana/${pair.pairAddress}`,
+  volume24h:     pair.volume?.h24    || 0,
+  marketCap:     pair.marketCap || pair.fdv || 0,
+  liquidity:     pair.liquidity?.usd || 0,
+  logoUrl:       pair.info?.imageUrl || null,
+  dexUrl:        pair.url || `https://dexscreener.com/solana/${pair.pairAddress}`,
 })
 
 // ─── Main hook ───────────────────────────────────────────────────
 const useParentAlpha = (alpha) => {
-  const [parent, setParent] = useState(null)
+  const [parent,  setParent]  = useState(null)
   const [loading, setLoading] = useState(false)
 
   const findParent = useCallback(async () => {
@@ -95,26 +117,14 @@ const useParentAlpha = (alpha) => {
     setLoading(true)
     setParent(null)
 
-    // Only search with a few distinct prefix lengths to avoid hammering API
-    const symbol = alpha.symbol.toUpperCase()
-    const queries = new Set()
+    const symbol    = alpha.symbol.toUpperCase()
+    const queries   = new Set(splitCompoundTicker(symbol))
 
-    // Take prefix slices of 3, 4, 5 chars max — enough to find parent
-    for (let len = Math.min(symbol.length - 1, 6); len >= 3; len--) {
-      queries.add(symbol.slice(0, len))
-    }
-
-    // Also strip known suffixes for exact ticker match
-    const STRIP_SUFFIXES = ['KIN', 'KY', 'LY', 'ISH', 'INU', 'WIF', 'HAT', 'CAT', 'DOG']
-    STRIP_SUFFIXES.forEach((suffix) => {
-      if (symbol.endsWith(suffix) && symbol.length > suffix.length + 2) {
-        queries.add(symbol.slice(0, symbol.length - suffix.length))
-      }
-    })
+    if (queries.size === 0) { setLoading(false); return }
 
     try {
       const searches = await Promise.allSettled(
-        Array.from(queries).slice(0, 5).map((q) =>
+        Array.from(queries).slice(0, 6).map((q) =>
           axios.get(`${DEXSCREENER_BASE}/latest/dex/search?q=${q}`)
         )
       )
@@ -130,18 +140,16 @@ const useParentAlpha = (alpha) => {
           .filter((p) =>
             p.chainId === 'solana' &&
             (p.marketCap || p.fdv || 0) > (alpha.marketCap || 0) &&
-            (p.liquidity?.usd || 0) > 10000 &&
+            (p.liquidity?.usd || 0) > 10_000 &&
             p.baseToken?.address !== alpha.address &&
             p.baseToken?.symbol?.toUpperCase() !== symbol
           )
           .forEach((p) => {
             const candidateSymbol = p.baseToken?.symbol?.toUpperCase() || ''
-
-            // Score by similarity — higher = more likely parent
             const sim = similarity(symbol, candidateSymbol)
 
-            // Must be at least 60% similar to be considered a parent
-            // This prevents totally unrelated high-mcap tokens from matching
+            // Threshold: 0.75 catches prefix matches and close edits
+            // Rejects coincidental similarity like STORJ/STORE
             if (sim >= 0.75 && sim > bestScore) {
               bestScore = sim
               bestMatch = p
