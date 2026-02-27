@@ -205,6 +205,103 @@ const SznCard = ({ szn, isSelected, onClick }) => {
 
 // ─── Alpha Token Card ────────────────────────────────────────────
 
+// ─── Positioning Card ─────────────────────────────────────────────
+// Specialised card for the Positioning Plays tab.
+// Shows peak, current drawdown, opportunity score prominently —
+// the signal a degen needs to decide if it's worth the entry.
+const PositioningCard = ({ alpha, isSelected, onClick }) => {
+  const change      = parseFloat(alpha.priceChange24h) || 0
+  const drawdown    = alpha.drawdownPct || 0
+  const score       = alpha.opportunityScore || 0
+  const peak        = alpha.peakMarketCap || 0
+  const current     = alpha.marketCap || 0
+  const scoreColor  = score >= 70 ? 'var(--neon-green)' : score >= 45 ? 'var(--amber)' : 'var(--text-muted)'
+
+  return (
+    <div
+      className={`card alpha-card ${isSelected ? 'active' : ''}`}
+      onClick={onClick}
+      style={{ borderColor: isSelected ? 'var(--cyan)' : `${scoreColor}33` }}
+    >
+      {/* Header */}
+      <div className="alpha-card-top">
+        <div className="token-info">
+          <div className="token-icon">
+            {alpha.logoUrl ? <img src={alpha.logoUrl} alt={alpha.symbol} /> : alpha.symbol.slice(0, 3)}
+          </div>
+          <div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+              <div className="token-name">${alpha.symbol}</div>
+              <span style={{
+                fontFamily: 'var(--font-mono)', fontSize: 7, fontWeight: 700,
+                color: scoreColor, border: `1px solid ${scoreColor}44`,
+                borderRadius: 3, padding: '1px 4px',
+              }}>
+                {score}/100
+              </span>
+            </div>
+            <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+              <div className="token-address">{shortAddress(alpha.address)}</div>
+              <span style={{ fontFamily: 'var(--font-mono)', fontSize: 8, color: 'var(--text-muted)' }}>
+                {alpha.ageDays}d ago
+              </span>
+            </div>
+          </div>
+        </div>
+        {/* DEX link */}
+        <span
+          onClick={e => { e.stopPropagation(); window.open(alpha.dexUrl || `https://dexscreener.com/solana/${alpha.address}`, '_blank') }}
+          style={{ fontFamily: 'var(--font-mono)', fontSize: 8, color: 'var(--text-muted)', cursor: 'pointer', padding: '1px 4px', borderRadius: 3, border: '1px solid rgba(255,255,255,0.08)' }}
+          onMouseEnter={e => e.currentTarget.style.color = 'var(--cyan)'}
+          onMouseLeave={e => e.currentTarget.style.color = 'var(--text-muted)'}
+        >DEX ↗</span>
+      </div>
+
+      {/* Drawdown bar — the key signal */}
+      <div style={{ margin: '6px 0 4px' }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 3 }}>
+          <span style={{ fontFamily: 'var(--font-mono)', fontSize: 8, color: 'var(--text-muted)' }}>
+            drawdown from peak
+          </span>
+          <span style={{ fontFamily: 'var(--font-mono)', fontSize: 8, fontWeight: 700, color: 'var(--red)' }}>
+            -{drawdown}%
+          </span>
+        </div>
+        <div style={{ height: 4, background: 'rgba(255,255,255,0.06)', borderRadius: 2, overflow: 'hidden' }}>
+          <div style={{
+            height: '100%',
+            width: `${Math.min(drawdown, 100)}%`,
+            background: drawdown >= 80 ? 'var(--red)' : drawdown >= 60 ? 'var(--amber)' : 'var(--neon-green)',
+            borderRadius: 2,
+          }} />
+        </div>
+      </div>
+
+      {/* Metrics row */}
+      <div className="alpha-card-metrics">
+        <div className="metric">
+          <span className="metric-label">Peak</span>
+          <span className="metric-value" style={{ color: 'var(--text-muted)' }}>{formatNum(peak)}</span>
+        </div>
+        <div className="metric">
+          <span className="metric-label">Now</span>
+          <span className="metric-value">{formatNum(current)}</span>
+        </div>
+        <div className="metric">
+          <span className="metric-label">Vol 24h</span>
+          <span className="metric-value">{formatNum(alpha.volume24h)}</span>
+        </div>
+        <div className="metric">
+          <span className="metric-label">24h %</span>
+          <span className="metric-value" style={{ color: change >= 0 ? 'var(--neon-green)' : 'var(--red)' }}>
+            {change >= 0 ? '+' : ''}{change.toFixed(1)}%
+          </span>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 const AlphaCard = ({ alpha, isSelected, onClick }) => {
   const change     = parseFloat(alpha.priceChange24h) || 0
   const isPositive = change >= 0
@@ -233,6 +330,14 @@ const AlphaCard = ({ alpha, isSelected, onClick }) => {
               )}
               {alpha.isDumped && (
                 <span className="badge badge-weak" style={{ fontSize: 7, padding: '1px 5px', background: 'rgba(255,68,102,0.15)', borderColor: 'rgba(255,68,102,0.4)', color: 'var(--red)' }}>💀 DUMPED</span>
+              )}
+              {alpha.source === 'pumpfun_bonded' && (
+                <span className="badge badge-new" style={{ fontSize: 7, padding: '1px 5px' }}>🎓 BONDED</span>
+              )}
+              {alpha.source === 'pumpfun_pre' && (
+                <span className="badge badge-verified" style={{ fontSize: 7, padding: '1px 5px', background: 'rgba(255,184,0,0.12)', borderColor: 'rgba(255,184,0,0.3)', color: 'var(--amber)' }}>
+                  🔥 {alpha.bondingProgress}% bonding
+                </span>
               )}
             </div>
             <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
@@ -299,12 +404,14 @@ const AlphaCard = ({ alpha, isSelected, onClick }) => {
 const AlphaBoard = ({ selectedAlpha, onSelect }) => {
   const [activeTab,    setActiveTab]    = useState('live')
   const [searchQuery,  setSearchQuery]  = useState('')
-  const { liveAlphas, coolingAlphas, legends, loading, isRefreshing, error, lastUpdated, refresh } = useAlphas()
+  const { liveAlphas, coolingAlphas, positioningAlphas, legends, loading, isRefreshing, error, lastUpdated, refresh } = useAlphas()
   const sznCards = useNarrativeSzn(liveAlphas)
 
   const rawList =
-    activeTab === 'live'    ? liveAlphas    :
-    activeTab === 'cooling' ? coolingAlphas : legends
+    activeTab === 'live'        ? liveAlphas        :
+    activeTab === 'cooling'     ? coolingAlphas     :
+    activeTab === 'positioning' ? positioningAlphas :
+    legends
 
   // Apply search filter across all tabs
   const displayList = useMemo(() =>
@@ -326,9 +433,10 @@ const AlphaBoard = ({ selectedAlpha, onSelect }) => {
   const isEmpty = !loading && displayList.length === 0
 
   const tabs = [
-    { key: 'live',    label: '🔥 Live',    count: liveAlphas.length    },
-    { key: 'cooling', label: '❄️ Cooling', count: coolingAlphas.length },
-    { key: 'legends', label: '🏆 Legends', count: legends.length       },
+    { key: 'live',        label: '🔥 Live',        count: liveAlphas.length        },
+    { key: 'cooling',     label: '❄️ Cooling',     count: coolingAlphas.length     },
+    { key: 'positioning', label: '🎯 Position',    count: positioningAlphas.length },
+    { key: 'legends',     label: '🏆 Legends',     count: legends.length           },
   ]
 
   return (
@@ -405,6 +513,11 @@ const AlphaBoard = ({ selectedAlpha, onSelect }) => {
           {activeTab === 'cooling' && (
             <p style={{ fontFamily: 'var(--font-mono)', fontSize: 9, color: 'var(--cyan)', lineHeight: 1.5 }}>
               Tokens down in the last 24h — retracing or consolidating. Watch for second leg entry.
+            </p>
+          )}
+          {activeTab === 'positioning' && (
+            <p style={{ fontFamily: 'var(--font-mono)', fontSize: 9, color: 'var(--amber)', lineHeight: 1.5 }}>
+              Big peak. Big drawdown. Volume still alive. These are the second-leg setups degens hunt.
             </p>
           )}
           {activeTab === 'legends' && (
@@ -517,12 +630,19 @@ const AlphaBoard = ({ selectedAlpha, onSelect }) => {
         )}
 
         {!loading && displayList.map((alpha) => (
-          <AlphaCard
-            key={alpha.id}
-            alpha={alpha}
-            isSelected={selectedAlpha?.id === alpha.id}
-            onClick={() => onSelect(alpha)}
-          />
+          activeTab === 'positioning'
+            ? <PositioningCard
+                key={alpha.id || alpha.address}
+                alpha={alpha}
+                isSelected={selectedAlpha?.id === alpha.id}
+                onClick={() => onSelect(alpha)}
+              />
+            : <AlphaCard
+                key={alpha.id}
+                alpha={alpha}
+                isSelected={selectedAlpha?.id === alpha.id}
+                onClick={() => onSelect(alpha)}
+              />
         ))}
       </div>
     </aside>

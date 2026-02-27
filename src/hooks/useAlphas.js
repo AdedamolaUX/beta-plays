@@ -99,7 +99,72 @@ const loadHistoricalByPriceAction = (currentAddresses) => {
   }
 }
 
-// ─── Format pair → alpha ─────────────────────────────────────────
+// ─── Load positioning plays ───────────────────────────────────────
+// "Positioning Plays" = tokens that:
+//   1. Had a meaningful peak (>$50K mcap)
+//   2. Have drawn down significantly from that peak (>40%)
+//   3. Still have volume alive (someone is still interested)
+//   4. Still have liquidity (can actually be traded)
+//
+// Sorted by: opportunity score = drawdown depth × volume aliveness
+// The signal: big peak + big drawdown + still trading = degen magnet
+// These are the tokens traders position in for the second leg.
+
+const loadPositioningPlays = () => {
+  try {
+    const existing = JSON.parse(localStorage.getItem(STORAGE_KEY) || '{}')
+    const now      = Date.now()
+
+    return Object.values(existing)
+      .filter(a => {
+        const peak      = a.peakMarketCap || 0
+        const current   = a.marketCap     || 0
+        const volume    = a.volume24h     || 0
+        const liquidity = a.liquidity     || 0
+        const age       = now - (a.firstSeen || now)
+
+        if (peak < 50_000)     return false  // Never had meaningful size
+        if (current === 0)     return false  // Dead
+        if (volume < 5_000)    return false  // No one trading it
+        if (liquidity < 3_000) return false  // Can't get in/out
+        if (age < 12 * 3600000) return false // Too new — need history
+
+        const drawdown = (peak - current) / peak
+        return drawdown >= 0.40  // Down 40%+ from peak
+      })
+      .map(a => {
+        const peak        = a.peakMarketCap || 0
+        const current     = a.marketCap     || 0
+        const drawdown    = peak > 0 ? ((peak - current) / peak) : 0
+        const ageDays     = (now - (a.firstSeen || now)) / 86400000
+
+        // Opportunity score:
+        //   Deep drawdown = more room to recover
+        //   High volume = still being traded actively
+        //   Not too old = narrative still fresh
+        const volScore      = Math.min(a.volume24h / 500_000, 1)
+        const drawdownScore = Math.min(drawdown, 0.99)
+        const freshnessScore = Math.max(0, 1 - ageDays / 14)  // Freshest in 14d
+        const opportunityScore = Math.round(
+          (drawdownScore * 0.50 + volScore * 0.30 + freshnessScore * 0.20) * 100
+        )
+
+        return {
+          ...a,
+          isPositioning:    true,
+          drawdownPct:      Math.round(drawdown * 100),
+          opportunityScore,
+          peakMarketCap:    peak,
+          ageDays:          Math.round(ageDays),
+        }
+      })
+      .sort((a, b) => b.opportunityScore - a.opportunityScore)
+      .slice(0, 30)
+
+  } catch {
+    return []
+  }
+}
 const formatAlpha = (pair, source = 'boost', extraDescription = '') => ({
   id:             pair.pairAddress || pair.baseToken?.address,
   symbol:         pair.baseToken?.symbol || '???',
@@ -195,45 +260,117 @@ const fetchProfileAlphas = async () => {
 }
 
 // ─── Source 3: PumpFun graduating tokens ────────────────────────
-const fetchPumpFunGraduating = async () => {
+// ─── Source 3: PumpFun bonded tokens → real DEX data ────────────
+// PumpFun tokens graduate at ~$35K bonding. After migration they live
+// on Raydium and DEXScreener shows real price action.
+//
+// Two-phase fetch:
+//   Phase A: PumpFun API → get recently bonded coins (complete: true)
+//            with their raydium_pool address
+//   Phase B: DEXScreener → fetch real pair data using raydium_pool
+//            This replaces the frozen bonding curve snapshot with
+//            actual post-bond price action, volume, and mcap
+//
+// Also keeps a pre-graduation watch: tokens approaching bonding
+// are surfaced as early signal (source: 'pumpfun_pre')
+
+const fetchPumpFunBonded = async () => {
   try {
+    // Fetch recently bonded coins (last 48h activity, sorted by migration time)
     const res = await axios.get(
-      `${PUMPFUN_BASE}/coins?sort=market_cap&order=DESC&limit=50&includeNsfw=false`,
+      `${PUMPFUN_BASE}/coins?sort=last_trade_timestamp&order=DESC&limit=100&includeNsfw=false`,
       { timeout: 8000 }
     )
-    return (res.data || [])
-      .filter((coin) => {
-        const mcap = coin.usd_market_cap || 0
-        return mcap >= 50_000 && mcap <= 500_000
+
+    const coins = res.data || []
+
+    // Split: bonded (complete=true, has raydium_pool) vs approaching graduation
+    const bonded      = coins.filter(c => c.complete && c.raydium_pool)
+    const approaching = coins.filter(c => !c.complete && (c.usd_market_cap || 0) >= 20_000 && (c.usd_market_cap || 0) <= 34_000)
+
+    // ── Phase B: fetch real DEX data for bonded tokens ───────────
+    // Use the raydium_pool address to get the actual Raydium pair
+    const bondedResults = []
+    if (bonded.length > 0) {
+      const pairFetches = await Promise.allSettled(
+        bonded.slice(0, 20).map(coin =>
+          axios.get(`${DEXSCREENER_BASE}/latest/dex/tokens/${coin.raydium_pool}`, { timeout: 6000 })
+            .then(r => ({ coin, pairs: r.data?.pairs || [] }))
+        )
+      )
+
+      pairFetches.forEach(result => {
+        if (result.status !== 'fulfilled') return
+        const { coin, pairs } = result.value
+
+        // Find the best Solana pair by volume
+        const best = pairs
+          .filter(p => p.chainId === 'solana')
+          .sort((a, b) => (b.volume?.h24 || 0) - (a.volume?.h24 || 0))[0]
+
+        if (!best) return
+
+        const postBondMcap = best.marketCap || best.fdv || 0
+
+        // Real post-bond data from DEXScreener — no more frozen snapshot
+        bondedResults.push({
+          id:              best.pairAddress || coin.mint,
+          symbol:          best.baseToken?.symbol || coin.symbol || '???',
+          name:            best.baseToken?.name   || coin.name   || 'Unknown',
+          address:         best.baseToken?.address || coin.mint  || '',
+          pairAddress:     best.pairAddress || '',
+          priceUsd:        best.priceUsd || '0',
+          priceChange24h:  parseFloat(best.priceChange?.h24 || 0),  // REAL 24h change
+          volume24h:       best.volume?.h24    || 0,                 // REAL volume
+          marketCap:       postBondMcap,                             // REAL mcap
+          liquidity:       best.liquidity?.usd || 0,
+          logoUrl:         best.info?.imageUrl || coin.image_uri || null,
+          description:     best.info?.description || coin.description || '',
+          pairCreatedAt:   best.pairCreatedAt || coin.created_timestamp || null,
+          isHistorical:    false,
+          isLegend:        false,
+          isCooling:       false,
+          coolingLabel:    null,
+          source:          'pumpfun_bonded',   // distinct from pre-graduation
+          bondedAt:        coin.created_timestamp || null,
+          raydiumPool:     coin.raydium_pool,
+          dexUrl:          best.url || `https://dexscreener.com/solana/${best.pairAddress}`,
+        })
       })
-      .slice(0, 10)
-      .map((coin) => ({
-        id:             coin.mint,
-        symbol:         coin.symbol || '???',
-        name:           coin.name   || 'Unknown',
-        address:        coin.mint   || '',
-        pairAddress:    coin.mint   || '',
-        priceUsd:       coin.usd_market_cap
-          ? String(coin.usd_market_cap / (coin.total_supply || 1e9))
-          : '0',
-        priceChange24h: 0,
-        volume24h:      coin.volume || 0,
-        marketCap:      coin.usd_market_cap || 0,
-        liquidity:      coin.virtual_sol_reserves ? coin.virtual_sol_reserves * 150 : 0,
-        logoUrl:        coin.image_uri || null,
-        pairCreatedAt:  coin.created_timestamp || null,
-        description:    coin.description || '',
-        website:        coin.website || null,
-        twitter:        coin.twitter || null,
-        isHistorical:   false,
-        isLegend:       false,
-        isCooling:      false,
-        coolingLabel:   null,
-        source:         'pumpfun',
-        dexUrl:         `https://pump.fun/${coin.mint}`,
-      }))
+    }
+
+    // ── Pre-graduation tokens approaching bonding ─────────────────
+    // Surfaced as early narrative signal — $20K–$34K mcap on bonding curve
+    // These are NOT shown with real price data (we don't have it yet)
+    // but they flag narratives about to graduate and spawn betas
+    const preGradResults = approaching.slice(0, 8).map(coin => ({
+      id:              coin.mint,
+      symbol:          coin.symbol || '???',
+      name:            coin.name   || 'Unknown',
+      address:         coin.mint   || '',
+      pairAddress:     coin.mint   || '',
+      priceUsd:        coin.usd_market_cap ? String(coin.usd_market_cap / (coin.total_supply || 1e9)) : '0',
+      priceChange24h:  0,           // Bonding curve — not real price action
+      volume24h:       coin.volume || 0,
+      marketCap:       coin.usd_market_cap || 0,
+      liquidity:       coin.virtual_sol_reserves ? coin.virtual_sol_reserves * 150 : 0,
+      logoUrl:         coin.image_uri || null,
+      description:     coin.description || '',
+      pairCreatedAt:   coin.created_timestamp || null,
+      isHistorical:    false,
+      isLegend:        false,
+      isCooling:       false,
+      coolingLabel:    null,
+      source:          'pumpfun_pre',   // pre-graduation — approaching bonding
+      bondingProgress: Math.round(((coin.usd_market_cap || 0) / 35_000) * 100),
+      dexUrl:          `https://pump.fun/${coin.mint}`,
+    }))
+
+    console.log(`[PumpFun] ${bondedResults.length} bonded (real DEX data), ${preGradResults.length} approaching graduation`)
+    return [...bondedResults, ...preGradResults]
+
   } catch (err) {
-    console.warn('PumpFun graduating fetch failed:', err.message)
+    console.warn('PumpFun bonded fetch failed:', err.message)
     return []
   }
 }
@@ -312,13 +449,20 @@ const classifyByPriceAction = (alphas) => {
       return
     }
 
-    // PumpFun graduating: no reliable 24h data, treat as Live if active
-    if (alpha.source === 'pumpfun') {
+    // pumpfun_bonded: real post-bond DEX data — classify normally like any token
+    // pumpfun_pre: approaching graduation — no real price data, surface as live signal
+    if (alpha.source === 'pumpfun_pre') {
       if (volume >= COOLING_MIN_VOLUME && mcap >= COOLING_MIN_MCAP) {
-        live.push({ ...alpha, weeklyContext: weekCtx })
+        live.push({
+          ...alpha,
+          weeklyContext: weekCtx,
+          coolingLabel:  `🎓 ${alpha.bondingProgress || '?'}% to graduation`,
+        })
       }
       return
     }
+
+    // pumpfun_bonded falls through to normal classification below (has real priceChange24h)
 
     if (change > LIVE_MIN_CHANGE && volume >= LIVE_MIN_VOLUME) {
       live.push({ ...alpha, weeklyContext: weekCtx })
@@ -348,13 +492,14 @@ const getMomentumScore = (alpha) => {
 
 // ─── Main hook ───────────────────────────────────────────────────
 const useAlphas = () => {
-  const [liveAlphas,    setLiveAlphas]    = useState([])
-  const [coolingAlphas, setCoolingAlphas] = useState([])
-  const [legends]                         = useState(LEGENDS)
-  const [loading,       setLoading]       = useState(true)
-  const [isRefreshing,  setIsRefreshing]  = useState(false)  // silent background refresh
-  const [error,         setError]         = useState(null)
-  const [lastUpdated,   setLastUpdated]   = useState(null)
+  const [liveAlphas,        setLiveAlphas]        = useState([])
+  const [coolingAlphas,     setCoolingAlphas]     = useState([])
+  const [positioningAlphas, setPositioningAlphas] = useState([])
+  const [legends]                                  = useState(LEGENDS)
+  const [loading,           setLoading]           = useState(true)
+  const [isRefreshing,      setIsRefreshing]      = useState(false)
+  const [error,             setError]             = useState(null)
+  const [lastUpdated,       setLastUpdated]       = useState(null)
 
   const fetchLive = useCallback(async () => {
     // First load → show skeletons. Subsequent → silent refresh, keep existing list visible
@@ -367,7 +512,7 @@ const useAlphas = () => {
       const [boosted, profiles, pumpfun] = await Promise.allSettled([
         fetchBoostedAlphas(),
         fetchProfileAlphas(),
-        fetchPumpFunGraduating(),
+        fetchPumpFunBonded(),
       ])
 
       const freshRaw = deduplicateAlphas([
@@ -416,6 +561,7 @@ const useAlphas = () => {
 
       setLiveAlphas(sortedLive)
       setCoolingAlphas(sortedCooling)
+      setPositioningAlphas(loadPositioningPlays())
       setLastUpdated(new Date())
     } catch (err) {
       console.error('Alpha feed failed:', err.message)
@@ -431,6 +577,7 @@ const useAlphas = () => {
     const { historicalLive, historicalCooling } = loadHistoricalByPriceAction(new Set())
     setLiveAlphas(historicalLive)
     setCoolingAlphas(historicalCooling)
+    setPositioningAlphas(loadPositioningPlays())
     fetchLive()
   }, [fetchLive])
 
@@ -442,6 +589,7 @@ const useAlphas = () => {
   return {
     liveAlphas,
     coolingAlphas,
+    positioningAlphas,
     legends,
     loading,
     isRefreshing,
