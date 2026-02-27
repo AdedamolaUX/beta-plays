@@ -1,6 +1,8 @@
 import { useState, useEffect, useCallback } from 'react'
 import axios from 'axios'
 import { getSearchTerms, getConcepts, generateTickerVariants } from '../data/lore_map'
+import { scoreWithAI } from './useAIBetaScoring'
+import { compareLogos, shouldRunVision } from './useImageAnalysis'
 
 const DEXSCREENER_BASE = 'https://api.dexscreener.com'
 const PUMPFUN_BASE     = 'https://frontend-api.pump.fun'
@@ -94,17 +96,22 @@ const extractDescriptionKeywords = (description) => {
 
 const fetchDescriptionKeywords = async (alpha) => {
   try {
-    // Try to get token profile from DEXScreener
+    // If description was already saved at fetch time (PumpFun or profile), use it
+    if (alpha.description && alpha.description.length > 10) {
+      const keywords = extractDescriptionKeywords(alpha.description)
+      console.log(`[Vector1] ${alpha.symbol} cached description → ${keywords.length} keywords`)
+      return { keywords, description: alpha.description }
+    }
+
+    // Otherwise fetch from DEXScreener
     const res = await axios.get(
       `${DEXSCREENER_BASE}/latest/dex/tokens/${alpha.address}`,
       { timeout: 6000 }
     )
     const pairs = res.data?.pairs || []
-    if (pairs.length === 0) return []
+    if (pairs.length === 0) return { keywords: [], description: '' }
 
     const pair = pairs[0]
-
-    // DEXScreener embeds description in pair info
     const description =
       pair.info?.description ||
       pair.baseToken?.description ||
@@ -112,10 +119,10 @@ const fetchDescriptionKeywords = async (alpha) => {
 
     const keywords = extractDescriptionKeywords(description)
     console.log(`[Vector1] ${alpha.symbol} description keywords:`, keywords)
-    return keywords
+    return { keywords, description }
   } catch (err) {
     console.warn('Description fetch failed:', err.message)
-    return []
+    return { keywords: [], description: '' }
   }
 }
 
@@ -207,11 +214,15 @@ const classifyTokens = (betas) => {
 export const getSignal = (beta) => {
   const s = beta.signalSources || []
   // LP pair is the strongest possible signal — direct pairing
-  if (s.includes('lp_pair'))                                     return { label: 'CABAL',    tier: 5 }
+  if (s.includes('lp_pair'))                                     return { label: 'CABAL',    tier: 6 }
+  // AI + any other signal = CABAL tier
+  if (s.includes('ai_match')   && s.includes('keyword'))         return { label: 'CABAL',    tier: 5 }
+  if (s.includes('ai_match')   && s.includes('morphology'))      return { label: 'CABAL',    tier: 5 }
   if (s.includes('pumpfun')    && s.includes('keyword'))         return { label: 'CABAL',    tier: 4 }
   if (s.includes('morphology') && s.includes('keyword'))         return { label: 'CABAL',    tier: 4 }
   if (s.includes('description')&& s.includes('keyword'))         return { label: 'CABAL',    tier: 4 }
   if (s.includes('pumpfun'))                                     return { label: 'TRENDING', tier: 3 }
+  if (s.includes('ai_match'))                                    return { label: 'AI',       tier: 3 }
   if (s.includes('description'))                                 return { label: 'STRONG',   tier: 2 }
   if (s.includes('morphology'))                                  return { label: 'STRONG',   tier: 2 }
   if (s.includes('keyword'))                                     return { label: 'STRONG',   tier: 2 }
@@ -238,6 +249,8 @@ const formatBeta = (pair, sources = []) => {
     liquidity:      pair.liquidity?.usd || 0,
     logoUrl:        pair.info?.imageUrl || null,
     pairCreatedAt:  pair.pairCreatedAt  || null,
+    // ── Description: saved so Vector 8 has context ─────────────
+    description:    pair.info?.description || pair.baseToken?.description || pair._description || '',
     ageLabel, ageMs,
     signalSources:  sources,
     tokenClass:     null,
@@ -355,7 +368,7 @@ const fetchPumpFunBetas = async (alphaSymbol, descKeywords = []) => {
           volume:       { h24: coin.volume || 0 },
           marketCap:    coin.usd_market_cap || 0,
           liquidity:    { usd: coin.virtual_sol_reserves ? coin.virtual_sol_reserves * 150 : 0 },
-          info:         { imageUrl: coin.image_uri || null },
+          info:         { imageUrl: coin.image_uri || null, description: coin.description || '' },
           url:          `https://pump.fun/${coin.mint}`,
           pairCreatedAt: coin.created_timestamp,
         },
@@ -410,17 +423,24 @@ const useBetas = (alpha) => {
 
     try {
       // Fetch description keywords first — feeds into multiple signals
-      const descKeywords = await fetchDescriptionKeywords(alpha)
+      // Also returns raw description for Vector 8 AI scoring
+      const { keywords: descKeywords, description: alphaDescription } =
+        await fetchDescriptionKeywords(alpha)
 
-      // Run all signals in parallel, passing description keywords to relevant ones
+      // Enrich alpha with description if we got a fresh one
+      const enrichedAlpha = alphaDescription
+        ? { ...alpha, description: alphaDescription }
+        : alpha
+
+      // Run all signals in parallel
       const [keywordRes, descRes, loreRes, morphRes, pumpRes, lpRes] =
         await Promise.allSettled([
-          fetchKeywordBetas(alpha.symbol),
-          fetchDescriptionBetas(alpha, descKeywords),
-          fetchLoreBetas(alpha.symbol),
-          fetchMorphologyBetas(alpha.symbol),
-          fetchPumpFunBetas(alpha.symbol, descKeywords),
-          fetchLPPairBetas(alpha),
+          fetchKeywordBetas(enrichedAlpha.symbol),
+          fetchDescriptionBetas(enrichedAlpha, descKeywords),
+          fetchLoreBetas(enrichedAlpha.symbol),
+          fetchMorphologyBetas(enrichedAlpha.symbol),
+          fetchPumpFunBetas(enrichedAlpha.symbol, descKeywords),
+          fetchLPPairBetas(enrichedAlpha),
         ])
 
       const allResults = [
@@ -432,8 +452,92 @@ const useBetas = (alpha) => {
         ...(lpRes.status      === 'fulfilled' ? lpRes.value      : []),
       ]
 
-      const merged = mergeAndScore(allResults, alpha.symbol, alpha.marketCap)
+      // Merge signals 1-5 into deduplicated list
+      const merged = mergeAndScore(allResults, enrichedAlpha.symbol, enrichedAlpha.marketCap)
+
+      // ── Signal 6: Vector 8 AI scoring ───────────────────────────
+      // enrichedAlpha.description is now populated — Claude gets full
+      // narrative context, not just symbol + name. Candidates also carry
+      // .description where available (PumpFun devs often name their alpha
+      // directly in the description, e.g. "the dog version of $PIPPIN").
       setBetas(merged)
+
+      try {
+        const aiScored = await scoreWithAI(enrichedAlpha, merged)
+        if (aiScored.length > 0) {
+          // Merge AI scores back into the existing beta list
+          const aiAddresses = new Map(aiScored.map(b => [b.address, b]))
+          const withAI = merged.map(b =>
+            aiAddresses.has(b.address)
+              ? { ...b, ...aiAddresses.get(b.address) }
+              : b
+          )
+          // Add any new betas found only by AI (not in merged)
+          const mergedAddresses = new Set(merged.map(b => b.address))
+          const aiOnly = aiScored.filter(b => !mergedAddresses.has(b.address))
+
+          const finalList = [...withAI, ...aiOnly]
+            .sort((a, b) => {
+              const aIsLP = a.signalSources?.includes('lp_pair') ? 1 : 0
+              const bIsLP = b.signalSources?.includes('lp_pair') ? 1 : 0
+              if (bIsLP !== aIsLP) return bIsLP - aIsLP
+              return (parseFloat(b.priceChange24h) || 0) - (parseFloat(a.priceChange24h) || 0)
+            })
+            .slice(0, 30)
+
+          setBetas(finalList)
+        }
+      } catch (aiErr) {
+        console.warn('[Vector8] AI scoring failed:', aiErr.message)
+      }
+
+      // ── Signal 7: Vision — visual logo comparison ────────────────
+      // Only runs if alpha has a logo AND text/AI signals were weak.
+      // Compares alpha logo against candidate logos via Claude Vision.
+      // Catches visual derivatives text analysis is blind to:
+      //   - Same character recolored
+      //   - Alpha mascot wearing something new
+      //   - Direct logo copy with minor edits
+      try {
+        // Get the latest betas state to check text confidence
+        const currentBetas = await new Promise(resolve => {
+          setBetas(prev => { resolve(prev); return prev })
+        })
+        const weakTextCandidates = currentBetas.filter(b =>
+          shouldRunVision(b, (b.signalSources?.length || 0) * 0.25)
+        )
+
+        if (enrichedAlpha.logoUrl && weakTextCandidates.length > 0) {
+          console.log(`[Vision] Comparing ${weakTextCandidates.length} candidate logos for $${enrichedAlpha.symbol}`)
+          const visualMatches = await compareLogos(enrichedAlpha, weakTextCandidates)
+
+          if (visualMatches.length > 0) {
+            const visualAddresses = new Map(visualMatches.map(b => [b.address, b]))
+            setBetas(prev => {
+              const enriched = prev.map(b =>
+                visualAddresses.has(b.address)
+                  ? { ...b, ...visualAddresses.get(b.address) }
+                  : b
+              )
+              // Any visual-only matches not already in list
+              const existingAddresses = new Set(prev.map(b => b.address))
+              const visualOnly = visualMatches.filter(b => !existingAddresses.has(b.address))
+              return [...enriched, ...visualOnly]
+                .sort((a, b) => {
+                  const aLP = a.signalSources?.includes('lp_pair') ? 1 : 0
+                  const bLP = b.signalSources?.includes('lp_pair') ? 1 : 0
+                  if (bLP !== aLP) return bLP - aLP
+                  return (parseFloat(b.priceChange24h) || 0) - (parseFloat(a.priceChange24h) || 0)
+                })
+                .slice(0, 35)
+            })
+            console.log(`[Vision] Added ${visualMatches.length} visual matches for $${enrichedAlpha.symbol}`)
+          }
+        }
+      } catch (visionErr) {
+        console.warn('[Vision] Logo comparison failed (non-fatal):', visionErr.message)
+      }
+
       if (merged.length === 0) setError('No beta plays detected yet. Trenches might be cooked.')
     } catch (err) {
       console.error('Beta detection failed:', err)

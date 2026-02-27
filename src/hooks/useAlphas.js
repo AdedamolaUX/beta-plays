@@ -94,7 +94,7 @@ const loadHistoricalByPriceAction = (currentAddresses) => {
 }
 
 // ─── Format pair → alpha ─────────────────────────────────────────
-const formatAlpha = (pair, source = 'boost') => ({
+const formatAlpha = (pair, source = 'boost', extraDescription = '') => ({
   id:             pair.pairAddress || pair.baseToken?.address,
   symbol:         pair.baseToken?.symbol || '???',
   name:           pair.baseToken?.name   || 'Unknown',
@@ -107,6 +107,10 @@ const formatAlpha = (pair, source = 'boost') => ({
   liquidity:      pair.liquidity?.usd || 0,
   logoUrl:        pair.info?.imageUrl || null,
   pairCreatedAt:  pair.pairCreatedAt  || null,
+  // ── Description: best available from pair info or passed in ────
+  description:    pair.info?.description || pair.baseToken?.description || extraDescription || '',
+  website:        pair.info?.websites?.[0]?.url || null,
+  twitter:        pair.info?.socials?.find(s => s.type === 'twitter')?.url || null,
   isHistorical:   false,
   isLegend:       false,
   isCooling:      false,
@@ -151,17 +155,31 @@ const fetchProfileAlphas = async () => {
     const res      = await axios.get(`${DEXSCREENER_BASE}/token-profiles/latest/v1`, { timeout: 10000 })
     const profiles = (res.data || []).filter((b) => b.chainId === 'solana').slice(0, 20)
     if (!profiles.length) return []
+
+    // Build a description map from the profile endpoint — it has the richest data
+    // Profile fields: tokenAddress, description, links, icon, header
+    const descriptionMap = {}
+    profiles.forEach((p) => {
+      if (p.tokenAddress && p.description) {
+        descriptionMap[p.tokenAddress] = p.description
+      }
+    })
+
     const pairResults = await Promise.allSettled(
       profiles.map((b) => axios.get(`${DEXSCREENER_BASE}/latest/dex/tokens/${b.tokenAddress}`))
     )
     const alphas = []
-    pairResults.forEach((result) => {
+    pairResults.forEach((result, i) => {
       if (result.status !== 'fulfilled') return
       const pairs = result.value.data?.pairs || []
       const best  = pairs
         .filter((p) => p.chainId === 'solana')
         .sort((a, b) => (b.volume?.h24 || 0) - (a.volume?.h24 || 0))[0]
-      if (best) alphas.push(formatAlpha(best, 'profile'))
+      if (best) {
+        // Pass profile description as fallback — this is richer than pair.info.description
+        const profileDesc = descriptionMap[profiles[i]?.tokenAddress] || ''
+        alphas.push(formatAlpha(best, 'profile', profileDesc))
+      }
     })
     return alphas
   } catch (err) {
@@ -198,6 +216,9 @@ const fetchPumpFunGraduating = async () => {
         liquidity:      coin.virtual_sol_reserves ? coin.virtual_sol_reserves * 150 : 0,
         logoUrl:        coin.image_uri || null,
         pairCreatedAt:  coin.created_timestamp || null,
+        description:    coin.description || '',
+        website:        coin.website || null,
+        twitter:        coin.twitter || null,
         isHistorical:   false,
         isLegend:       false,
         isCooling:      false,
