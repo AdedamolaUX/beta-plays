@@ -91,53 +91,113 @@ const Navbar = ({ onListBeta }) => (
 // ─── Narrative Szn Card ──────────────────────────────────────────
 
 const SznCard = ({ szn, isSelected, onClick }) => {
-  const isPositive = szn.avgChange >= 0
-  const topThree   = szn.tokens.slice(0, 3)
+  const isPositive  = szn.avgChange >= 0
+  const heat        = szn.heat || { label: 'MILD', color: '#888888', emoji: '😴' }
+  const sznScore    = szn.sznScore || 0
+  const momentum    = szn.momentum || 0
+  const leader      = szn.leader
+  const topThree    = szn.tokens.slice(0, 3)
+
   return (
     <div
       className={`card szn-card ${isSelected ? 'active' : ''}`}
       onClick={onClick}
       style={{
         background:  isSelected ? 'rgba(0,212,255,0.08)' : 'rgba(0,212,255,0.03)',
-        borderColor: isSelected ? 'var(--cyan)' : 'rgba(0,212,255,0.2)',
+        borderColor: isSelected ? 'var(--cyan)' : `${heat.color}33`,
+        transition: 'all 0.15s ease',
       }}
     >
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-          <span style={{ fontSize: 18 }}>{szn.label.split(' ')[0]}</span>
+      {/* Header row */}
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 6 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 7 }}>
+          <span style={{ fontSize: 17 }}>{szn.label.split(' ')[0]}</span>
           <div>
-            <div style={{ fontFamily: 'var(--font-display)', fontWeight: 800, fontSize: 14, color: 'var(--cyan)' }}>
-              {szn.label.split(' ').slice(1).join(' ')} Szn
+            <div style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
+              <div style={{ fontFamily: 'var(--font-display)', fontWeight: 800, fontSize: 13, color: 'var(--cyan)' }}>
+                {szn.label.split(' ').slice(1).join(' ')} Szn
+              </div>
+              {szn.source === 'ai' && (
+                <span className="badge badge-verified" style={{ fontSize: 7, padding: '1px 4px' }}>🤖 AI</span>
+              )}
+              {szn.source === 'mixed' && (
+                <span className="badge badge-verified" style={{ fontSize: 7, padding: '1px 4px' }}>🤖 +{szn.aiEnriched}</span>
+              )}
             </div>
-            <div style={{ fontFamily: 'var(--font-mono)', fontSize: 9, color: 'var(--text-muted)' }}>
+            <div style={{ fontFamily: 'var(--font-mono)', fontSize: 8, color: 'var(--text-muted)' }}>
               {szn.tokenCount} tokens · {formatNum(szn.totalVolume)} vol
             </div>
           </div>
         </div>
-        <div className={`token-change ${isPositive ? 'positive' : 'negative'}`} style={{ fontSize: 13 }}>
-          {isPositive ? '+' : ''}{szn.avgChange.toFixed(1)}% avg
+        {/* Heat badge + score */}
+        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 2 }}>
+          <span style={{
+            fontFamily: 'var(--font-mono)', fontSize: 8, fontWeight: 700,
+            color: heat.color, letterSpacing: 0.5,
+          }}>{heat.emoji} {heat.label}</span>
+          <span style={{ fontFamily: 'var(--font-mono)', fontSize: 8, color: 'var(--text-muted)' }}>
+            score {sznScore}/100
+          </span>
         </div>
       </div>
+
+      {/* Momentum bar */}
+      <div style={{ marginBottom: 7 }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 3 }}>
+          <span style={{ fontFamily: 'var(--font-mono)', fontSize: 8, color: 'var(--text-muted)' }}>
+            momentum
+          </span>
+          <span style={{ fontFamily: 'var(--font-mono)', fontSize: 8, color: momentum >= 60 ? 'var(--neon-green)' : 'var(--text-muted)' }}>
+            {momentum}% green
+          </span>
+        </div>
+        <div style={{ height: 3, background: 'rgba(255,255,255,0.06)', borderRadius: 2, overflow: 'hidden' }}>
+          <div style={{
+            height: '100%', width: `${momentum}%`,
+            background: momentum >= 60 ? 'var(--neon-green)' : momentum >= 40 ? 'var(--amber)' : 'var(--red)',
+            borderRadius: 2, transition: 'width 0.3s ease',
+          }} />
+        </div>
+      </div>
+
+      {/* Leader + avg change */}
+      {leader && (
+        <div style={{
+          display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+          background: 'rgba(255,255,255,0.03)', borderRadius: 5, padding: '3px 7px',
+          marginBottom: 6,
+        }}>
+          <span style={{ fontFamily: 'var(--font-mono)', fontSize: 8, color: 'var(--text-muted)' }}>
+            leader
+          </span>
+          <span style={{ fontFamily: 'var(--font-display)', fontWeight: 700, fontSize: 10, color: 'var(--text-primary)' }}>
+            ${leader.symbol}
+          </span>
+          <span style={{ fontFamily: 'var(--font-mono)', fontSize: 9, fontWeight: 700, color: 'var(--neon-green)' }}>
+            +{(parseFloat(leader.priceChange24h) || 0).toFixed(0)}%
+          </span>
+        </div>
+      )}
+
+      {/* Top 3 token chips */}
       <div style={{ display: 'flex', gap: 4 }}>
-        {topThree.map((t) => (
-          <div key={t.id} style={{
-            flex: 1, background: 'rgba(255,255,255,0.04)',
-            borderRadius: 6, padding: '4px 6px',
-            fontFamily: 'var(--font-mono)', fontSize: 9, overflow: 'hidden',
-          }}>
-            <div style={{
-              color: 'var(--text-secondary)', fontWeight: 700,
-              whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis',
-            }}>${t.symbol}</div>
-            <div style={{
-              color: (parseFloat(t.priceChange24h) || 0) >= 0 ? 'var(--neon-green)' : 'var(--red)',
-              fontSize: 8, whiteSpace: 'nowrap',
+        {topThree.map((t) => {
+          const c = parseFloat(t.priceChange24h) || 0
+          return (
+            <div key={t.id || t.symbol} style={{
+              flex: 1, background: 'rgba(255,255,255,0.04)',
+              borderRadius: 5, padding: '3px 5px',
+              fontFamily: 'var(--font-mono)', fontSize: 8, overflow: 'hidden',
             }}>
-              {(parseFloat(t.priceChange24h) || 0) >= 0 ? '+' : ''}
-              {(parseFloat(t.priceChange24h) || 0).toFixed(0)}%
+              <div style={{ color: 'var(--text-secondary)', fontWeight: 700, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                ${t.symbol}
+              </div>
+              <div style={{ color: c >= 0 ? 'var(--neon-green)' : 'var(--red)', fontSize: 7 }}>
+                {c >= 0 ? '+' : ''}{c.toFixed(0)}%
+              </div>
             </div>
-          </div>
-        ))}
+          )
+        })}
       </div>
     </div>
   )
@@ -168,22 +228,52 @@ const AlphaCard = ({ alpha, isSelected, onClick }) => {
               {alpha.isLegend && (
                 <span className="badge badge-verified" style={{ fontSize: 7, padding: '1px 5px' }}>🏆 LEGEND</span>
               )}
-              {alpha.isCooling && (
+              {alpha.isCooling && !alpha.isDumped && (
                 <span className="badge badge-weak" style={{ fontSize: 7, padding: '1px 5px' }}>❄️</span>
+              )}
+              {alpha.isDumped && (
+                <span className="badge badge-weak" style={{ fontSize: 7, padding: '1px 5px', background: 'rgba(255,68,102,0.15)', borderColor: 'rgba(255,68,102,0.4)', color: 'var(--red)' }}>💀 DUMPED</span>
               )}
             </div>
             <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
               <div className="token-address">{shortAddress(alpha.address)}</div>
               {alpha.coolingLabel && (
-                <span style={{ fontFamily: 'var(--font-mono)', fontSize: 8, color: 'var(--cyan)' }}>
+                <span style={{ fontFamily: 'var(--font-mono)', fontSize: 8, color: alpha.isDumped ? 'var(--red)' : 'var(--cyan)' }}>
                   {alpha.coolingLabel}
+                </span>
+              )}
+              {alpha.weeklyContext && !alpha.isDumped && alpha.weeklyContext.ageDays >= 2 && (
+                <span style={{ fontFamily: 'var(--font-mono)', fontSize: 8, color: 'var(--text-muted)' }}>
+                  {alpha.weeklyContext.changeSinceFirst >= 0 ? '+' : ''}{alpha.weeklyContext.changeSinceFirst}% in {alpha.weeklyContext.ageDays}d
                 </span>
               )}
             </div>
           </div>
         </div>
-        <div className={`token-change ${isPositive ? 'positive' : 'negative'}`}>
-          {isPositive ? '+' : ''}{change.toFixed(1)}%
+        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 4 }}>
+          <div className={`token-change ${isPositive ? 'positive' : 'negative'}`}>
+            {isPositive ? '+' : ''}{change.toFixed(1)}%
+          </div>
+          {/* DEX link — separate from select click */}
+          <span
+            onClick={e => {
+              e.stopPropagation()
+              const url = alpha.dexUrl || `https://dexscreener.com/solana/${alpha.address}`
+              window.open(url, '_blank')
+            }}
+            style={{
+              fontFamily: 'var(--font-mono)', fontSize: 8,
+              color: 'var(--text-muted)', cursor: 'pointer',
+              padding: '1px 4px', borderRadius: 3,
+              border: '1px solid rgba(255,255,255,0.08)',
+              transition: 'color 0.15s',
+            }}
+            onMouseEnter={e => e.currentTarget.style.color = 'var(--cyan)'}
+            onMouseLeave={e => e.currentTarget.style.color = 'var(--text-muted)'}
+            title="Open on DEXScreener"
+          >
+            DEX ↗
+          </span>
         </div>
       </div>
       <div className="alpha-card-metrics">
@@ -209,7 +299,7 @@ const AlphaCard = ({ alpha, isSelected, onClick }) => {
 const AlphaBoard = ({ selectedAlpha, onSelect }) => {
   const [activeTab,    setActiveTab]    = useState('live')
   const [searchQuery,  setSearchQuery]  = useState('')
-  const { liveAlphas, coolingAlphas, legends, loading, error, lastUpdated, refresh } = useAlphas()
+  const { liveAlphas, coolingAlphas, legends, loading, isRefreshing, error, lastUpdated, refresh } = useAlphas()
   const sznCards = useNarrativeSzn(liveAlphas)
 
   const rawList =
@@ -336,8 +426,11 @@ const AlphaBoard = ({ selectedAlpha, onSelect }) => {
 
       {lastUpdated && activeTab === 'live' && !searchQuery && (
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexShrink: 0 }}>
-          <span className="mono text-muted" style={{ fontSize: 9 }}>
-            Updated {lastUpdated.toLocaleTimeString()}
+          <span className="mono text-muted" style={{ fontSize: 9, display: 'flex', alignItems: 'center', gap: 5 }}>
+            {isRefreshing
+              ? <span style={{ color: 'var(--cyan)', animation: 'pulse 1.2s ease-in-out infinite' }}>↻ Updating...</span>
+              : `Updated ${lastUpdated.toLocaleTimeString()}`
+            }
           </span>
           <button className="btn btn-ghost btn-sm" onClick={refresh} style={{ padding: '2px 8px', fontSize: 9 }}>
             ↺ Refresh
@@ -447,6 +540,7 @@ const SignalBadge = ({ beta }) => {
     LORE:     'badge-weak',
     WEAK:     'badge-weak',
     LP_PAIR:  'badge-cabal',
+    AI:       'badge-verified',
   }
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 3, alignItems: 'flex-end' }}>
@@ -461,7 +555,8 @@ const SignalBadge = ({ beta }) => {
       <span className={`badge ${classMap[signal.label] || 'badge-weak'}`} style={{ fontSize: 8, padding: '2px 6px' }}>
         {signal.label === 'CABAL'    ? '🕵️ CABAL'   :
          signal.label === 'TRENDING' ? '🔥 TRENDING' :
-         signal.label === 'LP_PAIR'  ? '🔗 LP PAIR'  : signal.label}
+         signal.label === 'LP_PAIR'  ? '🔗 LP PAIR'  :
+         signal.label === 'AI'       ? '🤖 AI MATCH' : signal.label}
       </span>
     </div>
   )
@@ -519,9 +614,10 @@ const BetaRow = ({ beta, alpha, isPinned, trenchOnly }) => {
             <span style={{ fontFamily: 'var(--font-display)', fontWeight: 700, fontSize: 13, color: 'var(--text-primary)' }}>
               ${beta.symbol}
             </span>
-            {isLPPair && <span className="badge badge-cabal"     style={{ fontSize: 7, padding: '1px 4px' }}>🔗 PAIRED</span>}
-            {isTrench  && <span className="badge badge-new"      style={{ fontSize: 7, padding: '1px 4px' }}>⛏️ TRENCH</span>}
-            {isPinned  && <span className="badge badge-verified" style={{ fontSize: 7, padding: '1px 4px' }}>DEV VERIFIED</span>}
+            {isLPPair       && <span className="badge badge-cabal"     style={{ fontSize: 7, padding: '1px 4px' }}>🔗 PAIRED</span>}
+            {isTrench       && <span className="badge badge-new"      style={{ fontSize: 7, padding: '1px 4px' }}>⛏️ TRENCH</span>}
+            {isPinned       && <span className="badge badge-verified" style={{ fontSize: 7, padding: '1px 4px' }}>DEV VERIFIED</span>}
+            {beta.isSibling && <span className="badge badge-cabal"    style={{ fontSize: 7, padding: '1px 4px', opacity: 0.85 }}>👥 SIBLING</span>}
           </div>
           <div style={{ display: 'flex', gap: 6, alignItems: 'center', marginTop: 1 }}>
             <span className="token-address">{shortAddress(beta.address)}</span>
@@ -699,8 +795,8 @@ const SznPanel = ({ szn, onListBeta }) => {
 // ─── Beta Panel ──────────────────────────────────────────────────
 
 const BetaPanel = ({ alpha, onListBeta }) => {
-  const { betas, loading: betasLoading, error, refresh } = useBetas(alpha)
   const { parent, loading: parentLoading }               = useParentAlpha(alpha)
+  const { betas, loading: betasLoading, error, refresh } = useBetas(alpha, parent)
   const [trenchOnly, setTrenchOnly] = useState(false)
   const [mcapFilter, setMcapFilter] = useState('all')
 
@@ -776,6 +872,8 @@ const BetaPanel = ({ alpha, onListBeta }) => {
             <span className="mono text-muted" style={{ fontSize: 10 }}>=multi-signal</span>
             <span className="badge badge-cabal"    style={{ fontSize: 8, padding: '2px 6px', marginLeft: 6 }}>🔗 LP PAIR</span>
             <span className="mono text-muted" style={{ fontSize: 10 }}>=direct pair</span>
+            <span className="badge badge-verified"  style={{ fontSize: 8, padding: '2px 6px', marginLeft: 6 }}>🤖 AI MATCH</span>
+            <span className="mono text-muted" style={{ fontSize: 10 }}>=semantic match</span>
           </div>
 
           {/* Wave timing legend */}

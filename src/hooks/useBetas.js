@@ -6,7 +6,7 @@ import { compareLogos, shouldRunVision } from './useImageAnalysis'
 
 const DEXSCREENER_BASE = 'https://api.dexscreener.com'
 const PUMPFUN_BASE     = 'https://frontend-api.pump.fun'
-const MIN_LIQUIDITY    = 5000
+const MIN_LIQUIDITY    = 1000   // Lowered from 5000 — small derivatives matter
 
 // ─── Compound ticker decomposition ──────────────────────────────
 const DECOMP_SUFFIXES = [
@@ -81,17 +81,17 @@ const extractDescriptionKeywords = (description) => {
     .replace(/[^a-z0-9\s]/g, ' ')
     .split(/\s+/)
     .filter(w =>
-      w.length >= 4 &&
+      w.length >= 3 &&          // Lowered from 4 — catches 'claw', 'gork', etc.
       w.length <= 20 &&
       !STOP_WORDS.has(w) &&
-      !/^\d+$/.test(w)        // Skip pure numbers
+      !/^\d+$/.test(w)          // Skip pure numbers
     )
 
-  // Deduplicate and take top 6 most meaningful words
+  // Deduplicate and take top 8 most meaningful words
   // Prioritise longer words as they're more specific
   return [...new Set(words)]
     .sort((a, b) => b.length - a.length)
-    .slice(0, 6)
+    .slice(0, 8)
 }
 
 const fetchDescriptionKeywords = async (alpha) => {
@@ -348,14 +348,48 @@ const fetchPumpFunBetas = async (alphaSymbol, descKeywords = []) => {
   const decomposed = decomposeSymbol(alphaSymbol).map(d => d.toLowerCase())
   const allTerms   = [...new Set([...concepts, ...decomposed, ...descKeywords])]
   const results    = []
+
   try {
+    // Scan 1: top 100 recent — wider net catches more derivatives
     const res = await axios.get(
-      `${PUMPFUN_BASE}/coins?sort=last_trade_timestamp&order=DESC&limit=50&includeNsfw=false`,
+      `${PUMPFUN_BASE}/coins?sort=last_trade_timestamp&order=DESC&limit=100&includeNsfw=false`,
       { timeout: 8000 }
     )
     ;(res.data || [])
       .filter(coin => {
-        const hay = `${coin.name} ${coin.symbol} ${coin.description}`.toLowerCase()
+        const hay = `${coin.name} ${coin.symbol} ${coin.description || ''}`.toLowerCase()
+        return allTerms.some(t => hay.includes(t))
+      })
+      .slice(0, 15)
+      .forEach(coin => results.push({
+        pair: {
+          pairAddress:  coin.mint,
+          baseToken:    { symbol: coin.symbol, name: coin.name, address: coin.mint },
+          priceUsd:     coin.usd_market_cap ? String(coin.usd_market_cap / (coin.total_supply || 1e9)) : '0',
+          priceChange:  { h24: 0 },
+          volume:       { h24: coin.volume || 0 },
+          marketCap:    coin.usd_market_cap || 0,
+          liquidity:    { usd: coin.virtual_sol_reserves ? coin.virtual_sol_reserves * 150 : 0 },
+          info:         { imageUrl: coin.image_uri || null, description: coin.description || '' },
+          url:          `https://pump.fun/${coin.mint}`,
+          pairCreatedAt: coin.created_timestamp,
+        },
+        sources: ['pumpfun'],
+      }))
+  } catch (err) {
+    console.warn('PumpFun fetch failed:', err.message)
+  }
+
+  // Scan 2: top 100 by market cap — catches graduated/mid-cap derivatives
+  // that dropped out of the recent feed but are still active
+  try {
+    const res2 = await axios.get(
+      `${PUMPFUN_BASE}/coins?sort=market_cap&order=DESC&limit=100&includeNsfw=false`,
+      { timeout: 8000 }
+    )
+    ;(res2.data || [])
+      .filter(coin => {
+        const hay = `${coin.name} ${coin.symbol} ${coin.description || ''}`.toLowerCase()
         return allTerms.some(t => hay.includes(t))
       })
       .slice(0, 10)
@@ -375,8 +409,9 @@ const fetchPumpFunBetas = async (alphaSymbol, descKeywords = []) => {
         sources: ['pumpfun'],
       }))
   } catch (err) {
-    console.warn('PumpFun fetch failed:', err.message)
+    console.warn('PumpFun mcap scan failed (non-fatal):', err.message)
   }
+
   return results
 }
 
@@ -410,7 +445,9 @@ const mergeAndScore = (rawResults, alphaSymbol, alphaMcap) => {
 }
 
 // ─── Main hook ───────────────────────────────────────────────────
-const useBetas = (alpha) => {
+// parentAlpha: if provided, also scans parent's namespace to find siblings
+// Siblings are tagged as RIVAL so they appear in the beta list with correct signal
+const useBetas = (alpha, parentAlpha = null) => {
   const [betas,   setBetas]   = useState([])
   const [loading, setLoading] = useState(false)
   const [error,   setError]   = useState(null)
@@ -455,15 +492,66 @@ const useBetas = (alpha) => {
       // Merge signals 1-5 into deduplicated list
       const merged = mergeAndScore(allResults, enrichedAlpha.symbol, enrichedAlpha.marketCap)
 
+      // ── Sibling scan: find narrative siblings via parent ─────────
+      // If this token has a known parent alpha ($PIPPIKO → parent: $PIPPIN),
+      // run keyword + lore signals against the PARENT's symbol too.
+      // Results that aren't already in merged = siblings → tagged RIVAL.
+      // This means $PIPPIKO's beta list will surface $MEANPIPPIN as a RIVAL
+      // and vice versa — giving traders the full family picture.
+      let siblingResults = []
+      if (parentAlpha) {
+        try {
+          const [sibKeyword, sibLore, sibMorph, sibPump] = await Promise.allSettled([
+            fetchKeywordBetas(parentAlpha.symbol),
+            fetchLoreBetas(parentAlpha.symbol),
+            fetchMorphologyBetas(parentAlpha.symbol),
+            fetchPumpFunBetas(parentAlpha.symbol),
+          ])
+          const sibRaw = [
+            ...(sibKeyword.status === 'fulfilled' ? sibKeyword.value : []),
+            ...(sibLore.status    === 'fulfilled' ? sibLore.value    : []),
+            ...(sibMorph.status   === 'fulfilled' ? sibMorph.value   : []),
+            ...(sibPump.status    === 'fulfilled' ? sibPump.value    : []),
+          ]
+          const sibMerged    = mergeAndScore(sibRaw, parentAlpha.symbol, parentAlpha.marketCap)
+          const mergedAddrs  = new Set(merged.map(b => b.address))
+          const alphaAddress = enrichedAlpha.address
+
+          // Filter: exclude the current alpha itself, exclude already-found betas
+          siblingResults = sibMerged
+            .filter(b => b.address !== alphaAddress && !mergedAddrs.has(b.address))
+            .map(b => ({
+              ...b,
+              signalSources: [...new Set([...(b.signalSources || []), 'sibling'])],
+              isSibling:     true,
+              siblingOf:     parentAlpha.symbol,
+            }))
+
+          console.log(`[Siblings] Found ${siblingResults.length} siblings of $${enrichedAlpha.symbol} via parent $${parentAlpha.symbol}`)
+        } catch (sibErr) {
+          console.warn('[Siblings] Sibling scan failed (non-fatal):', sibErr.message)
+        }
+      }
+
+      // Merge siblings into the list — they'll be sorted by change% like everything else
+      const mergedWithSiblings = [...merged, ...siblingResults]
+        .sort((a, b) => {
+          const aIsLP  = a.signalSources?.includes('lp_pair') ? 1 : 0
+          const bIsLP  = b.signalSources?.includes('lp_pair') ? 1 : 0
+          if (bIsLP !== aIsLP) return bIsLP - aIsLP
+          return (parseFloat(b.priceChange24h) || 0) - (parseFloat(a.priceChange24h) || 0)
+        })
+        .slice(0, 40)
+
       // ── Signal 6: Vector 8 AI scoring ───────────────────────────
       // enrichedAlpha.description is now populated — Claude gets full
       // narrative context, not just symbol + name. Candidates also carry
       // .description where available (PumpFun devs often name their alpha
       // directly in the description, e.g. "the dog version of $PIPPIN").
-      setBetas(merged)
+      setBetas(mergedWithSiblings)
 
       try {
-        const aiScored = await scoreWithAI(enrichedAlpha, merged)
+        const aiScored = await scoreWithAI(enrichedAlpha, mergedWithSiblings)
         if (aiScored.length > 0) {
           // Merge AI scores back into the existing beta list
           const aiAddresses = new Map(aiScored.map(b => [b.address, b]))
@@ -545,7 +633,7 @@ const useBetas = (alpha) => {
     } finally {
       setLoading(false)
     }
-  }, [alpha?.id])
+  }, [alpha?.id, parentAlpha?.id])
 
   useEffect(() => { fetchBetas() }, [fetchBetas])
 

@@ -21,10 +21,16 @@ const saveToHistory = (alphas) => {
     const now = Date.now()
     alphas.forEach((alpha) => {
       if (!alpha.address) return
+      const prev     = existing[alpha.address]
+      const prevPeak = prev?.peakMarketCap || 0
       existing[alpha.address] = {
         ...alpha,
-        firstSeen: existing[alpha.address]?.firstSeen || now,
-        lastSeen:  now,
+        firstSeen:     prev?.firstSeen || now,
+        lastSeen:      now,
+        // Track all-time peak mcap so we can detect dumps
+        peakMarketCap: Math.max(prevPeak, alpha.marketCap || 0),
+        // Track mcap at first sight for weekly performance approximation
+        mcapAtFirstSeen: prev?.mcapAtFirstSeen || alpha.marketCap || 0,
       }
     })
     Object.keys(existing).forEach((addr) => {
@@ -246,7 +252,40 @@ const deduplicateAlphas = (alphas) => {
   return Array.from(seen.values())
 }
 
-// ─── CORE: Price action classifies fresh tokens ──────────────────
+// ─── Dump detection ──────────────────────────────────────────────
+// A token showing +1164% 24h but sitting at $7K mcap after a $800K peak
+// is a dump, not a runner. Cross-reference current mcap vs stored peak.
+const isDumped = (alpha) => {
+  const peak    = alpha.peakMarketCap || 0
+  const current = alpha.marketCap     || 0
+  if (peak < 50_000)   return false  // Too small to have meaningful peak data
+  if (current === 0)   return false
+  return (current / peak) < 0.25     // Lost 75%+ from peak = dumped
+}
+
+// Approximate weekly performance from stored mcap data
+// Not exact (we don't have OHLC) but meaningful directional signal
+const getWeeklyContext = (alpha) => {
+  const mcapNow      = alpha.marketCap     || 0
+  const mcapFirst    = alpha.mcapAtFirstSeen || 0
+  const mcapPeak     = alpha.peakMarketCap  || 0
+  const ageMs        = Date.now() - (alpha.firstSeen || Date.now())
+  const ageDays      = ageMs / 86400000
+
+  if (ageDays < 1 || mcapFirst === 0) return null
+
+  const changeSinceFirst = mcapFirst > 0 ? ((mcapNow - mcapFirst) / mcapFirst) * 100 : 0
+  const drawdownFromPeak = mcapPeak  > 0 ? ((mcapNow - mcapPeak)  / mcapPeak)  * 100 : 0
+
+  return {
+    ageDays:          Math.round(ageDays),
+    changeSinceFirst: Math.round(changeSinceFirst),
+    drawdownFromPeak: Math.round(drawdownFromPeak),
+    peakMarketCap:    mcapPeak,
+  }
+}
+
+// ─── Core: Price action classifies fresh tokens ──────────────────
 const classifyByPriceAction = (alphas) => {
   const live    = []
   const cooling = []
@@ -257,19 +296,37 @@ const classifyByPriceAction = (alphas) => {
     const change = parseFloat(alpha.priceChange24h) || 0
     const volume = alpha.volume24h || 0
     const mcap   = alpha.marketCap || 0
+    const dumped = isDumped(alpha)
+    const weekCtx = getWeeklyContext(alpha)
+
+    // Dumped tokens go straight to cooling regardless of 24h %
+    // This fixes the $Wisoldman problem: +1164% 24h but down 95% from peak
+    if (dumped) {
+      cooling.push({
+        ...alpha,
+        isCooling:      true,
+        isDumped:        true,
+        weeklyContext:   weekCtx,
+        coolingLabel:    `Dumped — ${weekCtx?.drawdownFromPeak?.toFixed(0) || '?'}% from peak`,
+      })
+      return
+    }
 
     // PumpFun graduating: no reliable 24h data, treat as Live if active
     if (alpha.source === 'pumpfun') {
-      if (volume >= COOLING_MIN_VOLUME && mcap >= COOLING_MIN_MCAP) live.push(alpha)
+      if (volume >= COOLING_MIN_VOLUME && mcap >= COOLING_MIN_MCAP) {
+        live.push({ ...alpha, weeklyContext: weekCtx })
+      }
       return
     }
 
     if (change > LIVE_MIN_CHANGE && volume >= LIVE_MIN_VOLUME) {
-      live.push(alpha)
+      live.push({ ...alpha, weeklyContext: weekCtx })
     } else if (change < 0 && volume >= COOLING_MIN_VOLUME && mcap >= COOLING_MIN_MCAP) {
       cooling.push({
         ...alpha,
         isCooling:    true,
+        weeklyContext: weekCtx,
         coolingLabel: 'Watching for reversal',
       })
     }
@@ -295,11 +352,15 @@ const useAlphas = () => {
   const [coolingAlphas, setCoolingAlphas] = useState([])
   const [legends]                         = useState(LEGENDS)
   const [loading,       setLoading]       = useState(true)
+  const [isRefreshing,  setIsRefreshing]  = useState(false)  // silent background refresh
   const [error,         setError]         = useState(null)
   const [lastUpdated,   setLastUpdated]   = useState(null)
 
   const fetchLive = useCallback(async () => {
-    setLoading(true)
+    // First load → show skeletons. Subsequent → silent refresh, keep existing list visible
+    const isFirstLoad = liveAlphas.length === 0
+    if (isFirstLoad) setLoading(true)
+    else             setIsRefreshing(true)
     setError(null)
 
     try {
@@ -361,8 +422,9 @@ const useAlphas = () => {
       setError('Feed unavailable. Check connection.')
     } finally {
       setLoading(false)
+      setIsRefreshing(false)
     }
-  }, [])
+  }, [liveAlphas.length])
 
   useEffect(() => {
     // Load from storage immediately before first fetch completes
@@ -382,6 +444,7 @@ const useAlphas = () => {
     coolingAlphas,
     legends,
     loading,
+    isRefreshing,
     error,
     lastUpdated,
     refresh: fetchLive,
