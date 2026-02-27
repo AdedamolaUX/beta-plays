@@ -8,6 +8,75 @@ const DEXSCREENER_BASE = 'https://api.dexscreener.com'
 const PUMPFUN_BASE     = 'https://frontend-api.pump.fun'
 const MIN_LIQUIDITY    = 1000   // Lowered from 5000 — small derivatives matter
 
+// ─── Beta persistence ─────────────────────────────────────────────
+// Betas disappear when they fall off DEXScreener search results.
+// We persist them to localStorage keyed by alphaAddress so they
+// survive page refresh and feed drops. Max 50 betas per alpha,
+// max 7 days TTL. On load we merge stored + fresh, deduplicate,
+// then update stored prices from fresh data where available.
+const BETA_STORE_KEY = 'betaplays_betas_v2'
+const BETA_TTL_MS    = 7 * 24 * 60 * 60 * 1000  // 7 days
+const MAX_STORED     = 50
+
+const loadStoredBetas = (alphaAddress) => {
+  try {
+    const store = JSON.parse(localStorage.getItem(BETA_STORE_KEY) || '{}')
+    const bucket = store[alphaAddress] || []
+    const now = Date.now()
+    // Filter out expired betas
+    return bucket.filter(b => (now - (b.storedAt || 0)) < BETA_TTL_MS)
+  } catch { return [] }
+}
+
+const saveStoredBetas = (alphaAddress, betas) => {
+  try {
+    const store = JSON.parse(localStorage.getItem(BETA_STORE_KEY) || '{}')
+    const now   = Date.now()
+    store[alphaAddress] = betas
+      .slice(0, MAX_STORED)
+      .map(b => ({ ...b, storedAt: b.storedAt || now, isHistorical: true }))
+    localStorage.setItem(BETA_STORE_KEY, JSON.stringify(store))
+  } catch (err) {
+    console.warn('[BetaStore] Save failed:', err.message)
+  }
+}
+
+const mergeBetas = (fresh, stored) => {
+  // Fresh data takes priority — update prices on stored betas when available
+  const freshMap = new Map(fresh.map(b => [b.address, b]))
+  const mergedMap = new Map()
+
+  // Add all fresh betas first
+  fresh.forEach(b => mergedMap.set(b.address, b))
+
+  // Add stored betas not in fresh (they fell off the feed)
+  stored.forEach(b => {
+    if (!mergedMap.has(b.address)) {
+      mergedMap.set(b.address, {
+        ...b,
+        isHistorical: true,
+        coolingLabel: b.coolingLabel || 'Last seen ' + timeSince(b.storedAt),
+      })
+    }
+  })
+
+  return Array.from(mergedMap.values())
+    .sort((a, b) => {
+      // Fresh betas first, then by 24h change
+      if (!a.isHistorical && b.isHistorical) return -1
+      if (a.isHistorical && !b.isHistorical) return 1
+      return (parseFloat(b.priceChange24h) || 0) - (parseFloat(a.priceChange24h) || 0)
+    })
+}
+
+const timeSince = (ts) => {
+  if (!ts) return '?'
+  const h = Math.floor((Date.now() - ts) / 3600000)
+  if (h < 1) return '<1h ago'
+  if (h < 24) return h + 'h ago'
+  return Math.floor(h / 24) + 'd ago'
+}
+
 // ─── Compound ticker decomposition ──────────────────────────────
 const DECOMP_SUFFIXES = [
   'SCOPE', 'COIN', 'TOKEN', 'SWAP', 'PLAY', 'GAME', 'WORLD',
@@ -452,11 +521,21 @@ const useBetas = (alpha, parentAlpha = null) => {
   const [loading, setLoading] = useState(false)
   const [error,   setError]   = useState(null)
 
+  // Load stored betas immediately on alpha change so panel is never empty
+  useEffect(() => {
+    if (!alpha?.address) { setBetas([]); return }
+    const stored = loadStoredBetas(alpha.address)
+    if (stored.length > 0) {
+      setBetas(stored)
+      console.log()
+    }
+  }, [alpha?.address])
+
   const fetchBetas = useCallback(async () => {
     if (!alpha) { setBetas([]); return }
     setLoading(true)
     setError(null)
-    setBetas([])
+    // Note: don't clear betas here — keep stored visible while fetching
 
     try {
       // Fetch description keywords first — feeds into multiple signals
@@ -626,7 +705,18 @@ const useBetas = (alpha, parentAlpha = null) => {
         console.warn('[Vision] Logo comparison failed (non-fatal):', visionErr.message)
       }
 
-      if (merged.length === 0) setError('No beta plays detected yet. Trenches might be cooked.')
+      // ── Persist betas to localStorage ───────────────────────────
+      // Merge fresh results with any previously stored betas so tokens
+      // that fell off the DEXScreener feed remain visible.
+      if (alpha?.address) {
+        const stored  = loadStoredBetas(alpha.address)
+        const fullList = mergeBetas(merged, stored)
+        setBetas(fullList)
+        saveStoredBetas(alpha.address, fullList)
+        if (fullList.length === 0) setError('No beta plays detected yet. Trenches might be cooked.')
+      } else {
+        if (merged.length === 0) setError('No beta plays detected yet. Trenches might be cooked.')
+      }
     } catch (err) {
       console.error('Beta detection failed:', err)
       setError('Detection engine error. Try refreshing.')

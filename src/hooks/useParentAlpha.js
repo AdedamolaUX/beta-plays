@@ -4,33 +4,50 @@ import axios from 'axios'
 const DEXSCREENER_BASE = 'https://api.dexscreener.com'
 const STORAGE_KEY      = 'betaplays_seen_alphas'
 
-// ─── Save parent to localStorage ────────────────────────────────
-// Save ALL detected parents unconditionally.
-// loadHistoricalByPriceAction in useAlphas.js will classify them:
-// positive 24h → surfaces in Live
-// negative 24h → surfaces in Cooling
-// This means $PIPPIN at +9.4% shows in Live, $Aliens at -44% shows in Cooling.
-// No special cases needed — the existing classifier handles it.
+// ─── Save parent to localStorage ─────────────────────────────────
 const saveParentToHistory = (parent, derivative) => {
   try {
     const existing = JSON.parse(localStorage.getItem(STORAGE_KEY) || '{}')
     const now      = Date.now()
-
     existing[parent.address] = {
       ...parent,
       firstSeen:     existing[parent.address]?.firstSeen || now,
       lastSeen:      now,
       coolingReason: `Parent of $${derivative.symbol}`,
     }
-
     localStorage.setItem(STORAGE_KEY, JSON.stringify(existing))
-
     const change = parseFloat(parent.priceChange24h) || 0
     console.log(
-      `[ParentDetected] $${parent.symbol} ${change >= 0 ? '→ Live' : '→ Cooling'} (${change >= 0 ? '+' : ''}${change.toFixed(1)}%) via $${derivative.symbol}`
+      `[ParentDetected] $${parent.symbol} ${change >= 0 ? '→ Live' : '→ Cooling'} ` +
+      `(${change >= 0 ? '+' : ''}${change.toFixed(1)}%) via $${derivative.symbol}`
     )
   } catch (err) {
     console.warn('Failed to save parent to history:', err.message)
+  }
+}
+
+// ─── Fetch token description from DEXScreener ────────────────────
+// useParentAlpha runs before useBetas, so alpha.description is often
+// empty at this point (descriptions come from token profiles, not
+// the boosted/trending feed). We fetch it independently here so the
+// tier system has the data it needs to work correctly.
+// "$Peakychu" description = "ghost pikachu..." → finds $Pikachu
+// "$dippin" description = "alter ego of pippin" → finds $Pippin
+const fetchDescription = async (alpha) => {
+  if (alpha.description && alpha.description.length > 15) {
+    return alpha.description
+  }
+  try {
+    const res = await axios.get(
+      `${DEXSCREENER_BASE}/latest/dex/tokens/${alpha.address}`,
+      { timeout: 6000 }
+    )
+    const pairs = res.data?.pairs || []
+    const desc  = pairs[0]?.info?.description || pairs[0]?.baseToken?.description || ''
+    if (desc) console.log(`[ParentSearch] Fetched desc for $${alpha.symbol}: "${desc.slice(0, 60)}..."`)
+    return desc
+  } catch {
+    return ''
   }
 }
 
@@ -50,31 +67,16 @@ const editDistance = (a, b) => {
   return dp[m][n]
 }
 
-// ─── Similarity scoring ──────────────────────────────────────────
-// Prefix match: ALIEN is prefix of ALIENSCOPE → 0.95
-// Reverse prefix: ALIENSCOPE starts in ALIEN → 0.80
-// Edit distance fallback for close tickers like PIPPIN/PIPPKIN
+// ─── Similarity ──────────────────────────────────────────────────
 const similarity = (runner, candidate) => {
   const a = runner.toUpperCase()
   const b = candidate.toUpperCase()
-
-  // Exact match
   if (a === b) return 1.0
-
-  // b is a prefix of a (PIPPIN is a prefix of PIPPINS) → strong signal
-  if (a.startsWith(b) && b.length >= 3) {
-    const coverage = b.length / a.length
-    return 0.75 + (coverage * 0.2)
-  }
-
-  // a is a prefix of b (ALIEN is prefix of ALIENSCOPE) → strong signal
+  if (a.startsWith(b) && b.length >= 3) return 0.75 + (b.length / a.length) * 0.2
   if (b.startsWith(a) && a.length >= 3) return 0.80
-
-  // Shared prefix — handles PIPPIKO ↔ PIPPIN (both start with PIPPI)
-  // If the two strings share 80%+ of the shorter string as a prefix, it's a match
-  const shorter  = a.length <= b.length ? a : b
-  const longer   = a.length <= b.length ? b : a
-  let sharedLen  = 0
+  const shorter = a.length <= b.length ? a : b
+  const longer  = a.length <= b.length ? b : a
+  let sharedLen = 0
   for (let i = 0; i < shorter.length; i++) {
     if (shorter[i] === longer[i]) sharedLen++
     else break
@@ -82,18 +84,12 @@ const similarity = (runner, candidate) => {
   if (sharedLen >= 4 && sharedLen / shorter.length >= 0.75) {
     return 0.65 + (sharedLen / shorter.length) * 0.15
   }
-
-  // Edit distance fallback
   const maxLen = Math.max(a.length, b.length)
   if (maxLen === 0) return 1
   return 1 - editDistance(a, b) / maxLen
 }
 
-// ─── Compound ticker decomposition ──────────────────────────────
-// ALIENSCOPE → ['ALIEN', 'SCOPE']
-// WIFHAT     → ['WIF', 'HAT']
-// TRUMPCAT   → ['TRUMP', 'CAT']
-// PIPPKIN    → ['PIPP', 'PIPPIN' prefix slices...]
+// ─── Strip prefixes/suffixes to get root symbol candidates ───────
 const STRIP_SUFFIXES = [
   'SCOPE', 'COIN', 'TOKEN', 'SWAP', 'PLAY', 'GAME',
   'KIN', 'KY', 'LY', 'ISH', 'INU', 'WIF', 'HAT', 'CAT',
@@ -104,43 +100,36 @@ const STRIP_PREFIXES = [
   'REAL', 'OG', 'TURBO', 'CHAD', 'FAT', 'TINY',
   'MEAN', 'DARK', 'EVIL', 'BASED', 'LITTLE', 'BIG',
   'GOOD', 'BAD', 'MAD', 'SAD', 'GLAD', 'WILD',
-  'HOLY', 'DEGEN', 'ALPHA', 'BASED', 'PURE',
+  'HOLY', 'DEGEN', 'ALPHA', 'PURE',
 ]
 
 export const extractRootCandidates = (symbol) => {
   const s     = symbol.toUpperCase()
   const parts = new Set()
-
-  // Prefix slices (min 4 chars)
   for (let len = Math.min(s.length - 1, 8); len >= 4; len--) {
     parts.add(s.slice(0, len))
   }
-
   STRIP_SUFFIXES.forEach((suffix) => {
     if (s.endsWith(suffix) && s.length > suffix.length + 2) {
       parts.add(s.slice(0, s.length - suffix.length))
     }
   })
-
   STRIP_PREFIXES.forEach((prefix) => {
     if (s.startsWith(prefix) && s.length > prefix.length + 2) {
       parts.add(s.slice(prefix.length))
     }
   })
-
-  // CamelCase split: AlienScope → ALIEN, SCOPE
   const camelParts = symbol
     .replace(/([A-Z][a-z]+)/g, ' $1')
     .replace(/([A-Z]+)(?=[A-Z][a-z])/g, ' $1')
     .trim().split(/\s+/)
     .filter(p => p.length >= 3)
   camelParts.forEach(p => parts.add(p.toUpperCase()))
-
   parts.delete(s)
   return Array.from(parts)
 }
 
-// ─── Format parent ───────────────────────────────────────────────
+// ─── Format parent pair ───────────────────────────────────────────
 const formatParent = (pair) => ({
   id:             pair.pairAddress || pair.baseToken?.address,
   symbol:         pair.baseToken?.symbol || '???',
@@ -157,7 +146,26 @@ const formatParent = (pair) => ({
   dexUrl:         pair.url || `https://dexscreener.com/solana/${pair.pairAddress}`,
 })
 
+// ─── Stop words ───────────────────────────────────────────────────
+const NAME_STOP = new Set([
+  'the', 'a', 'an', 'of', 'dark', 'evil', 'mean', 'baby', 'mini',
+  'based', 'super', 'real', 'og', 'little', 'big', 'bad', 'mad',
+  'wild', 'holy', 'ghost', 'shadow', 'alter', 'turbo', 'chad',
+  'fat', 'first', 'new', 'this', 'that', 'with', 'from', 'have',
+  'will', 'just', 'play', 'game', 'coin', 'token', 'every',
+])
+
 // ─── Main hook ───────────────────────────────────────────────────
+// Parent detection confidence tiers (score boosts):
+//
+//   TIER 1 (+0.40): $TICKER in description  → "alter ego of $PIPPIN"
+//   TIER 2 (+0.25): word in description     → "ghost pikachu" → PIKACHU
+//   TIER 3 (+0.10): word in token name      → "Dark Pippin" → PIPPIN
+//   TIER 4 (+0.00): symbol prefix/pattern   → PEAKYCHU → PEAKY (weakest)
+//
+// Key fix: description is fetched independently at step 1 since the
+// live feed often strips it out of the alpha object.
+
 const useParentAlpha = (alpha) => {
   const [parent,  setParent]  = useState(null)
   const [loading, setLoading] = useState(false)
@@ -168,16 +176,16 @@ const useParentAlpha = (alpha) => {
     setLoading(true)
     setParent(null)
 
-    const symbol  = alpha.symbol.toUpperCase()
-    const queries = new Set(extractRootCandidates(symbol))
+    const symbol = alpha.symbol.toUpperCase()
 
-    // ── Name-based queries ───────────────────────────────────────
-    // Token name often reveals the parent when the symbol doesn't.
-    // "Dark Pippin" → symbol DIPPIN → name gives us "Pippin"
-    // "Ghost Pikachu" → symbol PEAKYCHU → name gives us "Pikachu"
-    const NAME_STOP = new Set(['the', 'a', 'an', 'of', 'dark', 'evil', 'mean',
-      'baby', 'mini', 'based', 'super', 'real', 'og', 'little', 'big', 'bad',
-      'mad', 'wild', 'holy', 'ghost', 'shadow', 'alter', 'turbo', 'chad', 'fat'])
+    // ── Step 1: Get description (fetch if missing) ────────────────
+    const description = await fetchDescription(alpha)
+
+    // ── Step 2: Build tiered query sets ──────────────────────────
+    const symbolQueries     = new Set(extractRootCandidates(symbol))
+    const nameQueries       = new Set()
+    const descWordQueries   = new Set()
+    const descTickerQueries = new Set()
 
     if (alpha.name) {
       alpha.name
@@ -185,34 +193,47 @@ const useParentAlpha = (alpha) => {
         .replace(/[^a-z0-9\s]/g, ' ')
         .split(/\s+/)
         .filter(w => w.length >= 4 && !NAME_STOP.has(w))
-        .forEach(w => queries.add(w.toUpperCase()))
+        .forEach(w => nameQueries.add(w.toUpperCase()))
     }
 
-    // ── Description-based queries ────────────────────────────────
-    // "the alter ego of pippin" → extract "pippin"
-    // "ghost pikachu. first new pikachu variant" → extract "pikachu"
-    // We specifically look for $ prefixed tickers AND significant nouns
-    if (alpha.description) {
-      // Dollar-sign tickers are the strongest signal: "alter ego of $PIPPIN"
-      const tickerMatches = alpha.description.match(/\$([A-Z]{2,12})/gi) || []
-      tickerMatches.forEach(t => queries.add(t.replace('$', '').toUpperCase()))
+    if (description) {
+      // Tier 1: explicit $TICKER references
+      const tickerMatches = description.match(/\$([A-Za-z]{2,12})/g) || []
+      tickerMatches.forEach(t => descTickerQueries.add(t.replace('$', '').toUpperCase()))
 
-      // Also extract meaningful words from description
-      alpha.description
+      // Tier 2: meaningful nouns from description
+      description
         .toLowerCase()
         .replace(/[^a-z0-9\s]/g, ' ')
         .split(/\s+/)
         .filter(w => w.length >= 5 && !NAME_STOP.has(w))
-        .slice(0, 4)  // Only top 4 — avoid noise
-        .forEach(w => queries.add(w.toUpperCase()))
+        .slice(0, 5)
+        .forEach(w => descWordQueries.add(w.toUpperCase()))
     }
 
-    if (queries.size === 0) { setLoading(false); return }
+    const allQueries = new Set([
+      ...descTickerQueries,
+      ...descWordQueries,
+      ...nameQueries,
+      ...symbolQueries,
+    ])
+
+    if (allQueries.size === 0) { setLoading(false); return }
+
+    // ── Step 3: Score boost per tier ──────────────────────────────
+    const getBoost = (query) => {
+      if (descTickerQueries.has(query)) return 0.40
+      if (descWordQueries.has(query))   return 0.25
+      if (nameQueries.has(query))       return 0.10
+      return 0
+    }
 
     try {
-      const searches = await Promise.allSettled(
-        Array.from(queries).slice(0, 10).map((q) =>
+      const queryList = Array.from(allQueries).slice(0, 10)
+      const searches  = await Promise.allSettled(
+        queryList.map(q =>
           axios.get(`${DEXSCREENER_BASE}/latest/dex/search?q=${q}`)
+            .then(r => ({ q, data: r.data }))
         )
       )
 
@@ -221,42 +242,55 @@ const useParentAlpha = (alpha) => {
 
       searches.forEach((result) => {
         if (result.status !== 'fulfilled') return
-        const pairs = result.value.data?.pairs || []
+        const { q, data } = result.value
+        const pairs = data?.pairs || []
+        const boost = getBoost(q)
 
         pairs
-          .filter((p) =>
+          .filter(p =>
             p.chainId === 'solana' &&
-            (p.marketCap || p.fdv || 0) > (alpha.marketCap || 0) * 0.5 && // relaxed: parent can be as small as 50% of alpha
+            (p.marketCap || p.fdv || 0) > (alpha.marketCap || 0) * 0.5 &&
             (p.liquidity?.usd || 0) > 5_000 &&
             p.baseToken?.address !== alpha.address &&
             p.baseToken?.symbol?.toUpperCase() !== symbol
           )
-          .forEach((p) => {
-            const candidateSymbol = p.baseToken?.symbol?.toUpperCase() || ''
-            const candidateName   = p.baseToken?.name?.toUpperCase()   || ''
-            const sim = Math.max(
-              similarity(symbol, candidateSymbol),
-              // Also score against name — catches DIPPIN vs PIPPIN via "Pippin" name
-              similarity(symbol, candidateName.split(/\s+/).find(w => w.length >= 4) || ''),
-            )
+          .forEach(p => {
+            const cSym  = p.baseToken?.symbol?.toUpperCase() || ''
+            const cName = p.baseToken?.name?.toUpperCase()   || ''
+            // Key fix: if the query EXACTLY matches the candidate symbol,
+            // score it 1.0. Without this, "PIKACHU" query finding $PIKACHU
+            // gets scored as similarity("PEAKYCHU","PIKACHU") = 0.38, losing
+            // to $PEAKY on pure symbol pattern matching.
+            const queryMatchesCandidate = (q === cSym)
+            const baseSim = queryMatchesCandidate
+              ? 1.0
+              : Math.max(
+                  similarity(symbol, cSym),
+                  similarity(symbol, cName.split(/\s+/).find(w => w.length >= 4) || ''),
+                )
+            // Description queries need only 0.30 base sim to qualify
+            // Symbol-pattern queries need 0.65 to prevent garbage winning
+            const minBase     = boost > 0 ? 0.30 : 0.65
+            const totalScore  = baseSim + boost
 
-            if (sim >= 0.65 && sim > bestScore) {
-              bestScore = sim
+            if (baseSim >= minBase && totalScore > bestScore) {
+              bestScore = totalScore
               bestMatch = p
+              console.log(
+                `[ParentSearch] Candidate $${cSym}: baseSim=${baseSim.toFixed(2)} ` +
+                `boost=${boost} total=${totalScore.toFixed(2)} via query "${q}"`
+              )
             }
           })
       })
 
       const foundParent = bestMatch ? formatParent(bestMatch) : null
+      console.log(
+        `[ParentSearch] Winner for $${symbol}: ` +
+        `${foundParent ? '$' + foundParent.symbol : 'none'} (score ${bestScore.toFixed(2)})`
+      )
       setParent(foundParent)
-
-      // ── Save parent to localStorage unconditionally ──────────────
-      // Positive parent → will appear in Live via loadHistoricalByPriceAction
-      // Negative parent → will appear in Cooling via loadHistoricalByPriceAction
-      // The classifier in useAlphas.js handles placement, not this hook
-      if (foundParent) {
-        saveParentToHistory(foundParent, alpha)
-      }
+      if (foundParent) saveParentToHistory(foundParent, alpha)
 
     } catch (err) {
       console.warn('Parent alpha lookup failed:', err.message)

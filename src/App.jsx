@@ -1,4 +1,4 @@
-import { useState, useMemo } from 'react'
+import { useState, useMemo, useCallback, useRef } from 'react'
 import useAlphas from './hooks/useAlphas'
 import useBetas, { getSignal, getWavePhase, getMcapRatio } from './hooks/useBetas'
 import useParentAlpha from './hooks/useParentAlpha'
@@ -519,6 +519,7 @@ const AlphaBoard = ({ selectedAlpha, onSelect }) => {
           {activeTab === 'positioning' && (
             <p style={{ fontFamily: 'var(--font-mono)', fontSize: 9, color: 'var(--amber)', lineHeight: 1.5 }}>
               Big peak. Big drawdown. Volume still alive. These are the second-leg setups degens hunt.
+              {positioningAlphas.length === 0 && ' Populates as tokens peak and retrace — check back after the next wave.'}
             </p>
           )}
           {activeTab === 'legends' && (
@@ -711,19 +712,22 @@ const McapRatioBadge = ({ ratio }) => {
 
 // ─── Beta Row ────────────────────────────────────────────────────
 
-const BetaRow = ({ beta, alpha, isPinned, trenchOnly }) => {
+const BetaRow = ({ beta, alpha, isPinned, trenchOnly, onOpenDrawer }) => {
   const change     = parseFloat(beta.priceChange24h) || 0
   const isPositive = change >= 0
   const wave       = getWavePhase(alpha, beta)
   const isTrench   = (beta.marketCap || 0) < 100_000
   const isLPPair   = beta.signalSources?.includes('lp_pair')
+  const flags      = getFlags()[beta.address] || null
+  const rugWarn    = flags && flags.rug >= 3
+  const honeyWarn  = flags && flags.honeypot >= 3
 
   if (trenchOnly && !isTrench) return null
 
   return (
     <div
       className={`beta-row ${isPinned ? 'pinned' : ''}`}
-      onClick={() => beta.dexUrl && window.open(beta.dexUrl, '_blank')}
+      onClick={() => onOpenDrawer ? onOpenDrawer(beta) : (beta.dexUrl && window.open(beta.dexUrl, '_blank'))}
       style={isLPPair ? { borderColor: 'var(--cyan)', background: 'rgba(0,212,255,0.04)' } : {}}
     >
       <div className="token-info">
@@ -737,11 +741,17 @@ const BetaRow = ({ beta, alpha, isPinned, trenchOnly }) => {
             </span>
             {isLPPair       && <span className="badge badge-cabal"     style={{ fontSize: 7, padding: '1px 4px' }}>🔗 PAIRED</span>}
             {isTrench       && <span className="badge badge-new"      style={{ fontSize: 7, padding: '1px 4px' }}>⛏️ TRENCH</span>}
+            {(rugWarn || honeyWarn) && (
+              <span className="badge" style={{ fontSize: 7, padding: '1px 4px', background: 'rgba(255,68,102,0.15)', borderColor: 'rgba(255,68,102,0.4)', color: 'var(--red)' }}>
+                {rugWarn ? '⚠️ RUG' : '⚠️ HONEY'}
+              </span>
+            )}
             {isPinned       && <span className="badge badge-verified" style={{ fontSize: 7, padding: '1px 4px' }}>DEV VERIFIED</span>}
             {beta.isSibling && <span className="badge badge-cabal"    style={{ fontSize: 7, padding: '1px 4px', opacity: 0.85 }}>👥 SIBLING</span>}
           </div>
           <div style={{ display: 'flex', gap: 6, alignItems: 'center', marginTop: 1 }}>
             <span className="token-address">{shortAddress(beta.address)}</span>
+            {beta.isHistorical && <span style={{ fontFamily: 'var(--font-mono)', fontSize: 7, color: 'var(--text-muted)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: 3, padding: '0 3px' }}>📦 stored</span>}
             <WaveBadge phase={wave} />
           </div>
         </div>
@@ -910,6 +920,21 @@ const SznPanel = ({ szn, onListBeta }) => {
         })}
       </div>
     </section>
+
+    {/* Token detail drawer */}
+    {drawerToken && (
+      <>
+        <div
+          style={{ position: 'fixed', inset: 0, zIndex: 199, background: 'rgba(0,0,0,0.4)' }}
+          onClick={() => setDrawerToken(null)}
+        />
+        <TokenDrawer
+          token={drawerToken}
+          alpha={alpha}
+          onClose={() => setDrawerToken(null)}
+        />
+      </>
+    )}
   )
 }
 
@@ -919,8 +944,9 @@ const BetaPanel = ({ alpha, onListBeta }) => {
   const { parent, loading: parentLoading }               = useParentAlpha(alpha)
   const { betas, loading: betasLoading, error, refresh } = useBetas(alpha, parent)
   const { birdeye }                                       = useBirdeye(alpha?.address)
-  const [trenchOnly, setTrenchOnly] = useState(false)
-  const [mcapFilter, setMcapFilter] = useState('all')
+  const [trenchOnly,   setTrenchOnly]   = useState(false)
+  const [mcapFilter,   setMcapFilter]   = useState('all')
+  const [drawerToken,  setDrawerToken]  = useState(null)
 
   const mcapFilterFn = {
     all:   () => true,
@@ -945,60 +971,6 @@ const BetaPanel = ({ alpha, onListBeta }) => {
               ? <span>Surfacing derivative tokens for <span style={{ color: 'var(--neon-green)' }}>${alpha.symbol}</span> — sorted by 24h gain</span>
               : 'Pick a runner from the left panel to surface its beta plays'}
           </p>
-
-          {/* Birdeye enrichment row — 7d/30d change + holder risk */}
-          {alpha && birdeye?.hasData && (
-            <div style={{ display: 'flex', gap: 10, marginTop: 6, flexWrap: 'wrap' }}>
-              {birdeye.change7d != null && (
-                <span style={{ fontFamily: 'var(--font-mono)', fontSize: 9 }}>
-                  <span style={{ color: 'var(--text-muted)' }}>7d </span>
-                  <span style={{ color: birdeye.change7d >= 0 ? 'var(--neon-green)' : 'var(--red)', fontWeight: 700 }}>
-                    {birdeye.change7d >= 0 ? '+' : ''}{birdeye.change7d.toFixed(1)}%
-                  </span>
-                </span>
-              )}
-              {birdeye.change30d != null && (
-                <span style={{ fontFamily: 'var(--font-mono)', fontSize: 9 }}>
-                  <span style={{ color: 'var(--text-muted)' }}>30d </span>
-                  <span style={{ color: birdeye.change30d >= 0 ? 'var(--neon-green)' : 'var(--red)', fontWeight: 700 }}>
-                    {birdeye.change30d >= 0 ? '+' : ''}{birdeye.change30d.toFixed(1)}%
-                  </span>
-                </span>
-              )}
-              {birdeye.holderCount != null && (
-                <span style={{ fontFamily: 'var(--font-mono)', fontSize: 9 }}>
-                  <span style={{ color: 'var(--text-muted)' }}>holders </span>
-                  <span style={{ color: 'var(--cyan)', fontWeight: 700 }}>
-                    {birdeye.holderCount.toLocaleString()}
-                  </span>
-                </span>
-              )}
-              {birdeye.concentration && (
-                <span style={{ fontFamily: 'var(--font-mono)', fontSize: 9 }}>
-                  <span style={{ color: 'var(--text-muted)' }}>top10 </span>
-                  <span style={{ color: birdeye.concentration.riskColor, fontWeight: 700 }}>
-                    {birdeye.concentration.top10Pct}%
-                  </span>
-                  <span style={{ color: 'var(--text-muted)', marginLeft: 3 }}>
-                    ({birdeye.concentration.risk} risk)
-                  </span>
-                </span>
-              )}
-              {birdeye.buyRatio != null && (
-                <span style={{ fontFamily: 'var(--font-mono)', fontSize: 9 }}>
-                  <span style={{ color: 'var(--text-muted)' }}>buy pressure </span>
-                  <span style={{ color: birdeye.buyRatio >= 0.6 ? 'var(--neon-green)' : birdeye.buyRatio <= 0.4 ? 'var(--red)' : 'var(--amber)', fontWeight: 700 }}>
-                    {Math.round(birdeye.buyRatio * 100)}%
-                  </span>
-                </span>
-              )}
-            </div>
-          )}
-          {alpha && birdeye?.hasData === false && (
-            <p style={{ fontFamily: 'var(--font-mono)', fontSize: 8, color: 'var(--text-muted)', marginTop: 4 }}>
-              Add VITE_BIRDEYE_API_KEY to .env for 7d/30d data + holder risk
-            </p>
-          )}
         </div>
         {alpha && (
           <div style={{ display: 'flex', gap: 8 }}>
@@ -1008,7 +980,71 @@ const BetaPanel = ({ alpha, onListBeta }) => {
         )}
       </div>
 
-      {!alpha ? (
+      {/* ── Birdeye intel strip — shown prominently above the beta table ── */}
+      {alpha && birdeye?.hasData && (birdeye.holderCount != null || birdeye.buyRatio != null || birdeye.change7d != null) && (
+        <div style={{
+          display: 'flex', gap: 6, flexWrap: 'wrap', padding: '8px 12px',
+          background: 'rgba(0,229,255,0.04)', border: '1px solid rgba(0,229,255,0.12)',
+          borderRadius: 8, margin: '0 0 4px',
+        }}>
+          <span style={{ fontFamily: 'var(--font-mono)', fontSize: 8, color: 'var(--text-muted)', alignSelf: 'center', marginRight: 2 }}>
+            🔭 INTEL
+          </span>
+
+          {birdeye.change7d != null && (
+            <div style={{ background: 'var(--surface-3)', borderRadius: 5, padding: '3px 8px' }}>
+              <span style={{ fontFamily: 'var(--font-mono)', fontSize: 8, color: 'var(--text-muted)' }}>7d </span>
+              <span style={{ fontFamily: 'var(--font-mono)', fontSize: 9, fontWeight: 700, color: birdeye.change7d >= 0 ? 'var(--neon-green)' : 'var(--red)' }}>
+                {birdeye.change7d >= 0 ? '+' : ''}{birdeye.change7d.toFixed(1)}%
+              </span>
+            </div>
+          )}
+          {birdeye.change30d != null && (
+            <div style={{ background: 'var(--surface-3)', borderRadius: 5, padding: '3px 8px' }}>
+              <span style={{ fontFamily: 'var(--font-mono)', fontSize: 8, color: 'var(--text-muted)' }}>30d </span>
+              <span style={{ fontFamily: 'var(--font-mono)', fontSize: 9, fontWeight: 700, color: birdeye.change30d >= 0 ? 'var(--neon-green)' : 'var(--red)' }}>
+                {birdeye.change30d >= 0 ? '+' : ''}{birdeye.change30d.toFixed(1)}%
+              </span>
+            </div>
+          )}
+          {birdeye.holderCount != null && (
+            <div style={{ background: 'var(--surface-3)', borderRadius: 5, padding: '3px 8px' }}>
+              <span style={{ fontFamily: 'var(--font-mono)', fontSize: 8, color: 'var(--text-muted)' }}>holders </span>
+              <span style={{ fontFamily: 'var(--font-mono)', fontSize: 9, fontWeight: 700, color: 'var(--cyan)' }}>
+                {birdeye.holderCount.toLocaleString()}
+              </span>
+            </div>
+          )}
+          {birdeye.concentration && (
+            <div style={{ background: 'var(--surface-3)', borderRadius: 5, padding: '3px 8px' }}>
+              <span style={{ fontFamily: 'var(--font-mono)', fontSize: 8, color: 'var(--text-muted)' }}>top10 owns </span>
+              <span style={{ fontFamily: 'var(--font-mono)', fontSize: 9, fontWeight: 700, color: birdeye.concentration.riskColor }}>
+                {birdeye.concentration.top10Pct}%
+              </span>
+              <span style={{ fontFamily: 'var(--font-mono)', fontSize: 7, color: birdeye.concentration.riskColor, marginLeft: 3, opacity: 0.8 }}>
+                {birdeye.concentration.risk}
+              </span>
+            </div>
+          )}
+          {birdeye.buyRatio != null && (
+            <div style={{ background: 'var(--surface-3)', borderRadius: 5, padding: '3px 8px' }}>
+              <span style={{ fontFamily: 'var(--font-mono)', fontSize: 8, color: 'var(--text-muted)' }}>buys </span>
+              <span style={{ fontFamily: 'var(--font-mono)', fontSize: 9, fontWeight: 700,
+                color: birdeye.buyRatio >= 0.6 ? 'var(--neon-green)' : birdeye.buyRatio <= 0.4 ? 'var(--red)' : 'var(--amber)' }}>
+                {Math.round(birdeye.buyRatio * 100)}%
+              </span>
+            </div>
+          )}
+          {birdeye.uniqueMakers != null && (
+            <div style={{ background: 'var(--surface-3)', borderRadius: 5, padding: '3px 8px' }}>
+              <span style={{ fontFamily: 'var(--font-mono)', fontSize: 8, color: 'var(--text-muted)' }}>makers </span>
+              <span style={{ fontFamily: 'var(--font-mono)', fontSize: 9, fontWeight: 700, color: 'var(--text-primary)' }}>
+                {birdeye.uniqueMakers.toLocaleString()}
+              </span>
+            </div>
+          )}
+        </div>
+      )}      {!alpha ? (
         <div className="empty-state">
           <div className="empty-state-icon">👈</div>
           <div className="empty-state-title">No runner selected</div>
@@ -1091,6 +1127,7 @@ const BetaPanel = ({ alpha, onListBeta }) => {
                 alpha={alpha}
                 isPinned={false}
                 trenchOnly={trenchOnly}
+                onOpenDrawer={setDrawerToken}
               />
             ))}
 
@@ -1105,6 +1142,303 @@ const BetaPanel = ({ alpha, onListBeta }) => {
         </>
       )}
     </section>
+  )
+}
+
+
+// ─── Community Flag Store ─────────────────────────────────────────
+// Simple localStorage-backed flagging system.
+// Users flag a token as RUG, HONEYPOT, or LEGIT.
+// Flags are shown to everyone — local majority vote surface pattern.
+const FLAG_STORE_KEY = 'betaplays_flags_v1'
+
+const getFlags = () => {
+  try { return JSON.parse(localStorage.getItem(FLAG_STORE_KEY) || '{}') }
+  catch { return {} }
+}
+
+const submitFlag = (address, flagType, symbol) => {
+  try {
+    const flags = getFlags()
+    if (!flags[address]) flags[address] = { rug: 0, honeypot: 0, legit: 0, symbol }
+    flags[address][flagType] = (flags[address][flagType] || 0) + 1
+    flags[address].lastFlagged = Date.now()
+    localStorage.setItem(FLAG_STORE_KEY, JSON.stringify(flags))
+    return flags[address]
+  } catch { return null }
+}
+
+const FlagButton = ({ address, symbol, compact = false }) => {
+  const [counts, setCounts]   = useState(() => getFlags()[address] || null)
+  const [voted,  setVoted]    = useState(false)
+  const [open,   setOpen]     = useState(false)
+
+  const handleFlag = (e, flagType) => {
+    e.stopPropagation()
+    const result = submitFlag(address, flagType, symbol)
+    setCounts(result)
+    setVoted(true)
+    setOpen(false)
+  }
+
+  const total   = counts ? (counts.rug + counts.honeypot + counts.legit) : 0
+  const topFlag = counts && total > 0
+    ? (counts.rug >= counts.honeypot && counts.rug >= counts.legit ? 'rug'
+    : counts.honeypot >= counts.legit ? 'honeypot' : 'legit')
+    : null
+  const rugWarn = topFlag === 'rug' && counts.rug >= 3
+  const honeyWarn = topFlag === 'honeypot' && counts.honeypot >= 3
+
+  if (compact) return (
+    <div style={{ position: 'relative', display: 'inline-block' }}>
+      {(rugWarn || honeyWarn) && (
+        <span style={{
+          fontFamily: 'var(--font-mono)', fontSize: 7, fontWeight: 700,
+          color: 'var(--red)', border: '1px solid rgba(255,68,102,0.4)',
+          borderRadius: 3, padding: '1px 4px', marginRight: 4,
+        }}>
+          {rugWarn ? '⚠️ RUG' : '⚠️ HONEYPOT'} ({topFlag === 'rug' ? counts.rug : counts.honeypot})
+        </span>
+      )}
+      {!voted && (
+        <span
+          onClick={e => { e.stopPropagation(); setOpen(o => !o) }}
+          style={{
+            fontFamily: 'var(--font-mono)', fontSize: 7, color: 'var(--text-muted)',
+            cursor: 'pointer', padding: '1px 4px', borderRadius: 3,
+            border: '1px solid rgba(255,255,255,0.08)',
+          }}
+          title="Flag this token"
+        >🚩</span>
+      )}
+      {open && (
+        <div style={{
+          position: 'absolute', right: 0, top: '100%', zIndex: 100,
+          background: 'var(--surface-2)', border: '1px solid rgba(255,255,255,0.12)',
+          borderRadius: 8, padding: 6, display: 'flex', flexDirection: 'column', gap: 4,
+          minWidth: 110, boxShadow: '0 8px 24px rgba(0,0,0,0.5)',
+        }}>
+          <span style={{ fontFamily: 'var(--font-mono)', fontSize: 7, color: 'var(--text-muted)', padding: '0 2px' }}>Flag as:</span>
+          {[['rug', '🪤 Rug pull', 'var(--red)'], ['honeypot', '🍯 Honeypot', 'var(--amber)'], ['legit', '✅ Legit', 'var(--neon-green)']].map(([type, label, color]) => (
+            <button key={type} onClick={e => handleFlag(e, type)} style={{
+              background: 'none', border: 'none', cursor: 'pointer', textAlign: 'left',
+              fontFamily: 'var(--font-mono)', fontSize: 9, color, padding: '3px 6px',
+              borderRadius: 4, transition: 'background 0.1s',
+            }}
+            onMouseEnter={e => e.currentTarget.style.background = 'rgba(255,255,255,0.06)'}
+            onMouseLeave={e => e.currentTarget.style.background = 'none'}
+            >{label}</button>
+          ))}
+        </div>
+      )}
+    </div>
+  )
+  return null
+}
+
+// ─── Token Detail Drawer ──────────────────────────────────────────
+// Slide-in panel showing full token intel when a beta row is clicked:
+//   - Live price + 24h, 7d, 30d change
+//   - Holder count + concentration risk
+//   - Buy/sell pressure
+//   - Description
+//   - Community flags
+//   - Quick links: DEX, Birdeye, PumpFun
+
+const TokenDrawer = ({ token, alpha, onClose }) => {
+  const { birdeye } = useBirdeye(token?.address)
+
+  if (!token) return null
+
+  const change     = parseFloat(token.priceChange24h) || 0
+  const isPositive = change >= 0
+  const wave       = getWavePhase(alpha, token)
+  const signal     = getSignal(token)
+  const flags      = getFlags()[token.address] || null
+  const totalFlags = flags ? flags.rug + flags.honeypot + flags.legit : 0
+
+  return (
+    <div
+      style={{
+        position: 'fixed', right: 0, top: 0, bottom: 0,
+        width: 320, zIndex: 200,
+        background: 'var(--surface-1)',
+        borderLeft: '1px solid rgba(255,255,255,0.1)',
+        boxShadow: '-12px 0 40px rgba(0,0,0,0.6)',
+        display: 'flex', flexDirection: 'column',
+        animation: 'slideInRight 0.2s ease',
+      }}
+    >
+      {/* Header */}
+      <div style={{
+        padding: '14px 16px', borderBottom: '1px solid rgba(255,255,255,0.08)',
+        display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexShrink: 0,
+      }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+          <div className="token-icon" style={{ width: 36, height: 36 }}>
+            {token.logoUrl ? <img src={token.logoUrl} alt={token.symbol} /> : token.symbol.slice(0, 3)}
+          </div>
+          <div>
+            <div style={{ fontFamily: 'var(--font-display)', fontWeight: 800, fontSize: 18 }}>
+              ${token.symbol}
+            </div>
+            <div style={{ fontFamily: 'var(--font-mono)', fontSize: 9, color: 'var(--text-muted)' }}>
+              {token.name}
+            </div>
+          </div>
+        </div>
+        <button
+          onClick={onClose}
+          style={{ background: 'none', border: 'none', color: 'var(--text-muted)', cursor: 'pointer', fontSize: 18, padding: '0 4px' }}
+        >✕</button>
+      </div>
+
+      {/* Scrollable body */}
+      <div style={{ flex: 1, overflowY: 'auto', padding: '14px 16px', display: 'flex', flexDirection: 'column', gap: 14 }}>
+
+        {/* Price + changes */}
+        <div style={{ background: 'var(--surface-2)', borderRadius: 8, padding: '12px 14px' }}>
+          <div style={{ fontFamily: 'var(--font-mono)', fontSize: 8, color: 'var(--text-muted)', marginBottom: 8, letterSpacing: 1 }}>PRICE ACTION</div>
+          <div style={{ fontFamily: 'var(--font-display)', fontWeight: 700, fontSize: 22, color: isPositive ? 'var(--neon-green)' : 'var(--red)', marginBottom: 10 }}>
+            {formatPrice(token.priceUsd)}
+          </div>
+          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+            {[
+              ['24h', change, isPositive ? 'var(--neon-green)' : 'var(--red)'],
+              ['7d',  birdeye?.change7d,  (birdeye?.change7d ?? 0) >= 0 ? 'var(--neon-green)' : 'var(--red)'],
+              ['30d', birdeye?.change30d, (birdeye?.change30d ?? 0) >= 0 ? 'var(--neon-green)' : 'var(--red)'],
+            ].map(([label, val, color]) => val != null && (
+              <div key={label} style={{ background: 'var(--surface-3)', borderRadius: 5, padding: '4px 8px' }}>
+                <div style={{ fontFamily: 'var(--font-mono)', fontSize: 8, color: 'var(--text-muted)' }}>{label}</div>
+                <div style={{ fontFamily: 'var(--font-mono)', fontSize: 11, fontWeight: 700, color }}>
+                  {val >= 0 ? '+' : ''}{Number(val).toFixed(1)}%
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+
+        {/* Market metrics */}
+        <div style={{ background: 'var(--surface-2)', borderRadius: 8, padding: '12px 14px' }}>
+          <div style={{ fontFamily: 'var(--font-mono)', fontSize: 8, color: 'var(--text-muted)', marginBottom: 8, letterSpacing: 1 }}>MARKET</div>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
+            {[
+              ['MCAP', formatNum(token.marketCap)],
+              ['VOL 24H', formatNum(token.volume24h)],
+              ['LIQUIDITY', formatNum(token.liquidity)],
+              ['AGE', token.ageLabel || '?'],
+            ].map(([label, val]) => (
+              <div key={label}>
+                <div style={{ fontFamily: 'var(--font-mono)', fontSize: 8, color: 'var(--text-muted)' }}>{label}</div>
+                <div style={{ fontFamily: 'var(--font-mono)', fontSize: 11, color: 'var(--text-primary)', fontWeight: 600 }}>{val}</div>
+              </div>
+            ))}
+          </div>
+        </div>
+
+        {/* Birdeye intel */}
+        {birdeye?.hasData && (birdeye.holderCount != null || birdeye.buyRatio != null) && (
+          <div style={{ background: 'var(--surface-2)', borderRadius: 8, padding: '12px 14px' }}>
+            <div style={{ fontFamily: 'var(--font-mono)', fontSize: 8, color: 'var(--text-muted)', marginBottom: 8, letterSpacing: 1 }}>🔭 HOLDER INTEL</div>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
+              {birdeye.holderCount != null && (
+                <div>
+                  <div style={{ fontFamily: 'var(--font-mono)', fontSize: 8, color: 'var(--text-muted)' }}>HOLDERS</div>
+                  <div style={{ fontFamily: 'var(--font-mono)', fontSize: 11, color: 'var(--cyan)', fontWeight: 700 }}>{birdeye.holderCount.toLocaleString()}</div>
+                </div>
+              )}
+              {birdeye.concentration && (
+                <div>
+                  <div style={{ fontFamily: 'var(--font-mono)', fontSize: 8, color: 'var(--text-muted)' }}>TOP 10 OWN</div>
+                  <div style={{ fontFamily: 'var(--font-mono)', fontSize: 11, color: birdeye.concentration.riskColor, fontWeight: 700 }}>
+                    {birdeye.concentration.top10Pct}% <span style={{ fontSize: 8 }}>({birdeye.concentration.risk})</span>
+                  </div>
+                </div>
+              )}
+              {birdeye.buyRatio != null && (
+                <div>
+                  <div style={{ fontFamily: 'var(--font-mono)', fontSize: 8, color: 'var(--text-muted)' }}>BUY PRESSURE</div>
+                  <div style={{ fontFamily: 'var(--font-mono)', fontSize: 11, fontWeight: 700,
+                    color: birdeye.buyRatio >= 0.6 ? 'var(--neon-green)' : birdeye.buyRatio <= 0.4 ? 'var(--red)' : 'var(--amber)' }}>
+                    {Math.round(birdeye.buyRatio * 100)}%
+                  </div>
+                </div>
+              )}
+              {birdeye.uniqueMakers != null && (
+                <div>
+                  <div style={{ fontFamily: 'var(--font-mono)', fontSize: 8, color: 'var(--text-muted)' }}>MAKERS 24H</div>
+                  <div style={{ fontFamily: 'var(--font-mono)', fontSize: 11, color: 'var(--text-primary)', fontWeight: 600 }}>
+                    {birdeye.uniqueMakers.toLocaleString()}
+                  </div>
+                </div>
+              )}
+            </div>
+          </div>
+        )}
+
+        {/* Signal */}
+        <div style={{ background: 'var(--surface-2)', borderRadius: 8, padding: '12px 14px' }}>
+          <div style={{ fontFamily: 'var(--font-mono)', fontSize: 8, color: 'var(--text-muted)', marginBottom: 8, letterSpacing: 1 }}>DETECTION SIGNALS</div>
+          <div style={{ display: 'flex', gap: 5, flexWrap: 'wrap', marginBottom: 6 }}>
+            {(token.signalSources || '').split(',').filter(Boolean).map(s => (
+              <span key={s} className="badge badge-weak" style={{ fontSize: 7, padding: '2px 5px' }}>{s.trim()}</span>
+            ))}
+            {wave?.label !== 'UNKNOWN' && wave && (
+              <span style={{ fontFamily: 'var(--font-mono)', fontSize: 7, color: wave.color, border: `1px solid ${wave.color}44`, borderRadius: 3, padding: '2px 5px' }}>{wave.label}</span>
+            )}
+          </div>
+          {token.aiReason && (
+            <div style={{ fontFamily: 'var(--font-mono)', fontSize: 9, color: 'var(--cyan)', lineHeight: 1.5, fontStyle: 'italic' }}>
+              "{token.aiReason}"
+            </div>
+          )}
+        </div>
+
+        {/* Description */}
+        {token.description && (
+          <div style={{ background: 'var(--surface-2)', borderRadius: 8, padding: '12px 14px' }}>
+            <div style={{ fontFamily: 'var(--font-mono)', fontSize: 8, color: 'var(--text-muted)', marginBottom: 6, letterSpacing: 1 }}>DESCRIPTION</div>
+            <div style={{ fontFamily: 'var(--font-mono)', fontSize: 10, color: 'var(--text-secondary)', lineHeight: 1.6 }}>
+              {token.description.slice(0, 280)}{token.description.length > 280 ? '...' : ''}
+            </div>
+          </div>
+        )}
+
+        {/* Community flags */}
+        <div style={{ background: 'var(--surface-2)', borderRadius: 8, padding: '12px 14px' }}>
+          <div style={{ fontFamily: 'var(--font-mono)', fontSize: 8, color: 'var(--text-muted)', marginBottom: 8, letterSpacing: 1 }}>🚩 COMMUNITY FLAGS</div>
+          {totalFlags > 0 ? (
+            <div style={{ display: 'flex', gap: 8, marginBottom: 8, flexWrap: 'wrap' }}>
+              {flags.rug > 0 && <div style={{ fontFamily: 'var(--font-mono)', fontSize: 10, color: 'var(--red)' }}>🪤 Rug: {flags.rug}</div>}
+              {flags.honeypot > 0 && <div style={{ fontFamily: 'var(--font-mono)', fontSize: 10, color: 'var(--amber)' }}>🍯 Honeypot: {flags.honeypot}</div>}
+              {flags.legit > 0 && <div style={{ fontFamily: 'var(--font-mono)', fontSize: 10, color: 'var(--neon-green)' }}>✅ Legit: {flags.legit}</div>}
+            </div>
+          ) : (
+            <div style={{ fontFamily: 'var(--font-mono)', fontSize: 9, color: 'var(--text-muted)', marginBottom: 8 }}>No flags yet — be the first</div>
+          )}
+          <FlagButton address={token.address} symbol={token.symbol} />
+        </div>
+
+        {/* Quick links */}
+        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+          {[
+            ['DEXScreener', token.dexUrl || `https://dexscreener.com/solana/${token.address}`],
+            ['Birdeye', `https://birdeye.so/token/${token.address}?chain=solana`],
+            token.address?.endsWith('pump') && ['PumpFun', `https://pump.fun/${token.address}`],
+          ].filter(Boolean).map(([label, url]) => (
+            <a key={label} href={url} target="_blank" rel="noreferrer" style={{
+              fontFamily: 'var(--font-mono)', fontSize: 9, color: 'var(--cyan)',
+              border: '1px solid rgba(0,212,255,0.3)', borderRadius: 5,
+              padding: '5px 10px', textDecoration: 'none', transition: 'all 0.15s',
+            }}
+            onMouseEnter={e => e.currentTarget.style.background = 'rgba(0,212,255,0.1)'}
+            onMouseLeave={e => e.currentTarget.style.background = 'none'}
+            >{label} ↗</a>
+          ))}
+        </div>
+
+      </div>
+    </div>
   )
 }
 

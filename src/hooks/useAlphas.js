@@ -23,13 +23,14 @@ const saveToHistory = (alphas) => {
       if (!alpha.address) return
       const prev     = existing[alpha.address]
       const prevPeak = prev?.peakMarketCap || 0
+      // Cap % change before storing — bonding curve artifacts can show >100000%
+      const safePriceChange = Math.min(Math.max(parseFloat(alpha.priceChange24h) || 0, -100), 5000)
       existing[alpha.address] = {
         ...alpha,
-        firstSeen:     prev?.firstSeen || now,
-        lastSeen:      now,
-        // Track all-time peak mcap so we can detect dumps
-        peakMarketCap: Math.max(prevPeak, alpha.marketCap || 0),
-        // Track mcap at first sight for weekly performance approximation
+        priceChange24h:  safePriceChange,
+        firstSeen:       prev?.firstSeen || Date.now(),
+        lastSeen:        Date.now(),
+        peakMarketCap:   Math.max(prevPeak, alpha.marketCap || 0),
         mcapAtFirstSeen: prev?.mcapAtFirstSeen || alpha.marketCap || 0,
       }
     })
@@ -72,23 +73,52 @@ const loadHistoricalByPriceAction = (currentAddresses) => {
       // Skip if no meaningful activity
       if (volume < COOLING_MIN_VOLUME || mcap < COOLING_MIN_MCAP) return
 
-      const ageHours = Math.floor(age / 3600000)
-      const ageDays  = Math.floor(age / 86400000)
-      const ageLabel = ageDays > 0 ? `${ageDays}d ago` : ageHours > 0 ? `${ageHours}h ago` : 'recently'
+      // ── Staleness guard ─────────────────────────────────────────
+      // If data is more than 2 hours old, the 24h% is unreliable.
+      // Bonding curve tokens especially show wild % that don't reflect
+      // current reality. Cap and flag as stale rather than mislead.
+      const ageHours    = age / 3600000
+      const isStale     = ageHours > 2
+      // Cap bonding-curve artifacts — legitimate moves don't exceed 5000%
+      const cappedChange = Math.min(Math.max(change, -100), 5000)
 
-      if (change > LIVE_MIN_CHANGE && volume >= LIVE_MIN_VOLUME) {
-        // Was pumping — keep in Live
-        historicalLive.push({
-          ...a,
-          isHistorical:  true,
-          coolingLabel:  null,
-        })
-      } else if (change < 0) {
-        // Was retracing — move to Cooling
+      const ageLabel = Math.floor(ageHours / 24) > 0
+        ? `${Math.floor(ageHours / 24)}d ago`
+        : ageHours > 0 ? `${Math.floor(ageHours)}h ago` : 'recently'
+
+      // Dump detection: if we've seen a peak and current is way below, don't show as live
+      const peak    = a.peakMarketCap || 0
+      const dumped  = peak > 50_000 && mcap > 0 && (mcap / peak) < 0.25
+
+      if (dumped) {
+        // Force into cooling regardless of 24h%
         historicalCooling.push({
           ...a,
-          isCooling:    true,
-          coolingLabel: 'Watching for reversal',
+          priceChange24h: cappedChange,
+          isCooling:      true,
+          isDumped:       true,
+          isHistorical:   true,
+          coolingLabel:   `Dumped — ${Math.round((1 - mcap/peak) * 100)}% from peak`,
+        })
+        return
+      }
+
+      if (cappedChange > LIVE_MIN_CHANGE && volume >= LIVE_MIN_VOLUME && !isStale) {
+        // Was pumping and data is still fresh enough to trust
+        historicalLive.push({
+          ...a,
+          priceChange24h: cappedChange,
+          isHistorical:   true,
+          coolingLabel:   null,
+        })
+      } else if (cappedChange < 0 || isStale) {
+        // Retracing, OR data too old to show as live — move to Cooling
+        historicalCooling.push({
+          ...a,
+          priceChange24h: cappedChange,
+          isCooling:      true,
+          isHistorical:   true,
+          coolingLabel:   isStale ? `Last seen ${ageLabel}` : 'Watching for reversal',
         })
       }
     })
@@ -509,10 +539,10 @@ const classifyByPriceAction = (alphas) => {
   alphas.forEach((alpha) => {
     if (isJunk(alpha)) return
 
-    const change = parseFloat(alpha.priceChange24h) || 0
-    const volume = alpha.volume24h || 0
-    const mcap   = alpha.marketCap || 0
-    const dumped = isDumped(alpha)
+    const change  = Math.min(Math.max(parseFloat(alpha.priceChange24h) || 0, -100), 5000)
+    const volume  = alpha.volume24h || 0
+    const mcap    = alpha.marketCap || 0
+    const dumped  = isDumped(alpha)
     const weekCtx = getWeeklyContext(alpha)
 
     // Dumped tokens go straight to cooling regardless of 24h %
