@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback } from 'react'
 import axios from 'axios'
 import { getSearchTerms, getConcepts, generateTickerVariants } from '../data/lore_map'
-import { scoreWithAI } from './useAIBetaScoring'
+import scoreWithAI from './useAIBetaScoring'
 import { compareLogos, shouldRunVision } from './useImageAnalysis'
 
 const DEXSCREENER_BASE = 'https://api.dexscreener.com'
