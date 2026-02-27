@@ -58,13 +58,32 @@ const similarity = (runner, candidate) => {
   const a = runner.toUpperCase()
   const b = candidate.toUpperCase()
 
+  // Exact match
+  if (a === b) return 1.0
+
+  // b is a prefix of a (PIPPIN is a prefix of PIPPINS) → strong signal
   if (a.startsWith(b) && b.length >= 3) {
     const coverage = b.length / a.length
     return 0.75 + (coverage * 0.2)
   }
 
+  // a is a prefix of b (ALIEN is prefix of ALIENSCOPE) → strong signal
   if (b.startsWith(a) && a.length >= 3) return 0.80
 
+  // Shared prefix — handles PIPPIKO ↔ PIPPIN (both start with PIPPI)
+  // If the two strings share 80%+ of the shorter string as a prefix, it's a match
+  const shorter  = a.length <= b.length ? a : b
+  const longer   = a.length <= b.length ? b : a
+  let sharedLen  = 0
+  for (let i = 0; i < shorter.length; i++) {
+    if (shorter[i] === longer[i]) sharedLen++
+    else break
+  }
+  if (sharedLen >= 4 && sharedLen / shorter.length >= 0.75) {
+    return 0.65 + (sharedLen / shorter.length) * 0.15
+  }
+
+  // Edit distance fallback
   const maxLen = Math.max(a.length, b.length)
   if (maxLen === 0) return 1
   return 1 - editDistance(a, b) / maxLen
@@ -152,11 +171,47 @@ const useParentAlpha = (alpha) => {
     const symbol  = alpha.symbol.toUpperCase()
     const queries = new Set(extractRootCandidates(symbol))
 
+    // ── Name-based queries ───────────────────────────────────────
+    // Token name often reveals the parent when the symbol doesn't.
+    // "Dark Pippin" → symbol DIPPIN → name gives us "Pippin"
+    // "Ghost Pikachu" → symbol PEAKYCHU → name gives us "Pikachu"
+    const NAME_STOP = new Set(['the', 'a', 'an', 'of', 'dark', 'evil', 'mean',
+      'baby', 'mini', 'based', 'super', 'real', 'og', 'little', 'big', 'bad',
+      'mad', 'wild', 'holy', 'ghost', 'shadow', 'alter', 'turbo', 'chad', 'fat'])
+
+    if (alpha.name) {
+      alpha.name
+        .toLowerCase()
+        .replace(/[^a-z0-9\s]/g, ' ')
+        .split(/\s+/)
+        .filter(w => w.length >= 4 && !NAME_STOP.has(w))
+        .forEach(w => queries.add(w.toUpperCase()))
+    }
+
+    // ── Description-based queries ────────────────────────────────
+    // "the alter ego of pippin" → extract "pippin"
+    // "ghost pikachu. first new pikachu variant" → extract "pikachu"
+    // We specifically look for $ prefixed tickers AND significant nouns
+    if (alpha.description) {
+      // Dollar-sign tickers are the strongest signal: "alter ego of $PIPPIN"
+      const tickerMatches = alpha.description.match(/\$([A-Z]{2,12})/gi) || []
+      tickerMatches.forEach(t => queries.add(t.replace('$', '').toUpperCase()))
+
+      // Also extract meaningful words from description
+      alpha.description
+        .toLowerCase()
+        .replace(/[^a-z0-9\s]/g, ' ')
+        .split(/\s+/)
+        .filter(w => w.length >= 5 && !NAME_STOP.has(w))
+        .slice(0, 4)  // Only top 4 — avoid noise
+        .forEach(w => queries.add(w.toUpperCase()))
+    }
+
     if (queries.size === 0) { setLoading(false); return }
 
     try {
       const searches = await Promise.allSettled(
-        Array.from(queries).slice(0, 6).map((q) =>
+        Array.from(queries).slice(0, 10).map((q) =>
           axios.get(`${DEXSCREENER_BASE}/latest/dex/search?q=${q}`)
         )
       )
@@ -171,16 +226,21 @@ const useParentAlpha = (alpha) => {
         pairs
           .filter((p) =>
             p.chainId === 'solana' &&
-            (p.marketCap || p.fdv || 0) > (alpha.marketCap || 0) &&
-            (p.liquidity?.usd || 0) > 10_000 &&
+            (p.marketCap || p.fdv || 0) > (alpha.marketCap || 0) * 0.5 && // relaxed: parent can be as small as 50% of alpha
+            (p.liquidity?.usd || 0) > 5_000 &&
             p.baseToken?.address !== alpha.address &&
             p.baseToken?.symbol?.toUpperCase() !== symbol
           )
           .forEach((p) => {
             const candidateSymbol = p.baseToken?.symbol?.toUpperCase() || ''
-            const sim = similarity(symbol, candidateSymbol)
+            const candidateName   = p.baseToken?.name?.toUpperCase()   || ''
+            const sim = Math.max(
+              similarity(symbol, candidateSymbol),
+              // Also score against name — catches DIPPIN vs PIPPIN via "Pippin" name
+              similarity(symbol, candidateName.split(/\s+/).find(w => w.length >= 4) || ''),
+            )
 
-            if (sim >= 0.75 && sim > bestScore) {
+            if (sim >= 0.65 && sim > bestScore) {
               bestScore = sim
               bestMatch = p
             }

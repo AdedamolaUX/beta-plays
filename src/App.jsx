@@ -3,6 +3,7 @@ import useAlphas from './hooks/useAlphas'
 import useBetas, { getSignal, getWavePhase, getMcapRatio } from './hooks/useBetas'
 import useParentAlpha from './hooks/useParentAlpha'
 import useNarrativeSzn from './hooks/useNarrativeSzn'
+import useBirdeye from './hooks/useBirdeye'
 import './index.css'
 
 // ─── Helpers ────────────────────────────────────────────────────
@@ -477,9 +478,9 @@ const AlphaBoard = ({ selectedAlpha, onSelect }) => {
         </div>
       </div>
 
-      {/* Three tabs */}
+      {/* Tabs — 2×2 grid to fit 4 tabs without overflow */}
       <div style={{
-        display: 'flex', gap: 3,
+        display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 3,
         background: 'var(--surface-2)', padding: 3,
         borderRadius: 'var(--radius-md)', border: '1px solid var(--border)',
         flexShrink: 0,
@@ -489,12 +490,12 @@ const AlphaBoard = ({ selectedAlpha, onSelect }) => {
             key={key}
             className={`tab-btn ${activeTab === key ? 'active' : ''}`}
             onClick={() => { setActiveTab(key); setSearchQuery('') }}
-            style={{ flex: 1, fontSize: 9, padding: '5px 6px' }}
+            style={{ fontSize: 9, padding: '5px 4px', textAlign: 'center' }}
           >
             {label}
             {count > 0 && (
               <span style={{
-                marginLeft: 4, fontSize: 8,
+                marginLeft: 3, fontSize: 8,
                 color: activeTab === key ? 'var(--neon-green)' : 'var(--text-muted)',
               }}>{count}</span>
             )}
@@ -917,6 +918,7 @@ const SznPanel = ({ szn, onListBeta }) => {
 const BetaPanel = ({ alpha, onListBeta }) => {
   const { parent, loading: parentLoading }               = useParentAlpha(alpha)
   const { betas, loading: betasLoading, error, refresh } = useBetas(alpha, parent)
+  const { birdeye }                                       = useBirdeye(alpha?.address)
   const [trenchOnly, setTrenchOnly] = useState(false)
   const [mcapFilter, setMcapFilter] = useState('all')
 
@@ -943,6 +945,60 @@ const BetaPanel = ({ alpha, onListBeta }) => {
               ? <span>Surfacing derivative tokens for <span style={{ color: 'var(--neon-green)' }}>${alpha.symbol}</span> — sorted by 24h gain</span>
               : 'Pick a runner from the left panel to surface its beta plays'}
           </p>
+
+          {/* Birdeye enrichment row — 7d/30d change + holder risk */}
+          {alpha && birdeye?.hasData && (
+            <div style={{ display: 'flex', gap: 10, marginTop: 6, flexWrap: 'wrap' }}>
+              {birdeye.change7d != null && (
+                <span style={{ fontFamily: 'var(--font-mono)', fontSize: 9 }}>
+                  <span style={{ color: 'var(--text-muted)' }}>7d </span>
+                  <span style={{ color: birdeye.change7d >= 0 ? 'var(--neon-green)' : 'var(--red)', fontWeight: 700 }}>
+                    {birdeye.change7d >= 0 ? '+' : ''}{birdeye.change7d.toFixed(1)}%
+                  </span>
+                </span>
+              )}
+              {birdeye.change30d != null && (
+                <span style={{ fontFamily: 'var(--font-mono)', fontSize: 9 }}>
+                  <span style={{ color: 'var(--text-muted)' }}>30d </span>
+                  <span style={{ color: birdeye.change30d >= 0 ? 'var(--neon-green)' : 'var(--red)', fontWeight: 700 }}>
+                    {birdeye.change30d >= 0 ? '+' : ''}{birdeye.change30d.toFixed(1)}%
+                  </span>
+                </span>
+              )}
+              {birdeye.holderCount != null && (
+                <span style={{ fontFamily: 'var(--font-mono)', fontSize: 9 }}>
+                  <span style={{ color: 'var(--text-muted)' }}>holders </span>
+                  <span style={{ color: 'var(--cyan)', fontWeight: 700 }}>
+                    {birdeye.holderCount.toLocaleString()}
+                  </span>
+                </span>
+              )}
+              {birdeye.concentration && (
+                <span style={{ fontFamily: 'var(--font-mono)', fontSize: 9 }}>
+                  <span style={{ color: 'var(--text-muted)' }}>top10 </span>
+                  <span style={{ color: birdeye.concentration.riskColor, fontWeight: 700 }}>
+                    {birdeye.concentration.top10Pct}%
+                  </span>
+                  <span style={{ color: 'var(--text-muted)', marginLeft: 3 }}>
+                    ({birdeye.concentration.risk} risk)
+                  </span>
+                </span>
+              )}
+              {birdeye.buyRatio != null && (
+                <span style={{ fontFamily: 'var(--font-mono)', fontSize: 9 }}>
+                  <span style={{ color: 'var(--text-muted)' }}>buy pressure </span>
+                  <span style={{ color: birdeye.buyRatio >= 0.6 ? 'var(--neon-green)' : birdeye.buyRatio <= 0.4 ? 'var(--red)' : 'var(--amber)', fontWeight: 700 }}>
+                    {Math.round(birdeye.buyRatio * 100)}%
+                  </span>
+                </span>
+              )}
+            </div>
+          )}
+          {alpha && birdeye?.hasData === false && (
+            <p style={{ fontFamily: 'var(--font-mono)', fontSize: 8, color: 'var(--text-muted)', marginTop: 4 }}>
+              Add VITE_BIRDEYE_API_KEY to .env for 7d/30d data + holder risk
+            </p>
+          )}
         </div>
         {alpha && (
           <div style={{ display: 'flex', gap: 8 }}>
