@@ -284,19 +284,24 @@ const fetchPumpFunBonded = async () => {
 
     const coins = res.data || []
 
-    // Split: bonded (complete=true, has raydium_pool) vs approaching graduation
-    const bonded      = coins.filter(c => c.complete && c.raydium_pool)
+    // Split: bonded (complete=true) vs approaching graduation
+    // PumpFun now graduates to EITHER Raydium OR PumpSwap (their own DEX)
+    // We handle both pool types
+    const bonded      = coins.filter(c => c.complete && (c.raydium_pool || c.pool_address))
     const approaching = coins.filter(c => !c.complete && (c.usd_market_cap || 0) >= 20_000 && (c.usd_market_cap || 0) <= 34_000)
 
     // ── Phase B: fetch real DEX data for bonded tokens ───────────
-    // Use the raydium_pool address to get the actual Raydium pair
+    // raydium_pool = graduated to Raydium (old flow)
+    // pool_address = graduated to PumpSwap (new flow, their own DEX)
+    // Both are indexed by DEXScreener — same fetch works for both
     const bondedResults = []
     if (bonded.length > 0) {
       const pairFetches = await Promise.allSettled(
-        bonded.slice(0, 20).map(coin =>
-          axios.get(`${DEXSCREENER_BASE}/latest/dex/tokens/${coin.raydium_pool}`, { timeout: 6000 })
+        bonded.slice(0, 20).map(coin => {
+          const poolAddr = coin.raydium_pool || coin.pool_address
+          return axios.get(`${DEXSCREENER_BASE}/latest/dex/tokens/${poolAddr}`, { timeout: 6000 })
             .then(r => ({ coin, pairs: r.data?.pairs || [] }))
-        )
+        })
       )
 
       pairFetches.forEach(result => {
@@ -331,9 +336,10 @@ const fetchPumpFunBonded = async () => {
           isLegend:        false,
           isCooling:       false,
           coolingLabel:    null,
-          source:          'pumpfun_bonded',   // distinct from pre-graduation
+          source:          'pumpfun_bonded',
           bondedAt:        coin.created_timestamp || null,
-          raydiumPool:     coin.raydium_pool,
+          poolAddress:     coin.raydium_pool || coin.pool_address,
+          isPumpSwap:      !coin.raydium_pool && !!coin.pool_address,
           dexUrl:          best.url || `https://dexscreener.com/solana/${best.pairAddress}`,
         })
       })
@@ -371,6 +377,79 @@ const fetchPumpFunBonded = async () => {
 
   } catch (err) {
     console.warn('PumpFun bonded fetch failed:', err.message)
+    return []
+  }
+}
+
+// ─── Source 4: DEXScreener new pairs — universal launchpad coverage ─
+// Catches graduates from ALL launchpads: PumpFun, Bonk.fun, Bags, Moonshot,
+// LetsBonk, etc. without needing individual API integrations.
+// DEXScreener indexes every new Solana pair within minutes of creation.
+// We filter to pairs with real volume + liquidity to avoid pure junk.
+const fetchNewPairs = async () => {
+  try {
+    const res = await axios.get(
+      `${DEXSCREENER_BASE}/token-profiles/latest/v1`,
+      { timeout: 8000 }
+    )
+    const profiles = res.data || []
+
+    // Fetch actual pair data for the most promising new profiles
+    const solanaProfiles = profiles
+      .filter(p => p.chainId === 'solana' && p.tokenAddress)
+      .slice(0, 20)
+
+    if (solanaProfiles.length === 0) return []
+
+    const pairFetches = await Promise.allSettled(
+      solanaProfiles.map(p =>
+        axios.get(`${DEXSCREENER_BASE}/latest/dex/tokens/${p.tokenAddress}`, { timeout: 5000 })
+          .then(r => ({ profile: p, pairs: r.data?.pairs || [] }))
+      )
+    )
+
+    const results = []
+    pairFetches.forEach(result => {
+      if (result.status !== 'fulfilled') return
+      const { profile, pairs } = result.value
+
+      const best = pairs
+        .filter(p =>
+          p.chainId === 'solana' &&
+          (p.volume?.h24 || 0) >= 10_000 &&
+          (p.liquidity?.usd || 0) >= 2_000
+        )
+        .sort((a, b) => (b.volume?.h24 || 0) - (a.volume?.h24 || 0))[0]
+
+      if (!best) return
+
+      results.push({
+        id:             best.pairAddress,
+        symbol:         best.baseToken?.symbol || '???',
+        name:           best.baseToken?.name   || 'Unknown',
+        address:        best.baseToken?.address || '',
+        pairAddress:    best.pairAddress || '',
+        priceUsd:       best.priceUsd || '0',
+        priceChange24h: parseFloat(best.priceChange?.h24 || 0),
+        volume24h:      best.volume?.h24    || 0,
+        marketCap:      best.marketCap || best.fdv || 0,
+        liquidity:      best.liquidity?.usd || 0,
+        logoUrl:        best.info?.imageUrl || profile.icon || null,
+        description:    best.info?.description || profile.description || '',
+        pairCreatedAt:  best.pairCreatedAt || null,
+        isHistorical:   false,
+        isLegend:       false,
+        isCooling:      false,
+        coolingLabel:   null,
+        source:         'dex_new',
+        dexUrl:         best.url || `https://dexscreener.com/solana/${best.pairAddress}`,
+      })
+    })
+
+    console.log(`[NewPairs] ${results.length} new pairs from DEXScreener profiles`)
+    return results
+  } catch (err) {
+    console.warn('DEXScreener new pairs fetch failed:', err.message)
     return []
   }
 }
@@ -509,16 +588,18 @@ const useAlphas = () => {
     setError(null)
 
     try {
-      const [boosted, profiles, pumpfun] = await Promise.allSettled([
+      const [boosted, profiles, pumpfun, newPairs] = await Promise.allSettled([
         fetchBoostedAlphas(),
         fetchProfileAlphas(),
         fetchPumpFunBonded(),
+        fetchNewPairs(),
       ])
 
       const freshRaw = deduplicateAlphas([
-        ...(boosted.status  === 'fulfilled' ? boosted.value  : []),
-        ...(profiles.status === 'fulfilled' ? profiles.value : []),
-        ...(pumpfun.status  === 'fulfilled' ? pumpfun.value  : []),
+        ...(boosted.status   === 'fulfilled' ? boosted.value   : []),
+        ...(profiles.status  === 'fulfilled' ? profiles.value  : []),
+        ...(pumpfun.status   === 'fulfilled' ? pumpfun.value   : []),
+        ...(newPairs.status  === 'fulfilled' ? newPairs.value  : []),
       ])
 
       // Save everything to localStorage before classifying

@@ -434,10 +434,10 @@ const AlphaBoard = ({ selectedAlpha, onSelect }) => {
   const isEmpty = !loading && displayList.length === 0
 
   const tabs = [
-    { key: 'live',        label: '🔥 Live',        count: liveAlphas.length        },
-    { key: 'cooling',     label: '❄️ Cooling',     count: coolingAlphas.length     },
-    { key: 'positioning', label: '🎯 Position',    count: positioningAlphas.length },
-    { key: 'legends',     label: '🏆 Legends',     count: legends.length           },
+    { key: 'live',        label: '🔥 Live',     count: liveAlphas.length        },
+    { key: 'cooling',     label: '❄️ Cool',     count: coolingAlphas.length     },
+    { key: 'positioning', label: '🎯 Position', count: positioningAlphas.length },
+    { key: 'legends',     label: '🏆 OGs',      count: legends.length           },
   ]
 
   return (
@@ -478,9 +478,9 @@ const AlphaBoard = ({ selectedAlpha, onSelect }) => {
         </div>
       </div>
 
-      {/* Tabs — 2×2 grid to fit 4 tabs without overflow */}
+      {/* Tabs — single row, compact */}
       <div style={{
-        display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 3,
+        display: 'flex', gap: 2,
         background: 'var(--surface-2)', padding: 3,
         borderRadius: 'var(--radius-md)', border: '1px solid var(--border)',
         flexShrink: 0,
@@ -490,12 +490,12 @@ const AlphaBoard = ({ selectedAlpha, onSelect }) => {
             key={key}
             className={`tab-btn ${activeTab === key ? 'active' : ''}`}
             onClick={() => { setActiveTab(key); setSearchQuery('') }}
-            style={{ fontSize: 9, padding: '5px 4px', textAlign: 'center' }}
+            style={{ flex: 1, textAlign: 'center' }}
           >
             {label}
             {count > 0 && (
               <span style={{
-                marginLeft: 3, fontSize: 8,
+                marginLeft: 2, fontSize: 7,
                 color: activeTab === key ? 'var(--neon-green)' : 'var(--text-muted)',
               }}>{count}</span>
             )}
