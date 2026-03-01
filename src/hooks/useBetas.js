@@ -632,16 +632,17 @@ const useBetas = (alpha, parentAlpha = null) => {
       try {
         const aiScored = await scoreWithAI(enrichedAlpha, mergedWithSiblings)
         if (aiScored.length > 0) {
-          // Merge AI scores back into the existing beta list
+          // Merge AI scores into mergedWithSiblings — NOT merged —
+          // so siblings are preserved after AI scoring runs
           const aiAddresses = new Map(aiScored.map(b => [b.address, b]))
-          const withAI = merged.map(b =>
+          const withAI = mergedWithSiblings.map(b =>
             aiAddresses.has(b.address)
               ? { ...b, ...aiAddresses.get(b.address) }
               : b
           )
-          // Add any new betas found only by AI (not in merged)
-          const mergedAddresses = new Set(merged.map(b => b.address))
-          const aiOnly = aiScored.filter(b => !mergedAddresses.has(b.address))
+          // Add any new betas found only by AI
+          const existingAddresses = new Set(mergedWithSiblings.map(b => b.address))
+          const aiOnly = aiScored.filter(b => !existingAddresses.has(b.address))
 
           const finalList = [...withAI, ...aiOnly]
             .sort((a, b) => {
@@ -650,7 +651,7 @@ const useBetas = (alpha, parentAlpha = null) => {
               if (bIsLP !== aIsLP) return bIsLP - aIsLP
               return (parseFloat(b.priceChange24h) || 0) - (parseFloat(a.priceChange24h) || 0)
             })
-            .slice(0, 30)
+            .slice(0, 40)
 
           setBetas(finalList)
         }
@@ -706,14 +707,17 @@ const useBetas = (alpha, parentAlpha = null) => {
       }
 
       // ── Persist betas to localStorage ───────────────────────────
-      // Merge fresh results with any previously stored betas so tokens
-      // that fell off the DEXScreener feed remain visible.
+      // Read CURRENT betas state (post-AI, post-vision) via functional
+      // update — this preserves AI scoring and visual matches.
+      // Merge with any stored historical betas and save back.
       if (alpha?.address) {
-        const stored  = loadStoredBetas(alpha.address)
-        const fullList = mergeBetas(merged, stored)
-        setBetas(fullList)
-        saveStoredBetas(alpha.address, fullList)
-        if (fullList.length === 0) setError('No beta plays detected yet. Trenches might be cooked.')
+        setBetas(prev => {
+          const stored   = loadStoredBetas(alpha.address)
+          const fullList = mergeBetas(prev, stored)
+          saveStoredBetas(alpha.address, fullList)
+          if (fullList.length === 0) setError('No beta plays detected yet. Trenches might be cooked.')
+          return fullList.length > 0 ? fullList : prev  // never blank if prev had results
+        })
       } else {
         if (merged.length === 0) setError('No beta plays detected yet. Trenches might be cooked.')
       }

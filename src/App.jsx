@@ -1,4 +1,5 @@
 import { useState, useMemo, useCallback, useRef } from 'react'
+import { createPortal } from 'react-dom'
 import useAlphas from './hooks/useAlphas'
 import useBetas, { getSignal, getWavePhase, getMcapRatio } from './hooks/useBetas'
 import useParentAlpha from './hooks/useParentAlpha'
@@ -718,9 +719,6 @@ const BetaRow = ({ beta, alpha, isPinned, trenchOnly, onOpenDrawer }) => {
   const wave       = getWavePhase(alpha, beta)
   const isTrench   = (beta.marketCap || 0) < 100_000
   const isLPPair   = beta.signalSources?.includes('lp_pair')
-  const flags      = getFlags()[beta.address] || null
-  const rugWarn    = flags && flags.rug >= 3
-  const honeyWarn  = flags && flags.honeypot >= 3
 
   if (trenchOnly && !isTrench) return null
 
@@ -741,11 +739,7 @@ const BetaRow = ({ beta, alpha, isPinned, trenchOnly, onOpenDrawer }) => {
             </span>
             {isLPPair       && <span className="badge badge-cabal"     style={{ fontSize: 7, padding: '1px 4px' }}>🔗 PAIRED</span>}
             {isTrench       && <span className="badge badge-new"      style={{ fontSize: 7, padding: '1px 4px' }}>⛏️ TRENCH</span>}
-            {(rugWarn || honeyWarn) && (
-              <span className="badge" style={{ fontSize: 7, padding: '1px 4px', background: 'rgba(255,68,102,0.15)', borderColor: 'rgba(255,68,102,0.4)', color: 'var(--red)' }}>
-                {rugWarn ? '⚠️ RUG' : '⚠️ HONEY'}
-              </span>
-            )}
+            <FlagWarningBadge address={beta.address} />
             {isPinned       && <span className="badge badge-verified" style={{ fontSize: 7, padding: '1px 4px' }}>DEV VERIFIED</span>}
             {beta.isSibling && <span className="badge badge-cabal"    style={{ fontSize: 7, padding: '1px 4px', opacity: 0.85 }}>👥 SIBLING</span>}
           </div>
@@ -835,7 +829,7 @@ const ParentAlphaCard = ({ parent }) => {
 
 // ─── Szn Panel ───────────────────────────────────────────────────
 
-const SznPanel = ({ szn, onListBeta }) => {
+const SznPanel = ({ szn, onListBeta, onOpenDrawer }) => {
   const [sortBy,     setSortBy]     = useState('change')
   const [mcapFilter, setMcapFilter] = useState('all')
 
@@ -895,7 +889,8 @@ const SznPanel = ({ szn, onListBeta }) => {
           const isPositive = change >= 0
           return (
             <div key={token.id || i} className="beta-row"
-              onClick={() => window.open(`https://dexscreener.com/solana/${token.pairAddress || token.address}`, '_blank')}
+              onClick={() => onOpenDrawer && onOpenDrawer(token)}
+              style={{ cursor: 'pointer' }}
             >
               <div className="token-info">
                 <div className="token-icon" style={{ width: 28, height: 28, fontSize: 9 }}>
@@ -920,33 +915,17 @@ const SznPanel = ({ szn, onListBeta }) => {
         })}
       </div>
     </section>
-
-    {/* Token detail drawer */}
-    {drawerToken && (
-      <>
-        <div
-          style={{ position: 'fixed', inset: 0, zIndex: 199, background: 'rgba(0,0,0,0.4)' }}
-          onClick={() => setDrawerToken(null)}
-        />
-        <TokenDrawer
-          token={drawerToken}
-          alpha={alpha}
-          onClose={() => setDrawerToken(null)}
-        />
-      </>
-    )}
   )
 }
 
 // ─── Beta Panel ──────────────────────────────────────────────────
 
-const BetaPanel = ({ alpha, onListBeta }) => {
+const BetaPanel = ({ alpha, onListBeta, onOpenDrawer }) => {
   const { parent, loading: parentLoading }               = useParentAlpha(alpha)
   const { betas, loading: betasLoading, error, refresh } = useBetas(alpha, parent)
   const { birdeye }                                       = useBirdeye(alpha?.address)
   const [trenchOnly,   setTrenchOnly]   = useState(false)
   const [mcapFilter,   setMcapFilter]   = useState('all')
-  const [drawerToken,  setDrawerToken]  = useState(null)
 
   const mcapFilterFn = {
     all:   () => true,
@@ -1127,7 +1106,7 @@ const BetaPanel = ({ alpha, onListBeta }) => {
                 alpha={alpha}
                 isPinned={false}
                 trenchOnly={trenchOnly}
-                onOpenDrawer={setDrawerToken}
+                onOpenDrawer={onOpenDrawer}
               />
             ))}
 
@@ -1168,10 +1147,10 @@ const submitFlag = (address, flagType, symbol) => {
   } catch { return null }
 }
 
-const FlagButton = ({ address, symbol, compact = false }) => {
-  const [counts, setCounts]   = useState(() => getFlags()[address] || null)
-  const [voted,  setVoted]    = useState(false)
-  const [open,   setOpen]     = useState(false)
+const FlagButton = ({ address, symbol }) => {
+  const [counts, setCounts] = useState(() => getFlags()[address] || null)
+  const [voted,  setVoted]  = useState(false)
+  const [open,   setOpen]   = useState(false)
 
   const handleFlag = (e, flagType) => {
     e.stopPropagation()
@@ -1181,59 +1160,86 @@ const FlagButton = ({ address, symbol, compact = false }) => {
     setOpen(false)
   }
 
-  const total   = counts ? (counts.rug + counts.honeypot + counts.legit) : 0
-  const topFlag = counts && total > 0
+  const total    = counts ? (counts.rug + counts.honeypot + counts.legit) : 0
+  const topFlag  = counts && total > 0
     ? (counts.rug >= counts.honeypot && counts.rug >= counts.legit ? 'rug'
-    : counts.honeypot >= counts.legit ? 'honeypot' : 'legit')
+      : counts.honeypot >= counts.legit ? 'honeypot' : 'legit')
     : null
-  const rugWarn = topFlag === 'rug' && counts.rug >= 3
-  const honeyWarn = topFlag === 'honeypot' && counts.honeypot >= 3
 
-  if (compact) return (
+  const OPTIONS = [
+    ['rug',      '🪤 Rug pull', 'var(--red)'],
+    ['honeypot', '🍯 Honeypot', 'var(--amber)'],
+    ['legit',    '✅ Legit',    'var(--neon-green)'],
+  ]
+
+  return (
     <div style={{ position: 'relative', display: 'inline-block' }}>
-      {(rugWarn || honeyWarn) && (
-        <span style={{
-          fontFamily: 'var(--font-mono)', fontSize: 7, fontWeight: 700,
-          color: 'var(--red)', border: '1px solid rgba(255,68,102,0.4)',
-          borderRadius: 3, padding: '1px 4px', marginRight: 4,
-        }}>
-          {rugWarn ? '⚠️ RUG' : '⚠️ HONEYPOT'} ({topFlag === 'rug' ? counts.rug : counts.honeypot})
-        </span>
-      )}
-      {!voted && (
-        <span
-          onClick={e => { e.stopPropagation(); setOpen(o => !o) }}
-          style={{
-            fontFamily: 'var(--font-mono)', fontSize: 7, color: 'var(--text-muted)',
-            cursor: 'pointer', padding: '1px 4px', borderRadius: 3,
-            border: '1px solid rgba(255,255,255,0.08)',
-          }}
-          title="Flag this token"
-        >🚩</span>
-      )}
-      {open && (
-        <div style={{
-          position: 'absolute', right: 0, top: '100%', zIndex: 100,
-          background: 'var(--surface-2)', border: '1px solid rgba(255,255,255,0.12)',
-          borderRadius: 8, padding: 6, display: 'flex', flexDirection: 'column', gap: 4,
-          minWidth: 110, boxShadow: '0 8px 24px rgba(0,0,0,0.5)',
-        }}>
-          <span style={{ fontFamily: 'var(--font-mono)', fontSize: 7, color: 'var(--text-muted)', padding: '0 2px' }}>Flag as:</span>
-          {[['rug', '🪤 Rug pull', 'var(--red)'], ['honeypot', '🍯 Honeypot', 'var(--amber)'], ['legit', '✅ Legit', 'var(--neon-green)']].map(([type, label, color]) => (
-            <button key={type} onClick={e => handleFlag(e, type)} style={{
-              background: 'none', border: 'none', cursor: 'pointer', textAlign: 'left',
-              fontFamily: 'var(--font-mono)', fontSize: 9, color, padding: '3px 6px',
-              borderRadius: 4, transition: 'background 0.1s',
-            }}
-            onMouseEnter={e => e.currentTarget.style.background = 'rgba(255,255,255,0.06)'}
-            onMouseLeave={e => e.currentTarget.style.background = 'none'}
-            >{label}</button>
-          ))}
+      {/* Current counts */}
+      {total > 0 && (
+        <div style={{ display: 'flex', gap: 10, marginBottom: 8, flexWrap: 'wrap' }}>
+          {counts.rug      > 0 && <span style={{ fontFamily: 'var(--font-mono)', fontSize: 10, color: 'var(--red)'        }}>🪤 Rug: {counts.rug}</span>}
+          {counts.honeypot > 0 && <span style={{ fontFamily: 'var(--font-mono)', fontSize: 10, color: 'var(--amber)'      }}>🍯 Honeypot: {counts.honeypot}</span>}
+          {counts.legit    > 0 && <span style={{ fontFamily: 'var(--font-mono)', fontSize: 10, color: 'var(--neon-green)' }}>✅ Legit: {counts.legit}</span>}
         </div>
+      )}
+
+      {/* Vote button / voted state */}
+      {voted ? (
+        <span style={{ fontFamily: 'var(--font-mono)', fontSize: 9, color: 'var(--neon-green)' }}>✓ Flagged</span>
+      ) : (
+        <>
+          <button
+            onClick={e => { e.stopPropagation(); setOpen(o => !o) }}
+            style={{
+              background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.12)',
+              color: 'var(--text-secondary)', cursor: 'pointer', borderRadius: 5,
+              fontFamily: 'var(--font-mono)', fontSize: 9, padding: '5px 10px',
+            }}
+          >🚩 Flag this token</button>
+
+          {open && (
+            <div style={{
+              position: 'absolute', left: 0, top: '110%', zIndex: 300,
+              background: 'var(--surface-2)', border: '1px solid rgba(255,255,255,0.15)',
+              borderRadius: 8, padding: 8, display: 'flex', flexDirection: 'column', gap: 4,
+              minWidth: 140, boxShadow: '0 8px 32px rgba(0,0,0,0.6)',
+            }}>
+              <span style={{ fontFamily: 'var(--font-mono)', fontSize: 8, color: 'var(--text-muted)', padding: '0 4px 4px' }}>Flag as:</span>
+              {OPTIONS.map(([type, label, color]) => (
+                <button key={type} onClick={e => handleFlag(e, type)} style={{
+                  background: 'none', border: 'none', cursor: 'pointer', textAlign: 'left',
+                  fontFamily: 'var(--font-mono)', fontSize: 10, color, padding: '5px 8px',
+                  borderRadius: 5, transition: 'background 0.1s',
+                }}
+                onMouseEnter={e => e.currentTarget.style.background = 'rgba(255,255,255,0.08)'}
+                onMouseLeave={e => e.currentTarget.style.background = 'none'}
+                >{label}</button>
+              ))}
+            </div>
+          )}
+        </>
       )}
     </div>
   )
-  return null
+}
+
+// Used inline in BetaRow to show warning badge only
+const FlagWarningBadge = ({ address }) => {
+  const flags = getFlags()[address] || null
+  if (!flags) return null
+  const rugWarn   = flags.rug      >= 3
+  const honeyWarn = flags.honeypot >= 3
+  if (!rugWarn && !honeyWarn) return null
+  return (
+    <span className="badge" style={{
+      fontSize: 7, padding: '1px 4px',
+      background: 'rgba(255,68,102,0.15)',
+      borderColor: 'rgba(255,68,102,0.4)',
+      color: 'var(--red)',
+    }}>
+      {rugWarn ? '⚠️ RUG' : '⚠️ HONEY'}
+    </span>
+  )
 }
 
 // ─── Token Detail Drawer ──────────────────────────────────────────
@@ -1261,7 +1267,7 @@ const TokenDrawer = ({ token, alpha, onClose }) => {
     <div
       style={{
         position: 'fixed', right: 0, top: 0, bottom: 0,
-        width: 320, zIndex: 200,
+        width: 320, zIndex: 9999,
         background: 'var(--surface-1)',
         borderLeft: '1px solid rgba(255,255,255,0.1)',
         boxShadow: '-12px 0 40px rgba(0,0,0,0.6)',
@@ -1404,16 +1410,10 @@ const TokenDrawer = ({ token, alpha, onClose }) => {
           </div>
         )}
 
-        {/* Community flags */}
+        {/* Community flags — FlagButton handles counts + voting UI */}
         <div style={{ background: 'var(--surface-2)', borderRadius: 8, padding: '12px 14px' }}>
           <div style={{ fontFamily: 'var(--font-mono)', fontSize: 8, color: 'var(--text-muted)', marginBottom: 8, letterSpacing: 1 }}>🚩 COMMUNITY FLAGS</div>
-          {totalFlags > 0 ? (
-            <div style={{ display: 'flex', gap: 8, marginBottom: 8, flexWrap: 'wrap' }}>
-              {flags.rug > 0 && <div style={{ fontFamily: 'var(--font-mono)', fontSize: 10, color: 'var(--red)' }}>🪤 Rug: {flags.rug}</div>}
-              {flags.honeypot > 0 && <div style={{ fontFamily: 'var(--font-mono)', fontSize: 10, color: 'var(--amber)' }}>🍯 Honeypot: {flags.honeypot}</div>}
-              {flags.legit > 0 && <div style={{ fontFamily: 'var(--font-mono)', fontSize: 10, color: 'var(--neon-green)' }}>✅ Legit: {flags.legit}</div>}
-            </div>
-          ) : (
+          {totalFlags === 0 && (
             <div style={{ fontFamily: 'var(--font-mono)', fontSize: 9, color: 'var(--text-muted)', marginBottom: 8 }}>No flags yet — be the first</div>
           )}
           <FlagButton address={token.address} symbol={token.symbol} />
@@ -1447,6 +1447,7 @@ const TokenDrawer = ({ token, alpha, onClose }) => {
 export default function App() {
   const [selectedAlpha, setSelectedAlpha] = useState(null)
   const [showListModal, setShowListModal]  = useState(false)
+  const [drawerToken,   setDrawerToken]    = useState(null)
   const isSzn = selectedAlpha?.isSzn === true
 
   return (
@@ -1455,8 +1456,8 @@ export default function App() {
       <div className="main-layout">
         <AlphaBoard selectedAlpha={selectedAlpha} onSelect={setSelectedAlpha} />
         {isSzn
-          ? <SznPanel  szn={selectedAlpha}   onListBeta={() => setShowListModal(true)} />
-          : <BetaPanel alpha={selectedAlpha} onListBeta={() => setShowListModal(true)} />
+          ? <SznPanel  szn={selectedAlpha}   onListBeta={() => setShowListModal(true)} onOpenDrawer={setDrawerToken} />
+          : <BetaPanel alpha={selectedAlpha} onListBeta={() => setShowListModal(true)} onOpenDrawer={setDrawerToken} />
         }
       </div>
 
@@ -1468,6 +1469,23 @@ export default function App() {
             <button className="btn btn-ghost" onClick={() => setShowListModal(false)}>Close</button>
           </div>
         </div>
+      )}
+
+      {/* Token detail drawer — rendered via portal into document.body so
+          it escapes all ancestor overflow:hidden / stacking contexts */}
+      {drawerToken && createPortal(
+        <>
+          <div
+            style={{ position: 'fixed', inset: 0, zIndex: 9998, background: 'rgba(0,0,0,0.5)' }}
+            onClick={() => setDrawerToken(null)}
+          />
+          <TokenDrawer
+            token={drawerToken}
+            alpha={selectedAlpha}
+            onClose={() => setDrawerToken(null)}
+          />
+        </>,
+        document.body
       )}
     </div>
   )

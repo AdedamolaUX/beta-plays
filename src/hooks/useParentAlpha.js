@@ -202,12 +202,13 @@ const useParentAlpha = (alpha) => {
       tickerMatches.forEach(t => descTickerQueries.add(t.replace('$', '').toUpperCase()))
 
       // Tier 2: meaningful nouns from description
+      // min length 4 catches tokens like "gork", "frog", "pepe" etc.
       description
         .toLowerCase()
         .replace(/[^a-z0-9\s]/g, ' ')
         .split(/\s+/)
-        .filter(w => w.length >= 5 && !NAME_STOP.has(w))
-        .slice(0, 5)
+        .filter(w => w.length >= 4 && !NAME_STOP.has(w))
+        .slice(0, 8)
         .forEach(w => descWordQueries.add(w.toUpperCase()))
     }
 
