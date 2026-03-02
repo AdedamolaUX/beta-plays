@@ -248,13 +248,19 @@ const useParentAlpha = (alpha) => {
         const boost = getBoost(q)
 
         pairs
-          .filter(p =>
-            p.chainId === 'solana' &&
-            (p.marketCap || p.fdv || 0) > (alpha.marketCap || 0) * 0.5 &&
-            (p.liquidity?.usd || 0) > 5_000 &&
-            p.baseToken?.address !== alpha.address &&
-            p.baseToken?.symbol?.toUpperCase() !== symbol
-          )
+          .filter(p => {
+            const cSym = p.baseToken?.symbol?.toUpperCase() || ''
+            return (
+              p.chainId === 'solana' &&
+              (p.marketCap || p.fdv || 0) > (alpha.marketCap || 0) * 0.5 &&
+              (p.liquidity?.usd || 0) > 5_000 &&
+              p.baseToken?.address !== alpha.address &&
+              cSym !== symbol &&
+              cSym.length >= 3 &&           // reject "00", "X", "AI" etc
+              !/^\d+$/.test(cSym) &&         // reject purely numeric symbols
+              !/^[^A-Z]+$/.test(cSym)        // must contain at least one letter
+            )
+          })
           .forEach(p => {
             const cSym  = p.baseToken?.symbol?.toUpperCase() || ''
             const cName = p.baseToken?.name?.toUpperCase()   || ''

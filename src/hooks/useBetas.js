@@ -5,7 +5,7 @@ import scoreWithAI from './useAIBetaScoring'
 import { compareLogos, shouldRunVision } from './useImageAnalysis'
 
 const DEXSCREENER_BASE = 'https://api.dexscreener.com'
-const PUMPFUN_BASE     = 'https://frontend-api.pump.fun'
+const BACKEND_URL      = import.meta.env.VITE_BACKEND_URL || 'http://localhost:3001'
 const MIN_LIQUIDITY    = 1000   // Lowered from 5000 — small derivatives matter
 
 // ─── Beta persistence ─────────────────────────────────────────────
@@ -419,9 +419,9 @@ const fetchPumpFunBetas = async (alphaSymbol, descKeywords = []) => {
   const results    = []
 
   try {
-    // Scan 1: top 100 recent — wider net catches more derivatives
+    // Scan 1: top 100 recent — via backend proxy to avoid CORS
     const res = await axios.get(
-      `${PUMPFUN_BASE}/coins?sort=last_trade_timestamp&order=DESC&limit=100&includeNsfw=false`,
+      `${BACKEND_URL}/api/pumpfun?path=coins&sort=last_trade_timestamp&order=DESC&limit=100&includeNsfw=false`,
       { timeout: 8000 }
     )
     ;(res.data || [])
@@ -453,7 +453,7 @@ const fetchPumpFunBetas = async (alphaSymbol, descKeywords = []) => {
   // that dropped out of the recent feed but are still active
   try {
     const res2 = await axios.get(
-      `${PUMPFUN_BASE}/coins?sort=market_cap&order=DESC&limit=100&includeNsfw=false`,
+      `${BACKEND_URL}/api/pumpfun?path=coins&sort=market_cap&order=DESC&limit=100&includeNsfw=false`,
       { timeout: 8000 }
     )
     ;(res2.data || [])

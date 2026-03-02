@@ -92,5 +92,36 @@ app.get('/api/birdeye', async (req, res) => {
   }
 })
 
+// ─── PumpFun proxy ───────────────────────────────────────────────
+// PumpFun's frontend API blocks CORS from browser requests.
+// Route all PumpFun calls through the backend instead.
+// Frontend calls: GET /api/pumpfun?path=coins&sort=last_trade_timestamp&order=DESC&limit=100
+app.get('/api/pumpfun', async (req, res) => {
+  const { path: apiPath, ...params } = req.query
+  if (!apiPath) return res.status(400).json({ error: 'path required' })
+
+  const allowed = ['coins']
+  if (!allowed.includes(apiPath)) return res.status(400).json({ error: 'unknown path' })
+
+  // Build query string from remaining params
+  const qs = new URLSearchParams(params).toString()
+  const url = `https://frontend-api.pump.fun/${apiPath}${qs ? '?' + qs : ''}`
+
+  try {
+    const response = await fetch(url, {
+      headers: {
+        'User-Agent': 'Mozilla/5.0',
+        'Accept': 'application/json',
+      },
+    })
+    if (!response.ok) throw new Error(`PumpFun ${response.status}`)
+    const data = await response.json()
+    res.json(data)
+  } catch (err) {
+    console.error('PumpFun proxy error:', err.message)
+    res.status(502).json({ error: err.message })
+  }
+})
+
 const PORT = process.env.PORT || 3001
 app.listen(PORT, () => console.log(`BetaPlays backend on port ${PORT}`))
