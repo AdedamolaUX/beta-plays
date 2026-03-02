@@ -219,6 +219,11 @@ Respond ONLY with a JSON array. No markdown. Example:
 })
 
 export const compareLogos = async (alpha, candidates) => {
+  // DEXScreener blocks cross-origin image fetches in production.
+  // Vision only runs on localhost until we add an image proxy endpoint.
+  const IS_PROD = !window.location.hostname.includes('localhost')
+  if (IS_PROD) return []
+
   if (!alpha?.logoUrl) return []
   const withLogos = candidates.filter(c => c.logoUrl)
   if (withLogos.length === 0) return []

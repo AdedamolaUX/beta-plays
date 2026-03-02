@@ -1,173 +1,167 @@
-// ─── AI Szn Categorization ────────────────────────────────────────
-// Runs AFTER keyword matching. Takes tokens that didn't match any
-// known category and asks Claude two questions:
+// ─── Vector 8: AI-Powered Beta Scoring ──────────────────────────
+// Uses Claude to semantically score narrative relationships between
+// an alpha token and candidate betas. This is what closes the gap
+// that hardcoded pattern matching can never close:
 //
-//   1. Does this token fit an existing category we know about?
-//      (catches things like $WHISKERS → cats, $BARK → dogs)
+// $DARWIN and $EVOLUTION → related (no shared characters)
+// $COPE and $HOPIUM → same narrative universe
+// $GORKFUND and $GORK → derivative (prefix not in our dict)
 //
-//   2. If not, does it cluster with any other unmatched tokens
-//      into a novel narrative worth surfacing as a new Szn?
-//      (catches things like $GORK + $GORKFUND + $GORKCORE → 🦕 Gork Szn)
-//
-// Architecture mirrors Vector 8 (useAIBetaScoring.js):
-//   - Runs async, non-blocking
-//   - Batches 12 tokens per API call
-//   - In-memory cache with 5-min TTL
-//   - Returns via callback so keyword results show immediately
+// In production: call YOUR backend endpoint instead of API directly.
+// Your backend holds the API key securely. See Vector8_Backend_Guide.docx
 
-const ANTHROPIC_API_URL  = 'https://api.anthropic.com/v1/messages'
-const BATCH_SIZE         = 12
-const CACHE_TTL_MS       = 5 * 60 * 1000
+// Route all AI calls through our backend — key never touches the frontend
+const BACKEND_URL = import.meta.env.VITE_BACKEND_URL || 'http://localhost:3001'
+const AI_SCORE_THRESHOLD = 0.65  // Minimum score to qualify as a beta
+const BATCH_SIZE = 8             // Candidates per API call (controls cost + latency)
+const CACHE_TTL_MS = 5 * 60 * 1000  // Cache results for 5 minutes
 
-// ─── Cache ───────────────────────────────────────────────────────
-const categorizationCache = new Map()
+// ─── In-memory cache ─────────────────────────────────────────────
+// Prevents re-scoring on every render. Key = alphaAddress + candidateAddresses hash.
+const scoreCache = new Map()
 
-const getCacheKey = (tokenAddresses) =>
-  tokenAddresses.slice().sort().join(',')
+const getCacheKey = (alphaAddress, candidateAddresses) =>
+  `${alphaAddress}:${candidateAddresses.sort().join(',')}`
 
-// ─── Prompt builder ──────────────────────────────────────────────
-// We send:
-//   - The full list of known categories so Claude can match to them
-//   - The unmatched tokens (symbol + name + description)
-//
-// Claude returns per-token: { index, category, newNarrative }
-//   - category:     one of our known keys (e.g. 'cats') OR null
-//   - newNarrative: { key, label, emoji } if it's something genuinely novel OR null
+// ─── Build the scoring prompt ────────────────────────────────────
+// This prompt is the heart of Vector 8.
+// We give Claude full context about the alpha and ask it to score
+// each candidate on narrative relatedness — not just name similarity.
+const buildScoringPrompt = (alpha, candidates) => {
+  const alphaContext = [
+    `Symbol: $${alpha.symbol}`,
+    alpha.name    ? `Name: ${alpha.name}`               : null,
+    alpha.description ? `Description: ${alpha.description}` : null,
+    alpha.marketCap   ? `Market Cap: $${alpha.marketCap.toLocaleString()}` : null,
+  ].filter(Boolean).join('\n')
 
-const buildCategorizationPrompt = (tokens, knownCategories) => {
-  const categoryList = Object.entries(knownCategories)
-    .map(([key, cat]) => `  "${key}": ${cat.label}`)
-    .join('\n')
+  const candidateList = candidates.map((c, i) => {
+    const lines = [
+      `[${i}] Symbol: $${c.symbol}`,
+      c.name        ? `    Name: ${c.name}`               : null,
+      c.description ? `    Description: ${c.description}` : null,
+    ].filter(Boolean).join('\n')
+    return lines
+  }).join('\n\n')
 
-  const tokenList = tokens.map((t, i) => {
-    const parts = [
-      `[${i}] $${t.symbol}`,
-      t.name        ? `name: "${t.name}"`               : null,
-      t.description ? `description: "${t.description}"` : null,
-    ].filter(Boolean).join(' | ')
-    return parts
-  }).join('\n')
+  return `You are analyzing Solana meme tokens to identify which ones are narrative derivatives or beta plays of a given alpha token.
 
-  return `You are analyzing Solana meme tokens to detect narrative themes for a crypto analytics tool.
+ALPHA TOKEN (the runner we're analyzing):
+${alphaContext}
 
-KNOWN NARRATIVE CATEGORIES:
-${categoryList}
+CANDIDATE TOKENS (potential beta plays):
+${candidateList}
 
-UNMATCHED TOKENS (did not match any keyword filter — categorize these):
-${tokenList}
+For each candidate, score how likely it is to be a beta/derivative of the alpha token (0.0 to 1.0).
 
-For each token, determine:
-1. Does it fit one of the KNOWN categories above? (even if the name is unusual — use semantic understanding)
-2. If not, does it belong to a genuinely novel narrative that should get its own category?
+Scoring criteria:
+- 0.9-1.0: Direct derivative (same character, event, or meme — e.g. PIPPKIN of PIPPIN)
+- 0.7-0.89: Strong narrative connection (same universe, concept, or cultural moment)
+- 0.5-0.69: Possible connection but ambiguous
+- 0.0-0.49: Likely unrelated despite surface similarity
 
-Rules:
-- Be generous with existing categories. $WHISKERS → cats. $BARKY → dogs. $ZELENSKY → political.
-- Only create a "newNarrative" if the token represents something that clearly doesn't fit anything above.
-- newNarrative.key must be a short lowercase identifier (e.g. "gork", "foxes", "bears")
-- newNarrative.label must be emoji + short name (e.g. "🦊 Foxes", "🦕 Gork")
-- If a token is genuinely random with no clear theme, set both category and newNarrative to null.
+Consider: shared characters, shared events (Trump alien disclosure → ALIEN tokens), shared cultural references, shared meme formats, prefix/suffix derivatives, thematic overlap.
 
-Respond ONLY with a JSON array. No explanation, no markdown. Example:
-[
-  {"index":0,"category":"cats","newNarrative":null},
-  {"index":1,"category":null,"newNarrative":{"key":"foxes","label":"🦊 Foxes"}},
-  {"index":2,"category":null,"newNarrative":null}
-]`
+Respond ONLY with a JSON array. No explanation, no markdown, no preamble. Example format:
+[{"index":0,"score":0.95,"reason":"Direct derivative"},{"index":1,"score":0.2,"reason":"Unrelated"}]`
 }
 
-// ─── API call ─────────────────────────────────────────────────────
+// ─── Call backend /api/score-betas ──────────────────────────────
+// Backend holds the Anthropic key and returns parsed JSON directly.
 const callAnthropicAPI = async (prompt) => {
-  const response = await fetch(ANTHROPIC_API_URL, {
-    method:  'POST',
+  const response = await fetch(`${BACKEND_URL}/api/score-betas`, {
+    method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      model:      'claude-sonnet-4-20250514',
-      max_tokens: 1000,
-      messages:   [{ role: 'user', content: prompt }],
-    }),
+    body: JSON.stringify({ prompt }),
   })
 
-  if (!response.ok) throw new Error(`API error: ${response.status}`)
+  if (!response.ok) {
+    throw new Error(`Backend scoring error: ${response.status}`)
+  }
 
-  const data  = await response.json()
-  const text  = data.content?.filter(b => b.type === 'text')?.map(b => b.text)?.join('') || ''
-  const clean = text.replace(/```json|```/g, '').trim()
-  return JSON.parse(clean)
+  const data = await response.json()
+
+  // Backend returns parsed array directly.
+  // Guard: if somehow we got an error object, throw instead of crashing .map()
+  if (!Array.isArray(data)) {
+    throw new Error(`Unexpected response shape: ${JSON.stringify(data).slice(0, 100)}`)
+  }
+
+  return data
 }
 
-// ─── Process a batch ─────────────────────────────────────────────
-const categorizeBatch = async (tokens, knownCategories) => {
-  if (!tokens.length) return []
-  const prompt  = buildCategorizationPrompt(tokens, knownCategories)
+// ─── Score a batch of candidates ────────────────────────────────
+const scoreBatch = async (alpha, candidates) => {
+  if (!candidates || candidates.length === 0) return []
+
+  const prompt  = buildScoringPrompt(alpha, candidates)
   const results = await callAnthropicAPI(prompt)
+
   return results
-    .filter(r => r.category || r.newNarrative)
+    .filter(r => r.score >= AI_SCORE_THRESHOLD)
     .map(r => ({
-      token:         tokens[r.index],
-      category:      r.category      || null,
-      newNarrative:  r.newNarrative  || null,
+      ...candidates[r.index],
+      aiScore:  r.score,
+      aiReason: r.reason,
+      signalSources: [...(candidates[r.index].signalSources || []), 'ai_match'],
     }))
 }
 
-// ─── Main export ─────────────────────────────────────────────────
-// Takes:
-//   unmatchedTokens  — tokens keyword matching didn't catch
-//   knownCategories  — the NARRATIVE_CATEGORIES object from lore_map
-//   onResults        — callback(categorized, novelGroups)
-//
-// categorized:  [{ token, category }]     — slot into existing Szn cards
-// novelGroups:  [{ key, label, tokens }]  — brand new Szn cards to surface
+// ─── Main scoring function ───────────────────────────────────────
+// Takes alpha + all candidates, runs them through Claude in batches,
+// returns only the ones that score above the threshold.
+export const scoreWithAI = async (alpha, candidates) => {
+  if (!alpha || !candidates || candidates.length === 0) return []
 
-export const categorizeWithAI = async (unmatchedTokens, knownCategories, onResults) => {
-  if (!unmatchedTokens || unmatchedTokens.length === 0) return
+  const cacheKey = getCacheKey(
+    alpha.address,
+    candidates.map(c => c.address || c.id)
+  )
 
-  const cacheKey = getCacheKey(unmatchedTokens.map(t => t.address || t.symbol))
-  const cached   = categorizationCache.get(cacheKey)
-
+  // Return cached results if still fresh
+  const cached = scoreCache.get(cacheKey)
   if (cached && Date.now() - cached.timestamp < CACHE_TTL_MS) {
-    console.log(`[SznAI] Cache hit — ${cached.categorized.length} categorized, ${cached.novelGroups.length} novel narratives`)
-    onResults(cached.categorized, cached.novelGroups)
-    return
+    console.log(`[Vector8] Cache hit for $${alpha.symbol} — ${cached.results.length} AI matches`)
+    return cached.results
   }
 
-  console.log(`[SznAI] Categorizing ${unmatchedTokens.length} unmatched tokens...`)
+  console.log(`[Vector8] Scoring ${candidates.length} candidates for $${alpha.symbol}...`)
 
-  // Batch the tokens
+  // Process in batches to manage token usage and latency
   const batches = []
-  for (let i = 0; i < unmatchedTokens.length; i += BATCH_SIZE) {
-    batches.push(unmatchedTokens.slice(i, i + BATCH_SIZE))
+  for (let i = 0; i < candidates.length; i += BATCH_SIZE) {
+    batches.push(candidates.slice(i, i + BATCH_SIZE))
   }
 
   const batchResults = await Promise.allSettled(
-    batches.map(batch => categorizeBatch(batch, knownCategories))
+    batches.map(batch => scoreBatch(alpha, batch))
   )
 
-  const allResults = batchResults
+  const allScored = batchResults
     .filter(r => r.status === 'fulfilled')
     .flatMap(r => r.value)
+    .sort((a, b) => b.aiScore - a.aiScore)
 
-  // ── Split: existing category matches vs novel narratives ─────
-  const categorized  = allResults.filter(r => r.category)
-  const novelRaw     = allResults.filter(r => r.newNarrative)
+  // Cache the results
+  scoreCache.set(cacheKey, { results: allScored, timestamp: Date.now() })
+  console.log(`[Vector8] Found ${allScored.length} AI-matched betas for $${alpha.symbol}`)
 
-  // ── Group novel tokens by narrative key ─────────────────────
-  // Multiple tokens might share the same novel narrative
-  // e.g. $GORK + $GORKFUND both get { key: 'gork', label: '🦕 Gork' }
-  const novelMap = {}
-  novelRaw.forEach(({ token, newNarrative }) => {
-    const { key, label } = newNarrative
-    if (!novelMap[key]) novelMap[key] = { key, label, tokens: [], totalVolume: 0, source: 'ai' }
-    novelMap[key].tokens.push(token)
-    novelMap[key].totalVolume += token.volume24h || 0
-  })
-
-  const novelGroups = Object.values(novelMap)
-
-  console.log(`[SznAI] ${categorized.length} matched to existing categories, ${novelGroups.length} novel narratives found`)
-
-  // Cache and return
-  categorizationCache.set(cacheKey, { categorized, novelGroups, timestamp: Date.now() })
-  onResults(categorized, novelGroups)
+  return allScored
 }
 
-export default categorizeWithAI
+// ─── Production swap instructions ───────────────────────────────
+// When you deploy the backend (see Vector8_Backend_Guide.docx),
+// replace callAnthropicAPI with:
+//
+// const callAnthropicAPI = async (prompt) => {
+//   const response = await fetch('https://your-backend.railway.app/api/score-betas', {
+//     method: 'POST',
+//     headers: { 'Content-Type': 'application/json' },
+//     body: JSON.stringify({ prompt }),
+//   })
+//   return response.json()
+// }
+//
+// That's the only change needed. The rest of this file stays identical.
+
+export default scoreWithAI
