@@ -107,6 +107,11 @@ Respond ONLY with a JSON array. No markdown. Example:
 })
 
 export const classifyLogos = async (tokens) => {
+  // DEXScreener blocks cross-origin image fetches in production.
+  // Same guard as compareLogos — skip vision outside localhost.
+  const IS_PROD = !window.location.hostname.includes('localhost')
+  if (IS_PROD) return []
+
   // Filter to tokens that have logos
   const withLogos = tokens.filter(t => t.logoUrl)
   if (withLogos.length === 0) return []

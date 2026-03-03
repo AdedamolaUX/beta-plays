@@ -1386,7 +1386,7 @@ const TokenDrawer = ({ token, alpha, onClose }) => {
         <div style={{ background: 'var(--surface-2)', borderRadius: 8, padding: '12px 14px' }}>
           <div style={{ fontFamily: 'var(--font-mono)', fontSize: 8, color: 'var(--text-muted)', marginBottom: 8, letterSpacing: 1 }}>DETECTION SIGNALS</div>
           <div style={{ display: 'flex', gap: 5, flexWrap: 'wrap', marginBottom: 6 }}>
-            {(token.signalSources || '').split(',').filter(Boolean).map(s => (
+            {(Array.isArray(token.signalSources) ? token.signalSources : (token.signalSources || '').split(',')).filter(Boolean).map(s => (
               <span key={s} className="badge badge-weak" style={{ fontSize: 7, padding: '2px 5px' }}>{s.trim()}</span>
             ))}
             {wave?.label !== 'UNKNOWN' && wave && (

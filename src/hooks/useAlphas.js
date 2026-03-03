@@ -3,7 +3,7 @@ import axios from 'axios'
 import LEGENDS from '../data/historical_alphas'
 
 const DEXSCREENER_BASE = 'https://api.dexscreener.com'
-const PUMPFUN_BASE     = 'https://frontend-api.pump.fun'
+const BACKEND_URL      = import.meta.env.VITE_BACKEND_URL || 'http://localhost:3001'
 
 // ─── Thresholds ──────────────────────────────────────────────────
 const LIVE_MIN_CHANGE    =  0
@@ -217,7 +217,12 @@ const formatAlpha = (pair, source = 'boost', extraDescription = '') => ({
   isCooling:      false,
   coolingLabel:   null,
   source,
-  dexUrl: pair.url || `https://dexscreener.com/solana/${pair.pairAddress}`,
+  // Use base token address for DEX link — this ensures migrated tokens
+  // (e.g. pump.fun → PumpSwap) always land on the current active pair,
+  // not the stale pre-migration pair which shows inflated % from the pump.
+  dexUrl: pair.baseToken?.address
+    ? `https://dexscreener.com/solana/${pair.baseToken.address}`
+    : (pair.url || `https://dexscreener.com/solana/${pair.pairAddress}`),
 })
 
 // ─── Junk filter ─────────────────────────────────────────────────
@@ -308,7 +313,7 @@ const fetchPumpFunBonded = async () => {
   try {
     // Fetch recently bonded coins (last 48h activity, sorted by migration time)
     const res = await axios.get(
-      `${PUMPFUN_BASE}/coins?sort=last_trade_timestamp&order=DESC&limit=100&includeNsfw=false`,
+      `${BACKEND_URL}/api/pumpfun?path=coins&sort=last_trade_timestamp&order=DESC&limit=100&includeNsfw=false`,
       { timeout: 8000 }
     )
 
@@ -370,7 +375,9 @@ const fetchPumpFunBonded = async () => {
           bondedAt:        coin.created_timestamp || null,
           poolAddress:     coin.raydium_pool || coin.pool_address,
           isPumpSwap:      !coin.raydium_pool && !!coin.pool_address,
-          dexUrl:          best.url || `https://dexscreener.com/solana/${best.pairAddress}`,
+          dexUrl:          best.baseToken?.address
+            ? `https://dexscreener.com/solana/${best.baseToken.address}`
+            : (best.url || `https://dexscreener.com/solana/${best.pairAddress}`),
         })
       })
     }

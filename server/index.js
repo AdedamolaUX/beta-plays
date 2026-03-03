@@ -11,7 +11,7 @@ const express   = require('express')
 const cors      = require('cors')
 const Anthropic = require('@anthropic-ai/sdk')
 const rateLimit = require('express-rate-limit')
-require('dotenv').config()
+require('dotenv').config({ path: require('path').join(__dirname, '.env') })
 
 const app    = express()
 const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY })
@@ -83,6 +83,7 @@ app.get('/api/birdeye', async (req, res) => {
         'x-chain':   'solana',
       },
     })
+    if (response.status === 404) return res.json({ data: null })  // token not indexed yet
     if (!response.ok) throw new Error(`Birdeye ${response.status}`)
     const data = await response.json()
     res.json(data)
