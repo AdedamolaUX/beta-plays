@@ -1,4 +1,4 @@
-import { useState, useMemo, useCallback, useRef } from 'react'
+import { useState, useMemo, useCallback, useRef, useEffect } from 'react'
 import { createPortal } from 'react-dom'
 import useAlphas from './hooks/useAlphas'
 import useBetas, { getSignal, getWavePhase, getMcapRatio } from './hooks/useBetas'
@@ -211,7 +211,7 @@ const SznCard = ({ szn, isSelected, onClick }) => {
 // Specialised card for the Positioning Plays tab.
 // Shows peak, current drawdown, opportunity score prominently —
 // the signal a degen needs to decide if it's worth the entry.
-const PositioningCard = ({ alpha, isSelected, onClick }) => {
+const PositioningCard = ({ alpha, isSelected, onClick, isWatched, onToggleWatch }) => {
   const change      = parseFloat(alpha.priceChange24h) || 0
   const drawdown    = alpha.drawdownPct || 0
   const score       = alpha.opportunityScore || 0
@@ -250,13 +250,26 @@ const PositioningCard = ({ alpha, isSelected, onClick }) => {
             </div>
           </div>
         </div>
-        {/* DEX link */}
-        <span
-          onClick={e => { e.stopPropagation(); window.open(alpha.dexUrl || `https://dexscreener.com/solana/${alpha.address}`, '_blank') }}
-          style={{ fontFamily: 'var(--font-mono)', fontSize: 8, color: 'var(--text-muted)', cursor: 'pointer', padding: '1px 4px', borderRadius: 3, border: '1px solid rgba(255,255,255,0.08)' }}
-          onMouseEnter={e => e.currentTarget.style.color = 'var(--cyan)'}
-          onMouseLeave={e => e.currentTarget.style.color = 'var(--text-muted)'}
-        >DEX ↗</span>
+        {/* Actions: star + DEX link */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
+          <button
+            onClick={e => { e.stopPropagation(); onToggleWatch?.(alpha) }}
+            title={isWatched ? 'Remove from watchlist' : 'Add to watchlist'}
+            style={{
+              background: 'none', border: 'none', cursor: 'pointer', padding: '1px 3px',
+              fontSize: 13, lineHeight: 1, opacity: isWatched ? 1 : 0.35,
+              transition: 'opacity 0.15s, transform 0.1s',
+            }}
+            onMouseEnter={e => e.currentTarget.style.opacity = '1'}
+            onMouseLeave={e => e.currentTarget.style.opacity = isWatched ? '1' : '0.35'}
+          >{isWatched ? '⭐' : '☆'}</button>
+          <span
+            onClick={e => { e.stopPropagation(); window.open(alpha.dexUrl || `https://dexscreener.com/solana/${alpha.address}`, '_blank') }}
+            style={{ fontFamily: 'var(--font-mono)', fontSize: 8, color: 'var(--text-muted)', cursor: 'pointer', padding: '1px 4px', borderRadius: 3, border: '1px solid rgba(255,255,255,0.08)' }}
+            onMouseEnter={e => e.currentTarget.style.color = 'var(--cyan)'}
+            onMouseLeave={e => e.currentTarget.style.color = 'var(--text-muted)'}
+          >DEX ↗</span>
+        </div>
       </div>
 
       {/* Drawdown bar — the key signal */}
@@ -304,7 +317,7 @@ const PositioningCard = ({ alpha, isSelected, onClick }) => {
   )
 }
 
-const AlphaCard = ({ alpha, isSelected, onClick }) => {
+const AlphaCard = ({ alpha, isSelected, onClick, isWatched, onToggleWatch }) => {
   const change     = parseFloat(alpha.priceChange24h) || 0
   const isPositive = change >= 0
   const derivative = isDerivative(alpha.symbol)
@@ -361,26 +374,39 @@ const AlphaCard = ({ alpha, isSelected, onClick }) => {
           <div className={`token-change ${isPositive ? 'positive' : 'negative'}`}>
             {isPositive ? '+' : ''}{change.toFixed(1)}%
           </div>
-          {/* DEX link — separate from select click */}
-          <span
-            onClick={e => {
-              e.stopPropagation()
-              const url = alpha.dexUrl || `https://dexscreener.com/solana/${alpha.address}`
-              window.open(url, '_blank')
-            }}
-            style={{
-              fontFamily: 'var(--font-mono)', fontSize: 8,
-              color: 'var(--text-muted)', cursor: 'pointer',
-              padding: '1px 4px', borderRadius: 3,
-              border: '1px solid rgba(255,255,255,0.08)',
-              transition: 'color 0.15s',
-            }}
-            onMouseEnter={e => e.currentTarget.style.color = 'var(--cyan)'}
-            onMouseLeave={e => e.currentTarget.style.color = 'var(--text-muted)'}
-            title="Open on DEXScreener"
-          >
-            DEX ↗
-          </span>
+          {/* Actions: star + DEX link */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
+            <button
+              onClick={e => { e.stopPropagation(); onToggleWatch?.(alpha) }}
+              title={isWatched ? 'Remove from watchlist' : 'Add to watchlist'}
+              style={{
+                background: 'none', border: 'none', cursor: 'pointer', padding: '1px 3px',
+                fontSize: 13, lineHeight: 1, opacity: isWatched ? 1 : 0.35,
+                transition: 'opacity 0.15s',
+              }}
+              onMouseEnter={e => e.currentTarget.style.opacity = '1'}
+              onMouseLeave={e => e.currentTarget.style.opacity = isWatched ? '1' : '0.35'}
+            >{isWatched ? '⭐' : '☆'}</button>
+            <span
+              onClick={e => {
+                e.stopPropagation()
+                const url = alpha.dexUrl || `https://dexscreener.com/solana/${alpha.address}`
+                window.open(url, '_blank')
+              }}
+              style={{
+                fontFamily: 'var(--font-mono)', fontSize: 8,
+                color: 'var(--text-muted)', cursor: 'pointer',
+                padding: '1px 4px', borderRadius: 3,
+                border: '1px solid rgba(255,255,255,0.08)',
+                transition: 'color 0.15s',
+              }}
+              onMouseEnter={e => e.currentTarget.style.color = 'var(--cyan)'}
+              onMouseLeave={e => e.currentTarget.style.color = 'var(--text-muted)'}
+              title="Open on DEXScreener"
+            >
+              DEX ↗
+            </span>
+          </div>
         </div>
       </div>
       <div className="alpha-card-metrics">
@@ -404,15 +430,53 @@ const AlphaCard = ({ alpha, isSelected, onClick }) => {
 // ─── Alpha Board ─────────────────────────────────────────────────
 
 const AlphaBoard = ({ selectedAlpha, onSelect }) => {
-  const [activeTab,    setActiveTab]    = useState('live')
-  const [searchQuery,  setSearchQuery]  = useState('')
+  const [activeTab,        setActiveTab]        = useState('live')
+  const [searchQuery,      setSearchQuery]      = useState('')
+  const [coolingTimeframe, setCoolingTimeframe] = useState('24h')
+  const [watchlist,        setWatchlist]        = useState(() => getWatchlistRaw())
+
   const { liveAlphas, coolingAlphas, positioningAlphas, legends, loading, isRefreshing, error, lastUpdated, refresh } = useAlphas()
   const sznCards = useNarrativeSzn(liveAlphas)
 
+  // ── Watchlist helpers ──────────────────────────────────────────
+  const watchedAddresses = useMemo(() => new Set(watchlist.map(a => a.address)), [watchlist])
+
+  const handleToggleWatch = useCallback((alpha) => {
+    setWatchlist(prev => {
+      const isWatched = prev.some(a => a.address === alpha.address)
+      const next = isWatched
+        ? prev.filter(a => a.address !== alpha.address)
+        : [{ ...alpha, watchedAt: Date.now() }, ...prev]
+      saveWatchlistRaw(next)
+      return next
+    })
+  }, [])
+
+  // ── Cooling timeframe filter ───────────────────────────────────
+  const TIMEFRAME_MS = { '24h': 86400000, '3d': 3 * 86400000, '7d': 7 * 86400000 }
+  const filteredCooling = useMemo(() =>
+    coolingAlphas.filter(a =>
+      !a.lastSeen || (Date.now() - a.lastSeen) < TIMEFRAME_MS[coolingTimeframe]
+    ),
+    [coolingAlphas, coolingTimeframe]
+  )
+
+  // Restore selected alpha from sessionStorage when alphas first load
+  const restoredRef = useRef(false)
+  useEffect(() => {
+    if (restoredRef.current || selectedAlpha || liveAlphas.length === 0) return
+    const savedAddress = sessionStorage.getItem('betaplays_selected')
+    if (!savedAddress) return
+    const allTokens = [...liveAlphas, ...coolingAlphas, ...legends]
+    const match = allTokens.find(a => a.address === savedAddress)
+    if (match) { onSelect(match); restoredRef.current = true }
+  }, [liveAlphas])
+
   const rawList =
-    activeTab === 'live'        ? liveAlphas        :
-    activeTab === 'cooling'     ? coolingAlphas     :
-    activeTab === 'positioning' ? positioningAlphas :
+    activeTab === 'live'        ? liveAlphas         :
+    activeTab === 'cooling'     ? filteredCooling     :
+    activeTab === 'positioning' ? positioningAlphas   :
+    activeTab === 'watch'       ? watchlist           :
     legends
 
   // Apply search filter across all tabs
@@ -438,6 +502,7 @@ const AlphaBoard = ({ selectedAlpha, onSelect }) => {
     { key: 'live',        label: '🔥 Live',     count: liveAlphas.length        },
     { key: 'cooling',     label: '❄️ Cool',     count: coolingAlphas.length     },
     { key: 'positioning', label: '🎯 Position', count: positioningAlphas.length },
+    { key: 'watch',       label: '⭐ Watch',    count: watchlist.length         },
     { key: 'legends',     label: '🏆 OGs',      count: legends.length           },
   ]
 
@@ -479,19 +544,19 @@ const AlphaBoard = ({ selectedAlpha, onSelect }) => {
         </div>
       </div>
 
-      {/* Tabs — single row, compact */}
+      {/* Tabs — scrollable single row */}
       <div style={{
         display: 'flex', gap: 2,
         background: 'var(--surface-2)', padding: 3,
         borderRadius: 'var(--radius-md)', border: '1px solid var(--border)',
-        flexShrink: 0,
+        flexShrink: 0, overflowX: 'auto',
       }}>
         {tabs.map(({ key, label, count }) => (
           <button
             key={key}
             className={`tab-btn ${activeTab === key ? 'active' : ''}`}
             onClick={() => { setActiveTab(key); setSearchQuery('') }}
-            style={{ flex: 1, textAlign: 'center' }}
+            style={{ flex: '0 0 auto', textAlign: 'center' }}
           >
             {label}
             {count > 0 && (
@@ -504,6 +569,34 @@ const AlphaBoard = ({ selectedAlpha, onSelect }) => {
         ))}
       </div>
 
+      {/* Cooling timeframe sub-tabs */}
+      {activeTab === 'cooling' && !searchQuery && (
+        <div style={{
+          display: 'flex', gap: 2, flexShrink: 0,
+          background: 'var(--surface-2)', padding: 3,
+          borderRadius: 'var(--radius-md)', border: '1px solid var(--border)',
+        }}>
+          {[['24h', '24h'], ['3d', '3 days'], ['7d', '7 days']].map(([key, label]) => (
+            <button
+              key={key}
+              className={`tab-btn ${coolingTimeframe === key ? 'active' : ''}`}
+              onClick={() => setCoolingTimeframe(key)}
+              style={{ flex: 1, textAlign: 'center' }}
+            >
+              {label}
+              <span style={{
+                marginLeft: 3, fontSize: 7,
+                color: coolingTimeframe === key ? 'var(--cyan)' : 'var(--text-muted)',
+              }}>
+                {coolingAlphas.filter(a =>
+                  !a.lastSeen || (Date.now() - a.lastSeen) < TIMEFRAME_MS[key]
+                ).length}
+              </span>
+            </button>
+          ))}
+        </div>
+      )}
+
       {/* Tab descriptions */}
       {!searchQuery && (
         <div style={{ flexShrink: 0, paddingBottom: 4 }}>
@@ -514,13 +607,18 @@ const AlphaBoard = ({ selectedAlpha, onSelect }) => {
           )}
           {activeTab === 'cooling' && (
             <p style={{ fontFamily: 'var(--font-mono)', fontSize: 9, color: 'var(--cyan)', lineHeight: 1.5 }}>
-              Tokens down in the last 24h — retracing or consolidating. Watch for second leg entry.
+              Tokens retracing or consolidating — {filteredCooling.length} in the last {coolingTimeframe}. Watch for second leg entry.
             </p>
           )}
           {activeTab === 'positioning' && (
             <p style={{ fontFamily: 'var(--font-mono)', fontSize: 9, color: 'var(--amber)', lineHeight: 1.5 }}>
               Big peak. Big drawdown. Volume still alive. These are the second-leg setups degens hunt.
               {positioningAlphas.length === 0 && ' Populates as tokens peak and retrace — check back after the next wave.'}
+            </p>
+          )}
+          {activeTab === 'watch' && (
+            <p style={{ fontFamily: 'var(--font-mono)', fontSize: 9, color: 'var(--amber)', lineHeight: 1.5 }}>
+              Your starred tokens. ☆ star any runner, cooling token, or positioning play to save it here.
             </p>
           )}
           {activeTab === 'legends' && (
@@ -586,13 +684,26 @@ const AlphaBoard = ({ selectedAlpha, onSelect }) => {
         {!loading && isEmpty && !searchQuery && activeTab === 'cooling' && (
           <div className="empty-state">
             <div className="empty-state-icon">❄️</div>
-            <div className="empty-state-title">No retracing tokens right now.</div>
+            <div className="empty-state-title">Nothing cooling in the last {coolingTimeframe}.</div>
             <div className="empty-state-sub">
-              Everything is either pumping or dead. Check back after the market moves.
+              {coolingTimeframe !== '7d'
+                ? `Try the 7d window — tokens that ran last week may still be setting up.`
+                : 'Everything is either pumping or dead. Check back after the market moves.'
+              }
             </div>
-            <button className="btn btn-ghost btn-sm" onClick={() => setActiveTab('legends')} style={{ marginTop: 12 }}>
-              View Legends
-            </button>
+            {coolingTimeframe !== '7d' && (
+              <button className="btn btn-ghost btn-sm" onClick={() => setCoolingTimeframe('7d')} style={{ marginTop: 12 }}>
+                Expand to 7 days
+              </button>
+            )}
+          </div>
+        )}
+
+        {!loading && isEmpty && !searchQuery && activeTab === 'watch' && (
+          <div className="empty-state">
+            <div className="empty-state-icon">⭐</div>
+            <div className="empty-state-title">No tokens starred yet.</div>
+            <div className="empty-state-sub">Tap ☆ on any runner, cooling token, or positioning play to add it here.</div>
           </div>
         )}
 
@@ -632,21 +743,31 @@ const AlphaBoard = ({ selectedAlpha, onSelect }) => {
           </>
         )}
 
-        {!loading && displayList.map((alpha) => (
-          activeTab === 'positioning'
-            ? <PositioningCard
+        {!loading && displayList.map((alpha) => {
+          const watched = watchedAddresses.has(alpha.address)
+          if (activeTab === 'positioning' || alpha.isPositioning) {
+            return (
+              <PositioningCard
                 key={alpha.id || alpha.address}
                 alpha={alpha}
                 isSelected={selectedAlpha?.id === alpha.id}
                 onClick={() => onSelect(alpha)}
+                isWatched={watched}
+                onToggleWatch={handleToggleWatch}
               />
-            : <AlphaCard
-                key={alpha.id}
-                alpha={alpha}
-                isSelected={selectedAlpha?.id === alpha.id}
-                onClick={() => onSelect(alpha)}
-              />
-        ))}
+            )
+          }
+          return (
+            <AlphaCard
+              key={alpha.id || alpha.address}
+              alpha={alpha}
+              isSelected={selectedAlpha?.id === alpha.id}
+              onClick={() => onSelect(alpha)}
+              isWatched={watched}
+              onToggleWatch={handleToggleWatch}
+            />
+          )
+        })}
       </div>
     </aside>
   )
@@ -926,6 +1047,8 @@ const BetaPanel = ({ alpha, onListBeta, onOpenDrawer }) => {
   const { birdeye }                                       = useBirdeye(alpha?.address)
   const [trenchOnly,   setTrenchOnly]   = useState(false)
   const [mcapFilter,   setMcapFilter]   = useState('all')
+  const [sortBy,       setSortBy]       = useState('change')
+  const [sortDir,      setSortDir]      = useState('desc')
 
   const mcapFilterFn = {
     all:   () => true,
@@ -935,8 +1058,33 @@ const BetaPanel = ({ alpha, onListBeta, onOpenDrawer }) => {
     micro: (b) => (b.marketCap || 0) < 100_000,
   }
 
-  const filteredBetas = betas.filter(mcapFilterFn[mcapFilter])
+  const handleSort = (col) => {
+    if (sortBy === col) setSortDir(d => d === 'desc' ? 'asc' : 'desc')
+    else { setSortBy(col); setSortDir('desc') }
+  }
+
+  const filteredBetas = useMemo(() => {
+    const filtered = betas.filter(mcapFilterFn[mcapFilter])
+    return [...filtered].sort((a, b) => {
+      // LP pairs always float to top regardless of sort
+      const aLP = a.signalSources?.includes('lp_pair') ? 1 : 0
+      const bLP = b.signalSources?.includes('lp_pair') ? 1 : 0
+      if (bLP !== aLP) return bLP - aLP
+      let aVal, bVal
+      if (sortBy === 'mcap')   { aVal = a.marketCap  || 0; bVal = b.marketCap  || 0 }
+      else if (sortBy === 'volume') { aVal = a.volume24h || 0; bVal = b.volume24h || 0 }
+      else if (sortBy === 'age')    { aVal = a.ageMs    || 0; bVal = b.ageMs    || 0 }
+      else                          { aVal = parseFloat(a.priceChange24h) || 0; bVal = parseFloat(b.priceChange24h) || 0 }
+      return sortDir === 'desc' ? bVal - aVal : aVal - bVal
+    })
+  }, [betas, mcapFilter, sortBy, sortDir])
+
   const trenchCount   = betas.filter(b => (b.marketCap || 0) < 100_000).length
+
+  const SortIcon = ({ col }) => {
+    if (sortBy !== col) return <span style={{ opacity: 0.3, fontSize: 8 }}>↕</span>
+    return <span style={{ color: 'var(--cyan)', fontSize: 8 }}>{sortDir === 'desc' ? '↓' : '↑'}</span>
+  }
 
   return (
     <section className="beta-panel">
@@ -945,11 +1093,9 @@ const BetaPanel = ({ alpha, onListBeta, onOpenDrawer }) => {
           <h1 className="beta-panel-title">
             {alpha ? `Beta Plays for $${alpha.symbol}` : 'Select a Runner'}
           </h1>
-          <p className="beta-panel-subtitle">
-            {alpha
-              ? <span>Surfacing derivative tokens for <span style={{ color: 'var(--neon-green)' }}>${alpha.symbol}</span> — sorted by 24h gain</span>
-              : 'Pick a runner from the left panel to surface its beta plays'}
-          </p>
+          {!alpha && (
+            <p className="beta-panel-subtitle">Pick a runner from the left panel to surface its beta plays</p>
+          )}
         </div>
         {alpha && (
           <div style={{ display: 'flex', gap: 8 }}>
@@ -1079,7 +1225,12 @@ const BetaPanel = ({ alpha, onListBeta, onOpenDrawer }) => {
           {/* Beta table */}
           <div className="beta-table">
             <div className="beta-table-header">
-              <span>Token</span><span>MCAP / Room</span><span>24h Vol</span><span>24h %</span><span>Age</span><span>Signal</span>
+              <span>Token</span>
+              <span onClick={() => handleSort('mcap')}   style={{ cursor: 'pointer', userSelect: 'none' }}>MCAP / Room <SortIcon col="mcap" /></span>
+              <span onClick={() => handleSort('volume')} style={{ cursor: 'pointer', userSelect: 'none' }}>24h Vol <SortIcon col="volume" /></span>
+              <span onClick={() => handleSort('change')} style={{ cursor: 'pointer', userSelect: 'none' }}>24h % <SortIcon col="change" /></span>
+              <span onClick={() => handleSort('age')}    style={{ cursor: 'pointer', userSelect: 'none' }}>Age <SortIcon col="age" /></span>
+              <span>Signal</span>
             </div>
 
             {betasLoading && (
@@ -1124,6 +1275,22 @@ const BetaPanel = ({ alpha, onListBeta, onOpenDrawer }) => {
   )
 }
 
+
+// ─── Watchlist Store ─────────────────────────────────────────────
+// Users star any token (live, cooling, positioning) to watchlist it.
+// Stored as an array of full token objects so the Watch tab works
+// even after the token drops off the live feed.
+const WATCH_STORE_KEY = 'betaplays_watchlist_v1'
+
+const getWatchlistRaw = () => {
+  try { return JSON.parse(localStorage.getItem(WATCH_STORE_KEY) || '[]') }
+  catch { return [] }
+}
+
+const saveWatchlistRaw = (list) => {
+  try { localStorage.setItem(WATCH_STORE_KEY, JSON.stringify(list)) }
+  catch {}
+}
 
 // ─── Community Flag Store ─────────────────────────────────────────
 // Simple localStorage-backed flagging system.
@@ -1450,11 +1617,16 @@ export default function App() {
   const [drawerToken,   setDrawerToken]    = useState(null)
   const isSzn = selectedAlpha?.isSzn === true
 
+  const handleSelectAlpha = (alpha) => {
+    setSelectedAlpha(alpha)
+    if (alpha?.address) sessionStorage.setItem('betaplays_selected', alpha.address)
+  }
+
   return (
     <div className="app-wrapper">
       <Navbar onListBeta={() => setShowListModal(true)} />
       <div className="main-layout">
-        <AlphaBoard selectedAlpha={selectedAlpha} onSelect={setSelectedAlpha} />
+        <AlphaBoard selectedAlpha={selectedAlpha} onSelect={handleSelectAlpha} />
         {isSzn
           ? <SznPanel  szn={selectedAlpha}   onListBeta={() => setShowListModal(true)} onOpenDrawer={setDrawerToken} />
           : <BetaPanel alpha={selectedAlpha} onListBeta={() => setShowListModal(true)} onOpenDrawer={setDrawerToken} />
