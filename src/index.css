@@ -451,7 +451,7 @@ body {
 
 .beta-table-header {
   display: grid;
-  grid-template-columns: 2fr 1fr 1fr 1fr 0.6fr 140px;
+  grid-template-columns: 2fr 1fr 1fr 1fr 1fr 0.6fr 140px;
   padding: 8px 16px;
   gap: 12px;
   flex-shrink: 0;
@@ -468,7 +468,7 @@ body {
 
 .beta-row {
   display: grid;
-  grid-template-columns: 2fr 1fr 1fr 1fr 0.6fr 140px;
+  grid-template-columns: 2fr 1fr 1fr 1fr 1fr 0.6fr 140px;
   align-items: center;
   padding: 12px 16px;
   gap: 12px;

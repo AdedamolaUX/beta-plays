@@ -256,12 +256,14 @@ const PositioningCard = ({ alpha, isSelected, onClick, isWatched, onToggleWatch 
             onClick={e => { e.stopPropagation(); onToggleWatch?.(alpha) }}
             title={isWatched ? 'Remove from watchlist' : 'Add to watchlist'}
             style={{
-              background: 'none', border: 'none', cursor: 'pointer', padding: '1px 3px',
-              fontSize: 13, lineHeight: 1, opacity: isWatched ? 1 : 0.35,
-              transition: 'opacity 0.15s, transform 0.1s',
+              background: isWatched ? 'rgba(255,184,0,0.12)' : 'rgba(255,255,255,0.06)',
+              border: `1px solid ${isWatched ? 'rgba(255,184,0,0.4)' : 'rgba(255,255,255,0.12)'}`,
+              borderRadius: 4, cursor: 'pointer', padding: '1px 5px',
+              fontSize: 11, lineHeight: 1.6, color: isWatched ? 'var(--amber)' : 'var(--text-secondary)',
+              transition: 'all 0.15s',
             }}
-            onMouseEnter={e => e.currentTarget.style.opacity = '1'}
-            onMouseLeave={e => e.currentTarget.style.opacity = isWatched ? '1' : '0.35'}
+            onMouseEnter={e => { e.currentTarget.style.background = 'rgba(255,184,0,0.15)'; e.currentTarget.style.borderColor = 'rgba(255,184,0,0.5)' }}
+            onMouseLeave={e => { e.currentTarget.style.background = isWatched ? 'rgba(255,184,0,0.12)' : 'rgba(255,255,255,0.06)'; e.currentTarget.style.borderColor = isWatched ? 'rgba(255,184,0,0.4)' : 'rgba(255,255,255,0.12)' }}
           >{isWatched ? '⭐' : '☆'}</button>
           <span
             onClick={e => { e.stopPropagation(); window.open(alpha.dexUrl || `https://dexscreener.com/solana/${alpha.address}`, '_blank') }}
@@ -380,12 +382,14 @@ const AlphaCard = ({ alpha, isSelected, onClick, isWatched, onToggleWatch }) => 
               onClick={e => { e.stopPropagation(); onToggleWatch?.(alpha) }}
               title={isWatched ? 'Remove from watchlist' : 'Add to watchlist'}
               style={{
-                background: 'none', border: 'none', cursor: 'pointer', padding: '1px 3px',
-                fontSize: 13, lineHeight: 1, opacity: isWatched ? 1 : 0.35,
-                transition: 'opacity 0.15s',
+                background: isWatched ? 'rgba(255,184,0,0.12)' : 'rgba(255,255,255,0.06)',
+                border: `1px solid ${isWatched ? 'rgba(255,184,0,0.4)' : 'rgba(255,255,255,0.12)'}`,
+                borderRadius: 4, cursor: 'pointer', padding: '1px 5px',
+                fontSize: 11, lineHeight: 1.6, color: isWatched ? 'var(--amber)' : 'var(--text-secondary)',
+                transition: 'all 0.15s',
               }}
-              onMouseEnter={e => e.currentTarget.style.opacity = '1'}
-              onMouseLeave={e => e.currentTarget.style.opacity = isWatched ? '1' : '0.35'}
+              onMouseEnter={e => { e.currentTarget.style.background = 'rgba(255,184,0,0.15)'; e.currentTarget.style.borderColor = 'rgba(255,184,0,0.5)' }}
+              onMouseLeave={e => { e.currentTarget.style.background = isWatched ? 'rgba(255,184,0,0.12)' : 'rgba(255,255,255,0.06)'; e.currentTarget.style.borderColor = isWatched ? 'rgba(255,184,0,0.4)' : 'rgba(255,255,255,0.12)' }}
             >{isWatched ? '⭐' : '☆'}</button>
             <span
               onClick={e => {
@@ -462,14 +466,23 @@ const AlphaBoard = ({ selectedAlpha, onSelect }) => {
   )
 
   // Restore selected alpha from sessionStorage when alphas first load
-  const restoredRef = useRef(false)
+  const restoredRef  = useRef(false)
+  const alphaListRef = useRef(null)
   useEffect(() => {
     if (restoredRef.current || selectedAlpha || liveAlphas.length === 0) return
     const savedAddress = sessionStorage.getItem('betaplays_selected')
     if (!savedAddress) return
     const allTokens = [...liveAlphas, ...coolingAlphas, ...legends]
     const match = allTokens.find(a => a.address === savedAddress)
-    if (match) { onSelect(match); restoredRef.current = true }
+    if (match) {
+      onSelect(match)
+      restoredRef.current = true
+      // Scroll the matching card into view after a short paint delay
+      setTimeout(() => {
+        const el = alphaListRef.current?.querySelector(`[data-address="${savedAddress}"]`)
+        el?.scrollIntoView({ block: 'center', behavior: 'smooth' })
+      }, 200)
+    }
   }, [liveAlphas])
 
   const rawList =
@@ -500,7 +513,7 @@ const AlphaBoard = ({ selectedAlpha, onSelect }) => {
 
   const tabs = [
     { key: 'live',        label: '🔥 Live',     count: liveAlphas.length        },
-    { key: 'cooling',     label: '❄️ Cool',     count: coolingAlphas.length     },
+    { key: 'cooling',     label: '❄️ Cooling',  count: coolingAlphas.length     },
     { key: 'positioning', label: '🎯 Position', count: positioningAlphas.length },
     { key: 'watch',       label: '⭐ Watch',    count: watchlist.length         },
     { key: 'legends',     label: '🏆 OGs',      count: legends.length           },
@@ -660,7 +673,7 @@ const AlphaBoard = ({ selectedAlpha, onSelect }) => {
         }}>{error}</div>
       )}
 
-      <div className="alpha-list">
+      <div className="alpha-list" ref={alphaListRef}>
         {loading && activeTab === 'live' && !searchQuery && (
           <>
             <div className="skeleton loading-row" />
@@ -747,25 +760,27 @@ const AlphaBoard = ({ selectedAlpha, onSelect }) => {
           const watched = watchedAddresses.has(alpha.address)
           if (activeTab === 'positioning' || alpha.isPositioning) {
             return (
-              <PositioningCard
-                key={alpha.id || alpha.address}
+              <div key={alpha.id || alpha.address} data-address={alpha.address}>
+                <PositioningCard
+                  alpha={alpha}
+                  isSelected={selectedAlpha?.id === alpha.id}
+                  onClick={() => onSelect(alpha)}
+                  isWatched={watched}
+                  onToggleWatch={handleToggleWatch}
+                />
+              </div>
+            )
+          }
+          return (
+            <div key={alpha.id || alpha.address} data-address={alpha.address}>
+              <AlphaCard
                 alpha={alpha}
                 isSelected={selectedAlpha?.id === alpha.id}
                 onClick={() => onSelect(alpha)}
                 isWatched={watched}
                 onToggleWatch={handleToggleWatch}
               />
-            )
-          }
-          return (
-            <AlphaCard
-              key={alpha.id || alpha.address}
-              alpha={alpha}
-              isSelected={selectedAlpha?.id === alpha.id}
-              onClick={() => onSelect(alpha)}
-              isWatched={watched}
-              onToggleWatch={handleToggleWatch}
-            />
+            </div>
           )
         })}
       </div>
@@ -878,6 +893,15 @@ const BetaRow = ({ beta, alpha, isPinned, trenchOnly, onOpenDrawer }) => {
       </div>
 
       <span className="mono" style={{ fontSize: 12, color: 'var(--text-secondary)' }}>{formatNum(beta.volume24h)}</span>
+
+      {/* Liquidity — coloured by risk level */}
+      <span className="mono" style={{
+        fontSize: 12,
+        color: (beta.liquidity || 0) >= 50_000 ? 'var(--neon-green)'
+             : (beta.liquidity || 0) >= 10_000 ? 'var(--amber)'
+             : 'var(--red)',
+      }}>{formatNum(beta.liquidity)}</span>
+
       <span className={`mono token-change ${isPositive ? 'positive' : 'negative'}`} style={{ fontSize: 12 }}>
         {isPositive ? '+' : ''}{change.toFixed(1)}%
       </span>
@@ -1071,9 +1095,10 @@ const BetaPanel = ({ alpha, onListBeta, onOpenDrawer }) => {
       const bLP = b.signalSources?.includes('lp_pair') ? 1 : 0
       if (bLP !== aLP) return bLP - aLP
       let aVal, bVal
-      if (sortBy === 'mcap')   { aVal = a.marketCap  || 0; bVal = b.marketCap  || 0 }
-      else if (sortBy === 'volume') { aVal = a.volume24h || 0; bVal = b.volume24h || 0 }
-      else if (sortBy === 'age')    { aVal = a.ageMs    || 0; bVal = b.ageMs    || 0 }
+      if (sortBy === 'mcap')        { aVal = a.marketCap  || 0; bVal = b.marketCap  || 0 }
+      else if (sortBy === 'volume') { aVal = a.volume24h  || 0; bVal = b.volume24h  || 0 }
+      else if (sortBy === 'liq')    { aVal = a.liquidity  || 0; bVal = b.liquidity  || 0 }
+      else if (sortBy === 'age')    { aVal = a.ageMs      || 0; bVal = b.ageMs      || 0 }
       else                          { aVal = parseFloat(a.priceChange24h) || 0; bVal = parseFloat(b.priceChange24h) || 0 }
       return sortDir === 'desc' ? bVal - aVal : aVal - bVal
     })
@@ -1228,6 +1253,7 @@ const BetaPanel = ({ alpha, onListBeta, onOpenDrawer }) => {
               <span>Token</span>
               <span onClick={() => handleSort('mcap')}   style={{ cursor: 'pointer', userSelect: 'none' }}>MCAP / Room <SortIcon col="mcap" /></span>
               <span onClick={() => handleSort('volume')} style={{ cursor: 'pointer', userSelect: 'none' }}>24h Vol <SortIcon col="volume" /></span>
+              <span onClick={() => handleSort('liq')}    style={{ cursor: 'pointer', userSelect: 'none' }}>Liquidity <SortIcon col="liq" /></span>
               <span onClick={() => handleSort('change')} style={{ cursor: 'pointer', userSelect: 'none' }}>24h % <SortIcon col="change" /></span>
               <span onClick={() => handleSort('age')}    style={{ cursor: 'pointer', userSelect: 'none' }}>Age <SortIcon col="age" /></span>
               <span>Signal</span>
