@@ -187,15 +187,26 @@ const isGeminiQuotaError = (err) =>
 // ─── Image fetch helper ───────────────────────────────────────────
 const GROQ_SUPPORTED_TYPES = ['image/jpeg', 'image/jpg', 'image/png', 'image/webp']
 
+// Detect actual image type from magic bytes — ignores lying Content-Type headers
+const detectMimeFromBytes = (buf) => {
+  const b = new Uint8Array(buf)
+  if (b[0] === 0xFF && b[1] === 0xD8 && b[2] === 0xFF) return 'image/jpeg'
+  if (b[0] === 0x89 && b[1] === 0x50 && b[2] === 0x4E && b[3] === 0x47) return 'image/png'
+  if (b[0] === 0x47 && b[1] === 0x49 && b[2] === 0x46) return 'image/gif'   // GIF87a / GIF89a
+  if (b[0] === 0x52 && b[1] === 0x49 && b[2] === 0x46 && b[3] === 0x46) return 'image/webp'  // RIFF....WEBP
+  return null  // unknown / unsupported
+}
+
 const fetchImageAsBase64 = async (url) => {
   try {
     const response = await fetch(url)
     if (!response.ok) throw new Error(`Image fetch failed: ${response.status}`)
-    const buffer   = await response.arrayBuffer()
-    if (buffer.byteLength === 0) throw new Error('Empty image response')
-    const base64   = Buffer.from(buffer).toString('base64')
-    if (!base64 || base64.length < 100) throw new Error('Image too small or empty')
-    const mimeType = (response.headers.get('content-type') || 'image/png').split(';')[0].trim()
+    const buffer = await response.arrayBuffer()
+    if (buffer.byteLength < 100) throw new Error('Image too small or empty')
+    // Use magic bytes — don't trust Content-Type header
+    const mimeType = detectMimeFromBytes(buffer)
+    if (!mimeType) throw new Error('Unrecognised image format')
+    const base64 = Buffer.from(buffer).toString('base64')
     return { base64, mimeType }
   } catch (err) {
     console.warn(`[Vision] Could not fetch image: ${url}`, err.message)
