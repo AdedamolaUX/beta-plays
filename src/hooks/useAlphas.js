@@ -606,6 +606,101 @@ const getMomentumScore = (alpha) => {
   return (changeScore * 0.5) + (volScore * 0.3) + (ageScore * 0.2)
 }
 
+// ─── Batch price refresh for historical tokens ───────────────────
+// DEXScreener accepts up to 30 addresses per call (comma-separated).
+// We use this to refresh prices for tokens that dropped out of the
+// live feed — so Cooling/Positioning never show stale snapshots.
+//
+// Called after every main feed refresh (60s cycle).
+// Updates localStorage in-place so classification re-runs with
+// fresh mcap, priceChange24h, volume, and liquidity.
+
+const refreshHistoricalPrices = async () => {
+  try {
+    const existing = JSON.parse(localStorage.getItem(STORAGE_KEY) || '{}')
+    const now      = Date.now()
+
+    // Only refresh tokens that are old enough to be historical but not expired
+    // Skip tokens seen within the last 2 minutes — they just got updated by main feed
+    const toRefresh = Object.values(existing).filter(a => {
+      if (!a.address) return false
+      const age = now - (a.lastSeen || 0)
+      return age > 2 * 60 * 1000 && age < HISTORY_MAX_AGE_MS
+    })
+
+    if (toRefresh.length === 0) return
+
+    // Batch into groups of 30 (DEXScreener limit)
+    const BATCH = 30
+    for (let i = 0; i < toRefresh.length; i += BATCH) {
+      const batch   = toRefresh.slice(i, i + BATCH)
+      const addrs   = batch.map(a => a.address).join(',')
+
+      try {
+        const res   = await axios.get(
+          `${DEXSCREENER_BASE}/latest/dex/tokens/${addrs}`,
+          { timeout: 10000 }
+        )
+        const pairs = res.data?.pairs || []
+
+        // Build a map: tokenAddress → best pair (highest volume on Solana)
+        const bestPair = {}
+        pairs
+          .filter(p => p.chainId === 'solana')
+          .forEach(p => {
+            const addr = p.baseToken?.address
+            if (!addr) return
+            const prev = bestPair[addr]
+            if (!prev || (p.volume?.h24 || 0) > (prev.volume?.h24 || 0)) {
+              bestPair[addr] = p
+            }
+          })
+
+        // Update localStorage with fresh price data
+        batch.forEach(token => {
+          const pair = bestPair[token.address]
+          if (!pair) return  // Token not found on DEX — leave as-is
+
+          const safePriceChange = Math.min(
+            Math.max(parseFloat(pair.priceChange?.h24 || 0), -100),
+            5000
+          )
+
+          existing[token.address] = {
+            ...existing[token.address],
+            priceUsd:       pair.priceUsd || token.priceUsd,
+            priceChange24h: safePriceChange,
+            volume24h:      pair.volume?.h24    || token.volume24h,
+            marketCap:      pair.marketCap || pair.fdv || token.marketCap,
+            liquidity:      pair.liquidity?.usd  || token.liquidity,
+            // Update peakMarketCap if current is higher
+            peakMarketCap:  Math.max(
+              existing[token.address]?.peakMarketCap || 0,
+              pair.marketCap || pair.fdv || 0
+            ),
+            // lastSeen intentionally NOT updated — that tracks when we saw it in the feed
+            // We use a separate field to track when price was last refreshed
+            priceRefreshedAt: now,
+          }
+        })
+
+        console.log(`[PriceRefresh] Updated ${Object.keys(bestPair).length}/${batch.length} historical tokens`)
+      } catch (batchErr) {
+        console.warn(`[PriceRefresh] Batch failed:`, batchErr.message)
+      }
+
+      // Small delay between batches to avoid hammering DEXScreener
+      if (i + BATCH < toRefresh.length) {
+        await new Promise(r => setTimeout(r, 1000))
+      }
+    }
+
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(existing))
+  } catch (err) {
+    console.warn('[PriceRefresh] Failed:', err.message)
+  }
+}
+
 // ─── Main hook ───────────────────────────────────────────────────
 const useAlphas = () => {
   const [liveAlphas,        setLiveAlphas]        = useState([])
@@ -642,12 +737,39 @@ const useAlphas = () => {
       // Save everything to localStorage before classifying
       saveToHistory(freshRaw)
 
+      // Refresh prices for historical tokens (not in current feed)
+      // Runs in background — doesn't block the UI update below
+      // After it completes, re-classify so tabs show fresh prices
+      const currentAddresses = new Set(freshRaw.map(a => a.address))
+      refreshHistoricalPrices().then(() => {
+        // Re-run historical classification with freshly updated prices
+        const { historicalLive: freshHistLive, historicalCooling: freshHistCool } =
+          loadHistoricalByPriceAction(currentAddresses)
+        const freshHistLiveAddrs = new Set(freshHistLive.map(a => a.address))
+        const freshHistCoolAddrs = new Set(freshHistCool.map(a => a.address))
+        setLiveAlphas(prev => {
+          const freshAddrs = new Set(prev.filter(a => !a.isHistorical).map(a => a.address))
+          return [
+            ...prev.filter(a => !a.isHistorical),
+            ...freshHistLive.filter(a => !freshAddrs.has(a.address)),
+          ].sort((a, b) => (b.momentumScore || 0) - (a.momentumScore || 0)).slice(0, 40)
+        })
+        setCoolingAlphas(prev => {
+          const freshAddrs = new Set(prev.filter(a => !a.isHistorical).map(a => a.address))
+          return [
+            ...prev.filter(a => !a.isHistorical),
+            ...freshHistCool.filter(a => !freshAddrs.has(a.address)),
+          ].sort((a, b) => (parseFloat(a.priceChange24h) || 0) - (parseFloat(b.priceChange24h) || 0)).slice(0, 30)
+        })
+        setPositioningAlphas(loadPositioningPlays())
+        console.log('[PriceRefresh] Tabs updated with fresh historical prices')
+      }).catch(() => {})  // Silently ignore — stale data is better than a crash
+
       // Classify fresh tokens by price action
       const { live: freshLive, cooling: freshCooling } = classifyByPriceAction(freshRaw)
 
       // Load historical tokens not in current fetch
       // Split by their last-known price action — same rule applies
-      const currentAddresses = new Set(freshRaw.map(a => a.address))
       const { historicalLive, historicalCooling } = loadHistoricalByPriceAction(currentAddresses)
 
       // Merge fresh + historical, deduplicate
