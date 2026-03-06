@@ -185,19 +185,27 @@ const isGeminiQuotaError = (err) =>
   err.message.includes('429') || err.message.includes('quota') || err.message.includes('RESOURCE_EXHAUSTED')
 
 // ─── Image fetch helper ───────────────────────────────────────────
+const GROQ_SUPPORTED_TYPES = ['image/jpeg', 'image/jpg', 'image/png', 'image/webp']
+
 const fetchImageAsBase64 = async (url) => {
   try {
     const response = await fetch(url)
     if (!response.ok) throw new Error(`Image fetch failed: ${response.status}`)
     const buffer   = await response.arrayBuffer()
+    if (buffer.byteLength === 0) throw new Error('Empty image response')
     const base64   = Buffer.from(buffer).toString('base64')
-    const mimeType = response.headers.get('content-type') || 'image/png'
-    return { base64, mimeType: mimeType.split(';')[0] }
+    if (!base64 || base64.length < 100) throw new Error('Image too small or empty')
+    const mimeType = (response.headers.get('content-type') || 'image/png').split(';')[0].trim()
+    return { base64, mimeType }
   } catch (err) {
     console.warn(`[Vision] Could not fetch image: ${url}`, err.message)
     return null
   }
 }
+
+// Filter images to only those Groq can handle (no GIFs, no broken data)
+const filterForGroq = (items) =>
+  items.filter(t => t.img && GROQ_SUPPORTED_TYPES.includes(t.img.mimeType))
 
 // ─── Retry helper ─────────────────────────────────────────────────
 // Retries a fetch call up to maxRetries times with exponential backoff.
@@ -349,7 +357,9 @@ Respond ONLY with a JSON array. No markdown. Example:
       } catch (geminiErr) {
         if (isGeminiQuotaError(geminiErr)) {
           console.warn('[Vision] Gemini quota exhausted — falling back to Groq vision')
-          result = await callGroqVision('classify', withImages)
+          const groqCompatible = filterForGroq(withImages)
+          if (groqCompatible.length === 0) { res.json([]); return }
+          result = await callGroqVision('classify', groqCompatible)
         } else {
           throw geminiErr
         }
@@ -412,7 +422,11 @@ Respond ONLY with a JSON array. No markdown. Example:
         if (isGeminiQuotaError(geminiErr)) {
           console.warn('[Vision] Gemini quota exhausted — falling back to Groq vision')
           const alphaWithImg = { ...alpha, img: alphaImg }
-          result = await callGroqVision('compare', withImages, alphaWithImg)
+          // Skip if alpha itself is a GIF — can't compare without a valid reference image
+          if (!GROQ_SUPPORTED_TYPES.includes(alphaImg.mimeType)) { res.json([]); return }
+          const groqCompatible = filterForGroq(withImages)
+          if (groqCompatible.length === 0) { res.json([]); return }
+          result = await callGroqVision('compare', groqCompatible, alphaWithImg)
         } else {
           throw geminiErr
         }
