@@ -481,6 +481,16 @@ app.get('/api/birdeye', async (req, res) => {
     })
     if (response.status === 404) return res.json({ data: null })
     if (!response.ok) throw new Error(`Birdeye ${response.status}`)
+
+    // Guard: Birdeye occasionally returns an HTML error page instead of JSON
+    // (e.g. during outages or when the CDN intercepts the request)
+    const contentType = response.headers.get('content-type') || ''
+    if (!contentType.includes('application/json')) {
+      const raw = await response.text()
+      console.warn('[Birdeye] Non-JSON response:', raw.slice(0, 100))
+      return res.status(502).json({ error: 'Birdeye returned non-JSON response' })
+    }
+
     res.json(await response.json())
   } catch (err) {
     console.error('Birdeye proxy error:', err.message)
@@ -500,10 +510,33 @@ app.get('/api/pumpfun', async (req, res) => {
   const url = `https://frontend-api.pump.fun/${apiPath}${qs ? '?' + qs : ''}`
 
   try {
-    const response = await fetchWithRetry(url, {
+    // 530 = Cloudflare CDN outage — no point retrying, fail fast
+    const response = await fetch(url, {
       headers: { 'User-Agent': 'Mozilla/5.0', 'Accept': 'application/json' },
     })
+    if (response.status === 530) {
+      console.warn('[PumpFun] CDN outage (530) — skipping retries')
+      return res.status(503).json({ error: 'PumpFun CDN unavailable (530)' })
+    }
+    if (response.status === 429 || response.status >= 500) {
+      // Only retry on rate limits and server errors — not CDN outages
+      const retried = await fetchWithRetry(url, {
+        headers: { 'User-Agent': 'Mozilla/5.0', 'Accept': 'application/json' },
+      })
+      if (!retried.ok) throw new Error(`PumpFun ${retried.status}`)
+
+      const contentType = retried.headers.get('content-type') || ''
+      if (!contentType.includes('application/json')) {
+        return res.status(502).json({ error: 'PumpFun returned non-JSON response' })
+      }
+      return res.json(await retried.json())
+    }
     if (!response.ok) throw new Error(`PumpFun ${response.status}`)
+
+    const contentType = response.headers.get('content-type') || ''
+    if (!contentType.includes('application/json')) {
+      return res.status(502).json({ error: 'PumpFun returned non-JSON response' })
+    }
     res.json(await response.json())
   } catch (err) {
     console.error('PumpFun proxy error:', err.message)
