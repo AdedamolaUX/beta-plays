@@ -516,7 +516,7 @@ const AlphaBoard = ({ selectedAlpha, onSelect }) => {
     { key: 'cooling',     label: '❄️ Cooling',  count: coolingAlphas.length     },
     { key: 'positioning', label: '🎯 Position', count: positioningAlphas.length },
     { key: 'watch',       label: '⭐ Watch',    count: watchlist.length         },
-    { key: 'legends',     label: '🏆 OGs',      count: legends.length           },
+    { key: 'legends',     label: '🏆 OGs',      count: legends.length, noUppercase: true },
   ]
 
   return (
@@ -564,12 +564,12 @@ const AlphaBoard = ({ selectedAlpha, onSelect }) => {
         borderRadius: 'var(--radius-md)', border: '1px solid var(--border)',
         flexShrink: 0, overflowX: 'auto',
       }}>
-        {tabs.map(({ key, label, count }) => (
+        {tabs.map(({ key, label, count, noUppercase }) => (
           <button
             key={key}
             className={`tab-btn ${activeTab === key ? 'active' : ''}`}
             onClick={() => { setActiveTab(key); setSearchQuery('') }}
-            style={{ flex: '0 0 auto', textAlign: 'center' }}
+            style={{ flex: '0 0 auto', textAlign: 'center', ...(noUppercase ? { textTransform: 'none' } : {}) }}
           >
             {label}
             {count > 0 && (
@@ -802,21 +802,16 @@ const SignalBadge = ({ beta }) => {
     AI:       'badge-verified',
   }
   return (
-    <div style={{
-      display: 'flex', flexDirection: 'column', gap: 3,
-      alignItems: 'flex-start',  // left-align to column start — matches header
-      justifyContent: 'center',
-      width: '100%',
-    }}>
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 3, alignItems: 'flex-end' }}>
       {beta.tokenClass && (
         <span
           className={`badge ${beta.tokenClass === 'OG' ? 'badge-verified' : beta.tokenClass === 'RIVAL' ? 'badge-cabal' : 'badge-weak'}`}
-          style={{ fontSize: 8, padding: '2px 6px', whiteSpace: 'nowrap' }}
+          style={{ fontSize: 8, padding: '2px 6px' }}
         >
           {beta.tokenClass === 'OG' ? '👑 OG' : beta.tokenClass === 'RIVAL' ? '⚔️ RIVAL' : '🌀 SPIN'}
         </span>
       )}
-      <span className={`badge ${classMap[signal.label] || 'badge-weak'}`} style={{ fontSize: 8, padding: '2px 6px', whiteSpace: 'nowrap' }}>
+      <span className={`badge ${classMap[signal.label] || 'badge-weak'}`} style={{ fontSize: 8, padding: '2px 6px' }}>
         {signal.label === 'CABAL'    ? '🕵️ CABAL'   :
          signal.label === 'TRENDING' ? '🔥 TRENDING' :
          signal.label === 'LP_PAIR'  ? '🔗 LP PAIR'  :
@@ -858,7 +853,7 @@ const BetaRow = ({ beta, alpha, isPinned, trenchOnly, onOpenDrawer }) => {
   const change     = parseFloat(beta.priceChange24h) || 0
   const isPositive = change >= 0
   const wave       = getWavePhase(alpha, beta)
-  const isTrench   = (beta.marketCap || 0) < 100_000
+  const isTrench   = (beta.marketCap || 0) < 30_000
   const isLPPair   = beta.signalSources?.includes('lp_pair')
 
   if (trenchOnly && !isTrench) return null
@@ -879,7 +874,7 @@ const BetaRow = ({ beta, alpha, isPinned, trenchOnly, onOpenDrawer }) => {
               ${beta.symbol}
             </span>
             {isLPPair       && <span className="badge badge-cabal"     style={{ fontSize: 7, padding: '1px 4px' }}>🔗 PAIRED</span>}
-            {isTrench       && <span className="badge badge-new"      style={{ fontSize: 7, padding: '1px 4px' }}>⛏️ TRENCH</span>}
+            {isTrench       && <span className="badge badge-new"      style={{ fontSize: 7, padding: '1px 4px' }}>⛏️ TRENCHES</span>}
             <FlagWarningBadge address={beta.address} />
             {isPinned       && <span className="badge badge-verified" style={{ fontSize: 7, padding: '1px 4px' }}>DEV VERIFIED</span>}
             {beta.isSibling && <span className="badge badge-cabal"    style={{ fontSize: 7, padding: '1px 4px', opacity: 0.85 }}>👥 SIBLING</span>}
@@ -1084,7 +1079,7 @@ const BetaPanel = ({ alpha, onListBeta, onOpenDrawer }) => {
     large: (b) => (b.marketCap || 0) >= 10_000_000,
     mid:   (b) => (b.marketCap || 0) >= 1_000_000  && (b.marketCap || 0) < 10_000_000,
     small: (b) => (b.marketCap || 0) >= 100_000    && (b.marketCap || 0) < 1_000_000,
-    micro: (b) => (b.marketCap || 0) < 100_000,
+    micro: (b) => (b.marketCap || 0) < 30_000,
   }
 
   const handleSort = (col) => {
@@ -1109,7 +1104,7 @@ const BetaPanel = ({ alpha, onListBeta, onOpenDrawer }) => {
     })
   }, [betas, mcapFilter, sortBy, sortDir])
 
-  const trenchCount   = betas.filter(b => (b.marketCap || 0) < 100_000).length
+  const trenchCount   = betas.filter(b => (b.marketCap || 0) < 30_000).length
 
   const SortIcon = ({ col }) => {
     if (sortBy !== col) return <span style={{ opacity: 0.3, fontSize: 8 }}>↕</span>
@@ -1223,7 +1218,7 @@ const BetaPanel = ({ alpha, onListBeta, onOpenDrawer }) => {
               className={`btn btn-sm ${trenchOnly ? 'btn-primary' : 'btn-ghost'}`}
               onClick={() => setTrenchOnly(!trenchOnly)}
             >
-              ⛏️ TRENCH {trenchCount > 0 && `(${trenchCount})`}
+              ⛏️ TRENCHES {trenchCount > 0 && `(${trenchCount})`}
             </button>
           </div>
 
@@ -1296,7 +1291,7 @@ const BetaPanel = ({ alpha, onListBeta, onOpenDrawer }) => {
               <div className="empty-state" style={{ marginTop: 24 }}>
                 <div className="empty-state-icon">⛏️</div>
                 <div className="empty-state-title">No trench plays found.</div>
-                <div className="empty-state-sub">All detected betas are above $100K mcap.</div>
+                <div className="empty-state-sub">All detected betas are above $30K mcap.</div>
               </div>
             )}
           </div>
@@ -1347,47 +1342,27 @@ const submitFlag = (address, flagType, symbol) => {
 
 const FlagButton = ({ address, symbol }) => {
   const [counts, setCounts] = useState(() => getFlags()[address] || null)
-  // Derive voted state from localStorage — survives drawer close/reopen
-  const [voted,  setVoted]  = useState(() => {
-    const f = getFlags()[address]
-    return !!(f && (f.rug > 0 || f.honeypot > 0 || f.legit > 0 || f.not_beta > 0))
-  })
-  const [votedType, setVotedType] = useState(() => {
-    const f = getFlags()[address]
-    if (!f) return null
-    if (f.not_beta > 0) return 'not_beta'
-    if (f.rug > 0)      return 'rug'
-    if (f.honeypot > 0) return 'honeypot'
-    if (f.legit > 0)    return 'legit'
-    return null
-  })
-  const [open, setOpen] = useState(false)
+  const [voted,  setVoted]  = useState(false)
+  const [open,   setOpen]   = useState(false)
 
   const handleFlag = (e, flagType) => {
     e.stopPropagation()
     const result = submitFlag(address, flagType, symbol)
     setCounts(result)
     setVoted(true)
-    setVotedType(flagType)
     setOpen(false)
   }
 
-  const total = counts
-    ? (counts.rug || 0) + (counts.honeypot || 0) + (counts.legit || 0) + (counts.not_beta || 0)
-    : 0
-
-  const LABEL_MAP = {
-    rug:      { emoji: '🪤', label: 'Rug pull',   color: 'var(--red)' },
-    honeypot: { emoji: '🍯', label: 'Honeypot',   color: 'var(--amber)' },
-    legit:    { emoji: '✅', label: 'Legit',       color: 'var(--neon-green)' },
-    not_beta: { emoji: '❌', label: 'Not a beta',  color: 'var(--text-muted)' },
-  }
+  const total    = counts ? (counts.rug + counts.honeypot + counts.legit) : 0
+  const topFlag  = counts && total > 0
+    ? (counts.rug >= counts.honeypot && counts.rug >= counts.legit ? 'rug'
+      : counts.honeypot >= counts.legit ? 'honeypot' : 'legit')
+    : null
 
   const OPTIONS = [
-    ['rug',      '🪤 Rug pull',   'var(--red)'],
-    ['honeypot', '🍯 Honeypot',   'var(--amber)'],
-    ['legit',    '✅ Legit',       'var(--neon-green)'],
-    ['not_beta', '❌ Not a beta', 'var(--text-muted)'],
+    ['rug',      '🪤 Rug pull', 'var(--red)'],
+    ['honeypot', '🍯 Honeypot', 'var(--amber)'],
+    ['legit',    '✅ Legit',    'var(--neon-green)'],
   ]
 
   return (
@@ -1395,19 +1370,14 @@ const FlagButton = ({ address, symbol }) => {
       {/* Current counts */}
       {total > 0 && (
         <div style={{ display: 'flex', gap: 10, marginBottom: 8, flexWrap: 'wrap' }}>
-          {(counts?.rug      || 0) > 0 && <span style={{ fontFamily: 'var(--font-mono)', fontSize: 10, color: 'var(--red)'        }}>🪤 Rug: {counts.rug}</span>}
-          {(counts?.honeypot || 0) > 0 && <span style={{ fontFamily: 'var(--font-mono)', fontSize: 10, color: 'var(--amber)'      }}>🍯 Honeypot: {counts.honeypot}</span>}
-          {(counts?.legit    || 0) > 0 && <span style={{ fontFamily: 'var(--font-mono)', fontSize: 10, color: 'var(--neon-green)' }}>✅ Legit: {counts.legit}</span>}
-          {(counts?.not_beta || 0) > 0 && <span style={{ fontFamily: 'var(--font-mono)', fontSize: 10, color: 'var(--text-muted)' }}>❌ Not a beta: {counts.not_beta}</span>}
+          {counts.rug      > 0 && <span style={{ fontFamily: 'var(--font-mono)', fontSize: 10, color: 'var(--red)'        }}>🪤 Rug: {counts.rug}</span>}
+          {counts.honeypot > 0 && <span style={{ fontFamily: 'var(--font-mono)', fontSize: 10, color: 'var(--amber)'      }}>🍯 Honeypot: {counts.honeypot}</span>}
+          {counts.legit    > 0 && <span style={{ fontFamily: 'var(--font-mono)', fontSize: 10, color: 'var(--neon-green)' }}>✅ Legit: {counts.legit}</span>}
         </div>
       )}
 
-      {/* Vote button / voted state — shows what they picked, persists across opens */}
-      {voted && votedType ? (
-        <span style={{ fontFamily: 'var(--font-mono)', fontSize: 9, color: LABEL_MAP[votedType]?.color || 'var(--neon-green)' }}>
-          ✓ Flagged as {LABEL_MAP[votedType]?.label}
-        </span>
-      ) : voted ? (
+      {/* Vote button / voted state */}
+      {voted ? (
         <span style={{ fontFamily: 'var(--font-mono)', fontSize: 9, color: 'var(--neon-green)' }}>✓ Flagged</span>
       ) : (
         <>
