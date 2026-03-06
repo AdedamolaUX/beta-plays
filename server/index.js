@@ -97,6 +97,93 @@ const callGemini = async (parts) => {
   }
 }
 
+// ─── Groq Vision fallback helper ─────────────────────────────────
+// Used when Gemini quota is exhausted. Accepts same image data,
+// formats it for Groq's OpenAI-compatible vision API.
+const callGroqVision = async (mode, withImages, alpha = null) => {
+  const GROQ_KEY = process.env.GROQ_API_KEY
+  if (!GROQ_KEY) throw new Error('GROQ_API_KEY not configured')
+
+  const contentParts = []
+
+  if (mode === 'classify') {
+    withImages.forEach((t, i) => {
+      contentParts.push({
+        type: 'image_url',
+        image_url: { url: `data:${t.img.mimeType};base64,${t.img.base64}` },
+      })
+      contentParts.push({ type: 'text', text: `[${i}] Token: $${t.symbol} (${t.name || 'unknown'})` })
+    })
+    contentParts.push({
+      type: 'text',
+      text: `For each token image above, identify the narrative/theme and give a 1-sentence description.
+Respond ONLY with a JSON array. No markdown. Example:
+[
+  {"index":0,"category":"cats","description":"Orange cat with glowing eyes"},
+  {"index":1,"category":"aliens","description":"Green alien holding a sign"},
+  {"index":2,"category":null,"description":"Abstract geometric logo, unclear theme"}
+]`,
+    })
+  } else {
+    // compare mode
+    contentParts.push({
+      type: 'image_url',
+      image_url: { url: `data:${alpha.img.mimeType};base64,${alpha.img.base64}` },
+    })
+    contentParts.push({ type: 'text', text: `ALPHA TOKEN: $${alpha.symbol} — analyzing for beta plays.` })
+    withImages.forEach((c, i) => {
+      contentParts.push({
+        type: 'image_url',
+        image_url: { url: `data:${c.img.mimeType};base64,${c.img.base64}` },
+      })
+      contentParts.push({ type: 'text', text: `[${i}] $${c.symbol} (${c.name || ''})` })
+    })
+    contentParts.push({
+      type: 'text',
+      text: `Score each candidate's visual relatedness to the ALPHA (0.0 to 1.0).
+Respond ONLY with a JSON array. No markdown. Example:
+[
+  {"index":0,"visualScore":0.92,"visualReason":"Same frog character, recolored green"},
+  {"index":1,"visualScore":0.3,"visualReason":"Different animal entirely, unrelated"}
+]`,
+    })
+  }
+
+  const response = await fetch('https://api.groq.com/openai/v1/chat/completions', {
+    method: 'POST',
+    headers: {
+      'Content-Type':  'application/json',
+      'Authorization': `Bearer ${GROQ_KEY}`,
+    },
+    body: JSON.stringify({
+      model:       'meta-llama/llama-4-scout-17b-16e-instruct',
+      max_tokens:  1000,
+      temperature: 0.1,
+      messages: [{ role: 'user', content: contentParts }],
+    }),
+  })
+
+  if (!response.ok) {
+    const err = await response.text()
+    throw new Error(`Groq vision error ${response.status}: ${err}`)
+  }
+
+  const data  = await response.json()
+  const text  = data.choices?.[0]?.message?.content || ''
+  const clean = text.replace(/```json|```/g, '').trim()
+  try {
+    return JSON.parse(clean)
+  } catch (parseErr) {
+    console.error('[GroqVision] JSON parse failed. Raw:', clean.slice(0, 300))
+    throw new Error(`Groq vision response was not valid JSON: ${parseErr.message}`)
+  }
+}
+
+// ─── Vision provider helper ───────────────────────────────────────
+// Tries Gemini first. If quota is exhausted, falls back to Groq vision.
+const isGeminiQuotaError = (err) =>
+  err.message.includes('429') || err.message.includes('quota') || err.message.includes('RESOURCE_EXHAUSTED')
+
 // ─── Image fetch helper ───────────────────────────────────────────
 const fetchImageAsBase64 = async (url) => {
   try {
@@ -255,7 +342,18 @@ Respond ONLY with a JSON array. No markdown. Example:
 ]`,
       })
 
-      const result   = await callGemini(parts)
+      let result
+      try {
+        result = await callGemini(parts)
+        console.log('[Vision] Gemini classify OK')
+      } catch (geminiErr) {
+        if (isGeminiQuotaError(geminiErr)) {
+          console.warn('[Vision] Gemini quota exhausted — falling back to Groq vision')
+          result = await callGroqVision('classify', withImages)
+        } else {
+          throw geminiErr
+        }
+      }
       const enriched = result.map(r => ({
         ...r,
         address: withImages[r.index]?.address,
@@ -306,7 +404,19 @@ Respond ONLY with a JSON array. No markdown. Example:
 ]`,
       })
 
-      const result   = await callGemini(parts)
+      let result
+      try {
+        result = await callGemini(parts)
+        console.log('[Vision] Gemini compare OK')
+      } catch (geminiErr) {
+        if (isGeminiQuotaError(geminiErr)) {
+          console.warn('[Vision] Gemini quota exhausted — falling back to Groq vision')
+          const alphaWithImg = { ...alpha, img: alphaImg }
+          result = await callGroqVision('compare', withImages, alphaWithImg)
+        } else {
+          throw geminiErr
+        }
+      }
       const enriched = result.map(r => ({
         ...r,
         address: withImages[r.index]?.address,
