@@ -25,13 +25,20 @@ const saveToHistory = (alphas) => {
       const prevPeak = prev?.peakMarketCap || 0
       // Cap % change before storing — bonding curve artifacts can show >100000%
       const safePriceChange = Math.min(Math.max(parseFloat(alpha.priceChange24h) || 0, -100), 5000)
+      // If this is fresh bonded data, always trust it over stale pumpfun_pre snapshot.
+      // This kills the $36K frozen bonding price that sticks after migration.
+      const isFreshBonded = alpha.source === 'pumpfun_bonded'
       existing[alpha.address] = {
         ...alpha,
         priceChange24h:  safePriceChange,
         firstSeen:       prev?.firstSeen || Date.now(),
         lastSeen:        Date.now(),
+        // bonded data always wins on mcap — never let old pre-grad price persist
+        marketCap:       isFreshBonded ? (alpha.marketCap || 0) : (alpha.marketCap || prev?.marketCap || 0),
         peakMarketCap:   Math.max(prevPeak, alpha.marketCap || 0),
-        mcapAtFirstSeen: prev?.mcapAtFirstSeen || alpha.marketCap || 0,
+        mcapAtFirstSeen: (isFreshBonded && prev?.source === 'pumpfun_pre')
+          ? alpha.marketCap || 0   // Reset first-seen mcap when we get real post-bond data
+          : (prev?.mcapAtFirstSeen || alpha.marketCap || 0),
       }
     })
     Object.keys(existing).forEach((addr) => {
@@ -339,6 +346,9 @@ const fetchPumpFunBonded = async () => {
         })
       )
 
+      // Collect any tokens whose pool lookup returned nothing — we'll retry by mint
+      const missedCoins = []
+
       pairFetches.forEach(result => {
         if (result.status !== 'fulfilled') return
         const { coin, pairs } = result.value
@@ -348,7 +358,11 @@ const fetchPumpFunBonded = async () => {
           .filter(p => p.chainId === 'solana')
           .sort((a, b) => (b.volume?.h24 || 0) - (a.volume?.h24 || 0))[0]
 
-        if (!best) return
+        if (!best) {
+          // Pool address lookup failed — queue retry by token mint address
+          missedCoins.push(coin)
+          return
+        }
 
         const postBondMcap = best.marketCap || best.fdv || 0
 
@@ -408,6 +422,54 @@ const fetchPumpFunBonded = async () => {
       bondingProgress: Math.round(((coin.usd_market_cap || 0) / 35_000) * 100),
       dexUrl:          `https://pump.fun/${coin.mint}`,
     }))
+
+    // ── Retry missed bonded tokens by mint address ──────────────
+    // When the pool address lookup fails (DEXScreener doesn't index it yet),
+    // try fetching by the token's own mint address instead — more reliable.
+    if (missedCoins.length > 0) {
+      const retryFetches = await Promise.allSettled(
+        missedCoins.slice(0, 10).map(coin =>
+          axios.get(`${DEXSCREENER_BASE}/latest/dex/tokens/${coin.mint}`, { timeout: 6000 })
+            .then(r => ({ coin, pairs: r.data?.pairs || [] }))
+        )
+      )
+      retryFetches.forEach(result => {
+        if (result.status !== 'fulfilled') return
+        const { coin, pairs } = result.value
+        const best = pairs
+          .filter(p => p.chainId === 'solana')
+          .sort((a, b) => (b.volume?.h24 || 0) - (a.volume?.h24 || 0))[0]
+        if (!best) return
+        const postBondMcap = best.marketCap || best.fdv || 0
+        bondedResults.push({
+          id:              best.pairAddress || coin.mint,
+          symbol:          best.baseToken?.symbol || coin.symbol || '???',
+          name:            best.baseToken?.name   || coin.name   || 'Unknown',
+          address:         best.baseToken?.address || coin.mint  || '',
+          pairAddress:     best.pairAddress || '',
+          priceUsd:        best.priceUsd || '0',
+          priceChange24h:  parseFloat(best.priceChange?.h24 || 0),
+          volume24h:       best.volume?.h24    || 0,
+          marketCap:       postBondMcap,
+          liquidity:       best.liquidity?.usd || 0,
+          logoUrl:         best.info?.imageUrl || coin.image_uri || null,
+          description:     best.info?.description || coin.description || '',
+          pairCreatedAt:   best.pairCreatedAt || coin.created_timestamp || null,
+          isHistorical:    false,
+          isLegend:        false,
+          isCooling:       false,
+          coolingLabel:    null,
+          source:          'pumpfun_bonded',
+          bondedAt:        coin.created_timestamp || null,
+          poolAddress:     coin.raydium_pool || coin.pool_address,
+          isPumpSwap:      !coin.raydium_pool && !!coin.pool_address,
+          dexUrl:          best.baseToken?.address
+            ? `https://dexscreener.com/solana/${best.baseToken.address}`
+            : (best.url || `https://dexscreener.com/solana/${best.pairAddress}`),
+        })
+      })
+      console.log(`[PumpFun] Retry by mint: ${bondedResults.length - (bondedResults.length - retryFetches.filter(r => r.status === 'fulfilled').length)} recovered`)
+    }
 
     console.log(`[PumpFun] ${bondedResults.length} bonded (real DEX data), ${preGradResults.length} approaching graduation`)
     return [...bondedResults, ...preGradResults]

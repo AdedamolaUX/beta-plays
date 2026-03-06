@@ -516,7 +516,7 @@ const AlphaBoard = ({ selectedAlpha, onSelect }) => {
     { key: 'cooling',     label: '❄️ Cooling',  count: coolingAlphas.length     },
     { key: 'positioning', label: '🎯 Position', count: positioningAlphas.length },
     { key: 'watch',       label: '⭐ Watch',    count: watchlist.length         },
-    { key: 'legends',     label: '🏆 OGs',      count: legends.length           },
+    { key: 'legends',     label: '🏆 OGs',      count: legends.length, noUppercase: true },
   ]
 
   return (
@@ -564,12 +564,12 @@ const AlphaBoard = ({ selectedAlpha, onSelect }) => {
         borderRadius: 'var(--radius-md)', border: '1px solid var(--border)',
         flexShrink: 0, overflowX: 'auto',
       }}>
-        {tabs.map(({ key, label, count }) => (
+        {tabs.map(({ key, label, count, noUppercase }) => (
           <button
             key={key}
             className={`tab-btn ${activeTab === key ? 'active' : ''}`}
             onClick={() => { setActiveTab(key); setSearchQuery('') }}
-            style={{ flex: '0 0 auto', textAlign: 'center' }}
+            style={{ flex: '0 0 auto', textAlign: 'center', ...(noUppercase ? { textTransform: 'none' } : {}) }}
           >
             {label}
             {count > 0 && (
@@ -853,7 +853,7 @@ const BetaRow = ({ beta, alpha, isPinned, trenchOnly, onOpenDrawer }) => {
   const change     = parseFloat(beta.priceChange24h) || 0
   const isPositive = change >= 0
   const wave       = getWavePhase(alpha, beta)
-  const isTrench   = (beta.marketCap || 0) < 100_000
+  const isTrench   = (beta.marketCap || 0) < 30_000
   const isLPPair   = beta.signalSources?.includes('lp_pair')
 
   if (trenchOnly && !isTrench) return null
@@ -874,7 +874,8 @@ const BetaRow = ({ beta, alpha, isPinned, trenchOnly, onOpenDrawer }) => {
               ${beta.symbol}
             </span>
             {isLPPair       && <span className="badge badge-cabal"     style={{ fontSize: 7, padding: '1px 4px' }}>🔗 PAIRED</span>}
-            {isTrench       && <span className="badge badge-new"      style={{ fontSize: 7, padding: '1px 4px' }}>⛏️ TRENCH</span>}
+            {isTrench       && <span className="badge badge-new"      style={{ fontSize: 7, padding: '1px 4px' }}>⛏️ TRENCHES</span>}
+            {(() => { const f = getFlags()[beta.address]; return f?.not_beta >= 3 ? <span className="badge" style={{ fontSize: 7, padding: '1px 4px', background: 'var(--surface-3)', color: 'var(--text-muted)', border: '1px solid var(--border)' }}>⚠️ Disputed</span> : null })()}
             <FlagWarningBadge address={beta.address} />
             {isPinned       && <span className="badge badge-verified" style={{ fontSize: 7, padding: '1px 4px' }}>DEV VERIFIED</span>}
             {beta.isSibling && <span className="badge badge-cabal"    style={{ fontSize: 7, padding: '1px 4px', opacity: 0.85 }}>👥 SIBLING</span>}
@@ -1079,7 +1080,7 @@ const BetaPanel = ({ alpha, onListBeta, onOpenDrawer }) => {
     large: (b) => (b.marketCap || 0) >= 10_000_000,
     mid:   (b) => (b.marketCap || 0) >= 1_000_000  && (b.marketCap || 0) < 10_000_000,
     small: (b) => (b.marketCap || 0) >= 100_000    && (b.marketCap || 0) < 1_000_000,
-    micro: (b) => (b.marketCap || 0) < 100_000,
+    micro: (b) => (b.marketCap || 0) < 30_000,
   }
 
   const handleSort = (col) => {
@@ -1104,7 +1105,7 @@ const BetaPanel = ({ alpha, onListBeta, onOpenDrawer }) => {
     })
   }, [betas, mcapFilter, sortBy, sortDir])
 
-  const trenchCount   = betas.filter(b => (b.marketCap || 0) < 100_000).length
+  const trenchCount   = betas.filter(b => (b.marketCap || 0) < 30_000).length
 
   const SortIcon = ({ col }) => {
     if (sortBy !== col) return <span style={{ opacity: 0.3, fontSize: 8 }}>↕</span>
@@ -1218,7 +1219,7 @@ const BetaPanel = ({ alpha, onListBeta, onOpenDrawer }) => {
               className={`btn btn-sm ${trenchOnly ? 'btn-primary' : 'btn-ghost'}`}
               onClick={() => setTrenchOnly(!trenchOnly)}
             >
-              ⛏️ TRENCH {trenchCount > 0 && `(${trenchCount})`}
+              ⛏️ TRENCHES {trenchCount > 0 && `(${trenchCount})`}
             </button>
           </div>
 
@@ -1291,7 +1292,7 @@ const BetaPanel = ({ alpha, onListBeta, onOpenDrawer }) => {
               <div className="empty-state" style={{ marginTop: 24 }}>
                 <div className="empty-state-icon">⛏️</div>
                 <div className="empty-state-title">No trench plays found.</div>
-                <div className="empty-state-sub">All detected betas are above $100K mcap.</div>
+                <div className="empty-state-sub">All detected betas are above $30K mcap.</div>
               </div>
             )}
           </div>
@@ -1332,7 +1333,7 @@ const getFlags = () => {
 const submitFlag = (address, flagType, symbol) => {
   try {
     const flags = getFlags()
-    if (!flags[address]) flags[address] = { rug: 0, honeypot: 0, legit: 0, symbol }
+    if (!flags[address]) flags[address] = { rug: 0, honeypot: 0, legit: 0, not_beta: 0, symbol }
     flags[address][flagType] = (flags[address][flagType] || 0) + 1
     flags[address].lastFlagged = Date.now()
     localStorage.setItem(FLAG_STORE_KEY, JSON.stringify(flags))
@@ -1360,9 +1361,10 @@ const FlagButton = ({ address, symbol }) => {
     : null
 
   const OPTIONS = [
-    ['rug',      '🪤 Rug pull', 'var(--red)'],
-    ['honeypot', '🍯 Honeypot', 'var(--amber)'],
-    ['legit',    '✅ Legit',    'var(--neon-green)'],
+    ['rug',      '🪤 Rug pull',    'var(--red)'],
+    ['honeypot', '🍯 Honeypot',    'var(--amber)'],
+    ['legit',    '✅ Legit',       'var(--neon-green)'],
+    ['not_beta', '❌ Not a beta',  'var(--text-muted)'],
   ]
 
   return (

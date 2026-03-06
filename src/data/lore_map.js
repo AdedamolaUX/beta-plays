@@ -155,18 +155,18 @@ const LORE_MAP = {
 
 export const NARRATIVE_CATEGORIES = {
   // ── Tier 1: Highly specific — unique keywords, low overlap ──────
-  aliens:    { label: '👽 Aliens',    priority: 1, keywords: ['alien','ufo','disclosure','area51','extraterrestrial','greys','abduct','roswell','saucer'] },
-  frogs:     { label: '🐸 Frogs',     priority: 1, keywords: ['pepe','frog','toad','feels','kek','peepo','ribbit','kermit'] },
-  dogs:      { label: '🐕 Dogs',      priority: 1, keywords: ['wif','bonk','shib','doge','inu','pup','mutt','puppy','doggo','woofie'] },
-  cats:      { label: '🐱 Cats',      priority: 1, keywords: ['cat','mew','nyan','kitty','meow','kitten','purr','whisker'] },
+  aliens:    { label: '👽 Alien',    priority: 1, keywords: ['alien','ufo','disclosure','area51','extraterrestrial','greys','abduct','roswell','saucer'] },
+  frogs:     { label: '🐸 Frog',     priority: 1, keywords: ['pepe','frog','toad','feels','kek','peepo','ribbit','kermit'] },
+  dogs:      { label: '🐕 Dog',      priority: 1, keywords: ['wif','bonk','shib','doge','inu','pup','mutt','puppy','doggo','woofie'] },
+  cats:      { label: '🐱 Cat',      priority: 1, keywords: ['cat','mew','nyan','kitty','meow','kitten','purr','whisker'] },
   elon:      { label: '⚡ Elon',      priority: 1, keywords: ['elon','musk','spacex','grok','neuralink','xaei'] },
   trump:     { label: '🇺🇸 Trump',    priority: 1, keywords: ['trump','maga','melania','barron','ivanka','donnie','magahat'] },
   pippin:    { label: '🧙 Fantasy',   priority: 1, keywords: ['pippin','frodo','gandalf','hobbit','lotr','tolkien','shire','sauron','gollum','mordor'] },
   anime:     { label: '⛩️ Anime',     priority: 1, keywords: ['anime','waifu','manga','otaku','kawaii','naruto','goku','dragonball','onepiece','bleach','chainsaw'] },
   gaming:    { label: '🎮 Gaming',    keywords: ['mario','sonic','pokemon','pikachu','luigi','zelda','minecraft','fortnite','roblox','xbox','nintendo','playstation'] },
-  bears:     { label: '🐻 Bears',     priority: 1, keywords: ['bear','panda','grizzly','polar','teddy','koala','honey'] },
+  bears:     { label: '🐻 Bear',     priority: 1, keywords: ['bear','panda','grizzly','polar','teddy','koala','honey'] },
   nature:    { label: '🌿 Nature',    priority: 1, keywords: ['tree','grass','leaf','flower','forest','jungle','vine','herb','plant','bamboo','moss','fern','oak','pine'] },
-  penguins:  { label: '🐧 Penguins',  priority: 1, keywords: ['penguin','waddle','tux','arctic','igloo','pingu'] },
+  penguins:  { label: '🐧 Penguin',  priority: 1, keywords: ['penguin','waddle','tux','arctic','igloo','pingu'] },
 
   // ── Tier 2: Moderate specificity ────────────────────────────────
   ai:        { label: '🤖 AI',        priority: 2, keywords: ['ai','gpt','neural','agent','llm','robot','claude','vibe','cursor','devin','copilot','gemini','chatbot'] },
@@ -177,7 +177,7 @@ export const NARRATIVE_CATEGORIES = {
   sports:    { label: '⚽ Sports',    priority: 2, keywords: ['ronaldo','messi','soccer','football','nba','nfl','nhl','sport','goat','champion','lebron','curry'] },
   food:      { label: '🍔 Food',      priority: 2, keywords: ['burger','pizza','ramen','taco','sushi','noodle','food','eat','cook','chef','hungry','kebab','curry'] },
   crypto:    { label: '₿ Crypto',    priority: 2, keywords: ['bitcoin','btc','eth','sol','satoshi','nakamoto','hodl','blockchain','defi','crypto','layer','protocol'] },
-  memes:     { label: '😂 Memes',     priority: 2, keywords: ['wojak','chad','npc','sigma','based','gigachad','virgin','normie','doomer','zoomer','boomer','ratio'] },
+  memes:     { label: '😂 Meme',     priority: 2, keywords: ['wojak','chad','npc','sigma','based','gigachad','virgin','normie','doomer','zoomer','boomer','ratio'] },
 
   // ── Tier 3: Generic — only match if nothing else does ───────────
   animals:   { label: '🦎 Animals',   priority: 3, keywords: ['bird','fish','bull','ape','monkey','snake','wolf','fox','lion','tiger','rhino','hippo','croc','hamster','rabbit'] },

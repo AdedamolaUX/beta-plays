@@ -83,6 +83,10 @@ const DECOMP_SUFFIXES = [
   'LAND', 'ZONE', 'CAT', 'DOG', 'HAT', 'WIF', 'INU', 'DAO',
   'MOON', 'PUMP', 'STAR', 'KING', 'LORD', 'APE', 'BOY', 'MAN',
   'GIRL', 'SON', 'ZEN', 'FI', 'PAD', 'NET', 'BIT', 'PAY',
+  // Common meme token suffix patterns
+  'IFY', 'FY', 'RIO', 'IO', 'LY', 'ER', 'EST', 'ISH',
+  'STER', 'LING', 'ETTE', 'TION', 'NESS', 'MENT', 'ABLE',
+  'FUN', 'GUY', 'LAD', 'BRO', 'SIS', 'MAX', 'PRO', 'XL',
 ]
 const DECOMP_PREFIXES = [
   'BABY', 'MINI', 'MICRO', 'GIGA', 'MEGA', 'SUPER',
@@ -116,6 +120,18 @@ const decomposeSymbol = (symbol) => {
     .trim().split(/\s+/)
     .filter(p => p.length >= 3)
   camelParts.forEach(p => parts.add(p.toUpperCase()))
+
+  // Fallback stem extraction: if nothing matched above, try stripping
+  // 2–4 chars from the end to find a shared root (e.g. CUMIFY → CUM, CUMRIO → CUM)
+  if (parts.size === 0 && s.length >= 5) {
+    for (const stripLen of [3, 2, 4]) {
+      const stem = s.slice(0, s.length - stripLen)
+      if (stem.length >= 3) {
+        parts.add(stem)
+        break  // Only add the most conservative stem
+      }
+    }
+  }
 
   parts.delete(s)
   return Array.from(parts)
