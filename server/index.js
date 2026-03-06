@@ -18,13 +18,19 @@ const app = express()
 app.use(cors())
 app.use(express.json({ limit: '10mb' }))  // 10mb for base64 image payloads
 
-// Rate limiting — 30 req/min per IP across all /api routes
+// Rate limiting — split limits so vision batches don't eat the shared quota
 const limiter = rateLimit({
   windowMs: 60 * 1000,
-  max: 30,
+  max: 60,  // 60 req/min for general endpoints (birdeye, pumpfun, scoring)
   message: { error: 'Too many requests, slow down degen' },
 })
-app.use('/api/', limiter)
+const visionLimiter = rateLimit({
+  windowMs: 60 * 1000,
+  max: 20,  // 20 req/min for vision — just under Gemini's 15/min free tier limit
+  message: { error: 'Vision rate limit — slow down' },
+})
+app.use('/api/analyze-vision', visionLimiter)  // vision gets its own bucket
+app.use('/api/', limiter)                       // everything else shares the general bucket
 
 // ─── Groq helper ──────────────────────────────────────────────────
 const callGroq = async (prompt, systemPrompt = null) => {
@@ -82,7 +88,13 @@ const callGemini = async (parts) => {
   const data  = await response.json()
   const text  = data.candidates?.[0]?.content?.parts?.[0]?.text || ''
   const clean = text.replace(/```json|```/g, '').trim()
-  return JSON.parse(clean)
+  if (!clean) throw new Error('Gemini returned empty response')
+  try {
+    return JSON.parse(clean)
+  } catch (parseErr) {
+    console.error('[Gemini] JSON parse failed. Raw:', clean.slice(0, 300))
+    throw new Error(`Gemini response was not valid JSON: ${parseErr.message}`)
+  }
 }
 
 // ─── Image fetch helper ───────────────────────────────────────────
@@ -98,6 +110,32 @@ const fetchImageAsBase64 = async (url) => {
     console.warn(`[Vision] Could not fetch image: ${url}`, err.message)
     return null
   }
+}
+
+// ─── Retry helper ─────────────────────────────────────────────────
+// Retries a fetch call up to maxRetries times with exponential backoff.
+// Handles both 429 (rate limit) and 5xx (gateway/server errors).
+const fetchWithRetry = async (url, options = {}, maxRetries = 3) => {
+  let lastErr
+  for (let attempt = 0; attempt < maxRetries; attempt++) {
+    try {
+      const res = await fetch(url, options)
+      if (res.status === 429 || res.status >= 500) {
+        const backoff = Math.pow(2, attempt) * 1000  // 1s, 2s, 4s
+        console.warn(`[Proxy] ${res.status} on attempt ${attempt + 1} — retrying in ${backoff}ms`)
+        await new Promise(r => setTimeout(r, backoff))
+        lastErr = new Error(`HTTP ${res.status}`)
+        continue
+      }
+      return res
+    } catch (err) {
+      const backoff = Math.pow(2, attempt) * 1000
+      console.warn(`[Proxy] Fetch error on attempt ${attempt + 1} — retrying in ${backoff}ms:`, err.message)
+      await new Promise(r => setTimeout(r, backoff))
+      lastErr = err
+    }
+  }
+  throw lastErr
 }
 
 // ─── Health check ─────────────────────────────────────────────────
@@ -303,7 +341,7 @@ app.get('/api/birdeye', async (req, res) => {
   if (!url) return res.status(400).json({ error: `Unknown endpoint: ${endpoint}` })
 
   try {
-    const response = await fetch(url, {
+    const response = await fetchWithRetry(url, {
       headers: { 'X-API-KEY': BIRDEYE_KEY, 'x-chain': 'solana' },
     })
     if (response.status === 404) return res.json({ data: null })
@@ -327,7 +365,7 @@ app.get('/api/pumpfun', async (req, res) => {
   const url = `https://frontend-api.pump.fun/${apiPath}${qs ? '?' + qs : ''}`
 
   try {
-    const response = await fetch(url, {
+    const response = await fetchWithRetry(url, {
       headers: { 'User-Agent': 'Mozilla/5.0', 'Accept': 'application/json' },
     })
     if (!response.ok) throw new Error(`PumpFun ${response.status}`)
