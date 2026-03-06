@@ -14,14 +14,25 @@
 const BACKEND_URL = import.meta.env.VITE_BACKEND_URL || 'http://localhost:3001'
 const AI_SCORE_THRESHOLD = 0.65  // Minimum score to qualify as a beta
 const BATCH_SIZE = 8             // Candidates per API call (controls cost + latency)
-const CACHE_TTL_MS = 5 * 60 * 1000  // Cache results for 5 minutes
+const CACHE_TTL_MS = 30 * 60 * 1000  // 30 min — balances freshness vs token budget
+const LS_KEY = 'betaplays_score_cache_v1'
 
-// ─── In-memory cache ─────────────────────────────────────────────
-// Prevents re-scoring on every render. Key = alphaAddress + candidateAddresses hash.
-const scoreCache = new Map()
-
+// ─── localStorage cache ───────────────────────────────────────────
+// Persists across page refreshes so we never re-score the same
+// alpha+candidates pair within the TTL window.
 const getCacheKey = (alphaAddress, candidateAddresses) =>
-  `${alphaAddress}:${candidateAddresses.sort().join(',')}`
+  `${alphaAddress}:${[...candidateAddresses].sort().join(',')}`
+
+const loadScoreCache = () => {
+  try {
+    const raw = localStorage.getItem(LS_KEY)
+    return raw ? JSON.parse(raw) : {}
+  } catch { return {} }
+}
+
+const saveScoreCache = (cache) => {
+  try { localStorage.setItem(LS_KEY, JSON.stringify(cache)) } catch {}
+}
 
 // ─── Build the scoring prompt ────────────────────────────────────
 // This prompt is the heart of Vector 8.
@@ -60,7 +71,17 @@ Scoring criteria:
 - 0.5-0.69: Possible connection but ambiguous
 - 0.0-0.49: Likely unrelated despite surface similarity
 
-Consider: shared characters, shared events (Trump alien disclosure → ALIEN tokens), shared cultural references, shared meme formats, prefix/suffix derivatives, thematic overlap.
+Consider ALL of the following signals:
+- Ticker/name: prefix or suffix derivatives (BABY, MINI, INU, AI, 2.0 etc.)
+- Shared characters: same mascot, person, or fictional entity
+- Shared events: same cultural moment or news event that spawned both (e.g. Trump alien disclosure → multiple ALIEN tokens)
+- Shared meme formats: same joke format, same reference template
+- Description language: pay close attention to token descriptions — they often contain indirect references WITHOUT naming the alpha explicitly. Look for:
+    * Thematic echoes ("the original", "the one that started it", "for those who missed the run")
+    * Cultural callbacks and in-jokes the community would recognize
+    * Phrases that reference the alpha's narrative without using its name/symbol
+    * Community dog-whistles like "you know what this is" or "the sequel"
+- Narrative universe: tokens launched in the same cultural moment even without direct name overlap
 
 Respond ONLY with a JSON array. No explanation, no markdown, no preamble. Example format:
 [{"index":0,"score":0.95,"reason":"Direct derivative"},{"index":1,"score":0.2,"reason":"Unrelated"}]`
@@ -107,8 +128,14 @@ const scoreBatch = async (alpha, candidates) => {
     }))
 }
 
+// ─── Throttle helper ─────────────────────────────────────────────
+// Groq free tier = 30 req/min shared across all endpoints.
+// Sequential batching with a delay keeps us safe.
+const sleep = (ms) => new Promise(resolve => setTimeout(resolve, ms))
+const BATCH_DELAY_MS = 3000  // 3s between batches → max 20 req/min across all Groq calls
+
 // ─── Main scoring function ───────────────────────────────────────
-// Takes alpha + all candidates, runs them through Claude in batches,
+// Takes alpha + all candidates, runs them through Groq in batches,
 // returns only the ones that score above the threshold.
 export const scoreWithAI = async (alpha, candidates) => {
   if (!alpha || !candidates || candidates.length === 0) return []
@@ -118,35 +145,58 @@ export const scoreWithAI = async (alpha, candidates) => {
     candidates.map(c => c.address || c.id)
   )
 
-  // Return cached results if still fresh
-  const cached = scoreCache.get(cacheKey)
-  if (cached && Date.now() - cached.timestamp < CACHE_TTL_MS) {
-    console.log(`[Vector8] Cache hit for $${alpha.symbol} — ${cached.results.length} AI matches`)
+  // Return cached results if still fresh (persisted across page refreshes)
+  const scoreCache = loadScoreCache()
+  const cached = scoreCache[cacheKey]
+  if (cached && (Date.now() - cached.timestamp) < CACHE_TTL_MS) {
+    console.log(`[Vector8] Cache hit for $${alpha.symbol} — ${cached.results.length} AI matches (0 Groq calls)`)
     return cached.results
   }
 
   console.log(`[Vector8] Scoring ${candidates.length} candidates for $${alpha.symbol}...`)
 
-  // Process in batches to manage token usage and latency
-  const batches = []
+  // Process batches sequentially with a delay between each
+  // (was Promise.allSettled — fired all at once, caused Groq 429s)
+  const allScored = []
+
   for (let i = 0; i < candidates.length; i += BATCH_SIZE) {
-    batches.push(candidates.slice(i, i + BATCH_SIZE))
+    const batch = candidates.slice(i, i + BATCH_SIZE)
+    const batchNum = Math.floor(i / BATCH_SIZE) + 1
+
+    // Throttle between batches — not before the first one
+    if (i > 0) {
+      console.log(`[Vector8] Throttling — waiting ${BATCH_DELAY_MS / 1000}s before batch ${batchNum}...`)
+      await sleep(BATCH_DELAY_MS)
+    }
+
+    try {
+      const results = await scoreBatch(alpha, batch)
+      allScored.push(...results)
+    } catch (err) {
+      if (err.message?.includes('429') || err.message?.includes('rate')) {
+        console.warn(`[Vector8] Rate limited on batch ${batchNum} — backing off 10s`)
+        await sleep(10000)
+        try {
+          const retryResults = await scoreBatch(alpha, batch)
+          allScored.push(...retryResults)
+        } catch (retryErr) {
+          console.warn(`[Vector8] Retry failed for batch ${batchNum}:`, retryErr.message)
+        }
+      } else {
+        console.warn(`[Vector8] Batch ${batchNum} failed:`, err.message)
+      }
+    }
   }
 
-  const batchResults = await Promise.allSettled(
-    batches.map(batch => scoreBatch(alpha, batch))
-  )
+  const sorted = allScored.sort((a, b) => b.aiScore - a.aiScore)
 
-  const allScored = batchResults
-    .filter(r => r.status === 'fulfilled')
-    .flatMap(r => r.value)
-    .sort((a, b) => b.aiScore - a.aiScore)
+  // Persist results to localStorage so next refresh doesn't re-score
+  const latestCache = loadScoreCache()
+  latestCache[cacheKey] = { results: sorted, timestamp: Date.now() }
+  saveScoreCache(latestCache)
+  console.log(`[Vector8] Found ${sorted.length} AI-matched betas for $${alpha.symbol}`)
 
-  // Cache the results
-  scoreCache.set(cacheKey, { results: allScored, timestamp: Date.now() })
-  console.log(`[Vector8] Found ${allScored.length} AI-matched betas for $${alpha.symbol}`)
-
-  return allScored
+  return sorted
 }
 
 // ─── Production swap instructions ───────────────────────────────
