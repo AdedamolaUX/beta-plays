@@ -83,10 +83,6 @@ const DECOMP_SUFFIXES = [
   'LAND', 'ZONE', 'CAT', 'DOG', 'HAT', 'WIF', 'INU', 'DAO',
   'MOON', 'PUMP', 'STAR', 'KING', 'LORD', 'APE', 'BOY', 'MAN',
   'GIRL', 'SON', 'ZEN', 'FI', 'PAD', 'NET', 'BIT', 'PAY',
-  // Common meme token suffix patterns
-  'IFY', 'FY', 'RIO', 'IO', 'LY', 'ER', 'EST', 'ISH',
-  'STER', 'LING', 'ETTE', 'TION', 'NESS', 'MENT', 'ABLE',
-  'FUN', 'GUY', 'LAD', 'BRO', 'SIS', 'MAX', 'PRO', 'XL',
 ]
 const DECOMP_PREFIXES = [
   'BABY', 'MINI', 'MICRO', 'GIGA', 'MEGA', 'SUPER',
@@ -98,6 +94,23 @@ const DECOMP_PREFIXES = [
 const decomposeSymbol = (symbol) => {
   const s = symbol.toUpperCase()
   const parts = new Set()
+
+  // ── CJK fast-path ──────────────────────────────────────────────
+  // Chinese/Japanese/Korean symbols like $刘元立, $哈基米 can't be
+  // decomposed by suffix/prefix stripping. Return the whole symbol
+  // as the root so it gets passed directly to DEXScreener search.
+  const CJK_REGEX = /[\u3000-\u9fff\uac00-\ud7af\uf900-\ufaff]/
+  if (CJK_REGEX.test(symbol)) {
+    parts.add(symbol)   // full symbol e.g. 刘元立
+    // Also add 2-char substrings in case other tokens share part of the name
+    if (symbol.length >= 4) {
+      for (let i = 0; i <= symbol.length - 2; i++) {
+        const sub = symbol.slice(i, i + 2)
+        if (CJK_REGEX.test(sub)) parts.add(sub)
+      }
+    }
+    return Array.from(parts)
+  }
 
   DECOMP_SUFFIXES.forEach((suffix) => {
     if (s.endsWith(suffix) && s.length > suffix.length + 2) {
@@ -120,18 +133,6 @@ const decomposeSymbol = (symbol) => {
     .trim().split(/\s+/)
     .filter(p => p.length >= 3)
   camelParts.forEach(p => parts.add(p.toUpperCase()))
-
-  // Fallback stem extraction: if nothing matched above, try stripping
-  // 2–4 chars from the end to find a shared root (e.g. CUMIFY → CUM, CUMRIO → CUM)
-  if (parts.size === 0 && s.length >= 5) {
-    for (const stripLen of [3, 2, 4]) {
-      const stem = s.slice(0, s.length - stripLen)
-      if (stem.length >= 3) {
-        parts.add(stem)
-        break  // Only add the most conservative stem
-      }
-    }
-  }
 
   parts.delete(s)
   return Array.from(parts)
@@ -156,27 +157,71 @@ const STOP_WORDS = new Set([
   'about', 'into', 'through', 'token', 'coin', 'crypto', 'solana',
   'pump', 'moon', 'hold', 'buy', 'sell', 'trading', 'market',
   'price', 'chart', 'wallet', 'contract', 'launch', 'fair',
+  // Chinese stop words — common filler characters not useful for search
+  '的', '了', '在', '是', '我', '有', '和', '就', '不', '人',
+  '都', '一', '一个', '上', '也', '很', '到', '说', '要', '去',
+  '你', '会', '着', '没有', '看', '好', '自己', '这',
+  // Japanese particles and common fillers
+  'の', 'は', 'が', 'を', 'に', 'で', 'と', 'も', 'か', 'な',
+  'や', 'よ', 'ね', 'わ', 'ぞ', 'ぜ',
+  // Korean particles
+  '이', '가', '은', '는', '을', '를', '의', '에', '와', '과',
 ])
 
 const extractDescriptionKeywords = (description) => {
   if (!description || description.length < 10) return []
 
-  const words = description
-    .toLowerCase()
-    .replace(/[^a-z0-9\s]/g, ' ')
-    .split(/\s+/)
-    .filter(w =>
-      w.length >= 3 &&          // Lowered from 4 — catches 'claw', 'gork', etc.
-      w.length <= 20 &&
-      !STOP_WORDS.has(w) &&
-      !/^\d+$/.test(w)          // Skip pure numbers
-    )
+  // Detect if description contains CJK (Chinese/Japanese/Korean) characters
+  const CJK_REGEX = /[\u3000-\u9fff\uac00-\ud7af\uf900-\ufaff]/
+  const hasCJK = CJK_REGEX.test(description)
 
-  // Deduplicate and take top 8 most meaningful words
-  // Prioritise longer words as they're more specific
-  return [...new Set(words)]
-    .sort((a, b) => b.length - a.length)
-    .slice(0, 8)
+  let words = []
+
+  if (hasCJK) {
+    // For CJK text: extract individual characters and short n-grams (2-4 chars)
+    // since CJK words aren't space-separated
+    const cjkChars = description.match(/[\u3000-\u9fff\uac00-\ud7af\uf900-\ufaff]+/g) || []
+    // Also grab any Latin words mixed in
+    const latinWords = description
+      .toLowerCase()
+      .replace(/[^a-z0-9\s]/g, ' ')
+      .split(/\s+/)
+      .filter(w => w.length >= 3 && !STOP_WORDS.has(w) && !/^\d+$/.test(w))
+
+    // Generate 2-4 char CJK n-grams from each CJK run
+    const cjkNgrams = []
+    cjkChars.forEach(run => {
+      for (let len = 2; len <= 4 && len <= run.length; len++) {
+        for (let i = 0; i <= run.length - len; i++) {
+          cjkNgrams.push(run.slice(i, i + len))
+        }
+      }
+      // Also push the whole run if short enough
+      if (run.length >= 2 && run.length <= 6) cjkNgrams.push(run)
+    })
+
+    words = [...new Set([...cjkNgrams, ...latinWords])]
+      .sort((a, b) => b.length - a.length)
+      .slice(0, 8)
+  } else {
+    // Original Latin path — unchanged
+    words = description
+      .toLowerCase()
+      .replace(/[^a-z0-9\s]/g, ' ')
+      .split(/\s+/)
+      .filter(w =>
+        w.length >= 3 &&
+        w.length <= 20 &&
+        !STOP_WORDS.has(w) &&
+        !/^\d+$/.test(w)
+      )
+
+    words = [...new Set(words)]
+      .sort((a, b) => b.length - a.length)
+      .slice(0, 8)
+  }
+
+  return words
 }
 
 const fetchDescriptionKeywords = async (alpha) => {
