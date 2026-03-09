@@ -95,23 +95,6 @@ const decomposeSymbol = (symbol) => {
   const s = symbol.toUpperCase()
   const parts = new Set()
 
-  // ── CJK fast-path ──────────────────────────────────────────────
-  // Chinese/Japanese/Korean symbols like $刘元立, $哈基米 can't be
-  // decomposed by suffix/prefix stripping. Return the whole symbol
-  // as the root so it gets passed directly to DEXScreener search.
-  const CJK_REGEX = /[\u3000-\u9fff\uac00-\ud7af\uf900-\ufaff]/
-  if (CJK_REGEX.test(symbol)) {
-    parts.add(symbol)   // full symbol e.g. 刘元立
-    // Also add 2-char substrings in case other tokens share part of the name
-    if (symbol.length >= 4) {
-      for (let i = 0; i <= symbol.length - 2; i++) {
-        const sub = symbol.slice(i, i + 2)
-        if (CJK_REGEX.test(sub)) parts.add(sub)
-      }
-    }
-    return Array.from(parts)
-  }
-
   DECOMP_SUFFIXES.forEach((suffix) => {
     if (s.endsWith(suffix) && s.length > suffix.length + 2) {
       const root = s.slice(0, s.length - suffix.length)
@@ -138,6 +121,42 @@ const decomposeSymbol = (symbol) => {
   return Array.from(parts)
 }
 
+// ─── Name term extractor ─────────────────────────────────────────
+// Extracts search terms from a token's full name when it differs from
+// its symbol. Works for all languages — CJK, Latin, mixed.
+// e.g. symbol=MOYU  name=摸鱼  → ['摸鱼']
+//      symbol=WIF   name=Dog Wif Hat → ['dog', 'hat']  ('wif' already in symbol)
+//      symbol=PEPE  name=Pepe → []  (same, skip)
+const getNameTerms = (symbol, name) => {
+  if (!name || name === 'Unknown') return []
+  // If name matches symbol (case-insensitive), nothing new to add
+  if (name.toLowerCase() === symbol.toLowerCase()) return []
+
+  const CJK_REGEX = /[　-鿿가-힯豈-﫿]/
+
+  // CJK name: return the full native name as a single search term
+  // DEXScreener indexes CJK characters directly — one search is enough
+  if (CJK_REGEX.test(name)) {
+    const terms = [name]
+    // Also extract any Latin words mixed in (e.g. "摸鱼 Moyu Fish")
+    const latinWords = name
+      .toLowerCase()
+      .replace(/[^　-鿿a-z0-9\s]/g, ' ')
+      .split(/\s+/)
+      .filter(w => w.length >= 3 && w.toLowerCase() !== symbol.toLowerCase())
+    return [...new Set([...terms, ...latinWords])]
+  }
+
+  // Latin name: split into words, drop words already covered by symbol
+  const symLower = symbol.toLowerCase()
+  return name
+    .toLowerCase()
+    .replace(/[^a-z0-9\s]/g, ' ')
+    .split(/\s+/)
+    .filter(w => w.length >= 3 && !w.includes(symLower) && !symLower.includes(w))
+    .slice(0, 4)  // cap at 4 extra name-words — beyond this it's noise
+}
+
 // ─── Vector 1: Description keyword extraction ────────────────────
 // Fetch the token's DEXScreener profile and extract meaningful
 // keywords from its description text. This surfaces betas that
@@ -157,71 +176,27 @@ const STOP_WORDS = new Set([
   'about', 'into', 'through', 'token', 'coin', 'crypto', 'solana',
   'pump', 'moon', 'hold', 'buy', 'sell', 'trading', 'market',
   'price', 'chart', 'wallet', 'contract', 'launch', 'fair',
-  // Chinese stop words — common filler characters not useful for search
-  '的', '了', '在', '是', '我', '有', '和', '就', '不', '人',
-  '都', '一', '一个', '上', '也', '很', '到', '说', '要', '去',
-  '你', '会', '着', '没有', '看', '好', '自己', '这',
-  // Japanese particles and common fillers
-  'の', 'は', 'が', 'を', 'に', 'で', 'と', 'も', 'か', 'な',
-  'や', 'よ', 'ね', 'わ', 'ぞ', 'ぜ',
-  // Korean particles
-  '이', '가', '은', '는', '을', '를', '의', '에', '와', '과',
 ])
 
 const extractDescriptionKeywords = (description) => {
   if (!description || description.length < 10) return []
 
-  // Detect if description contains CJK (Chinese/Japanese/Korean) characters
-  const CJK_REGEX = /[\u3000-\u9fff\uac00-\ud7af\uf900-\ufaff]/
-  const hasCJK = CJK_REGEX.test(description)
+  const words = description
+    .toLowerCase()
+    .replace(/[^a-z0-9\s]/g, ' ')
+    .split(/\s+/)
+    .filter(w =>
+      w.length >= 3 &&          // Lowered from 4 — catches 'claw', 'gork', etc.
+      w.length <= 20 &&
+      !STOP_WORDS.has(w) &&
+      !/^\d+$/.test(w)          // Skip pure numbers
+    )
 
-  let words = []
-
-  if (hasCJK) {
-    // For CJK text: extract individual characters and short n-grams (2-4 chars)
-    // since CJK words aren't space-separated
-    const cjkChars = description.match(/[\u3000-\u9fff\uac00-\ud7af\uf900-\ufaff]+/g) || []
-    // Also grab any Latin words mixed in
-    const latinWords = description
-      .toLowerCase()
-      .replace(/[^a-z0-9\s]/g, ' ')
-      .split(/\s+/)
-      .filter(w => w.length >= 3 && !STOP_WORDS.has(w) && !/^\d+$/.test(w))
-
-    // Generate 2-4 char CJK n-grams from each CJK run
-    const cjkNgrams = []
-    cjkChars.forEach(run => {
-      for (let len = 2; len <= 4 && len <= run.length; len++) {
-        for (let i = 0; i <= run.length - len; i++) {
-          cjkNgrams.push(run.slice(i, i + len))
-        }
-      }
-      // Also push the whole run if short enough
-      if (run.length >= 2 && run.length <= 6) cjkNgrams.push(run)
-    })
-
-    words = [...new Set([...cjkNgrams, ...latinWords])]
-      .sort((a, b) => b.length - a.length)
-      .slice(0, 8)
-  } else {
-    // Original Latin path — unchanged
-    words = description
-      .toLowerCase()
-      .replace(/[^a-z0-9\s]/g, ' ')
-      .split(/\s+/)
-      .filter(w =>
-        w.length >= 3 &&
-        w.length <= 20 &&
-        !STOP_WORDS.has(w) &&
-        !/^\d+$/.test(w)
-      )
-
-    words = [...new Set(words)]
-      .sort((a, b) => b.length - a.length)
-      .slice(0, 8)
-  }
-
-  return words
+  // Deduplicate and take top 8 most meaningful words
+  // Prioritise longer words as they're more specific
+  return [...new Set(words)]
+    .sort((a, b) => b.length - a.length)
+    .slice(0, 8)
 }
 
 const fetchDescriptionKeywords = async (alpha) => {
@@ -389,14 +364,17 @@ const formatBeta = (pair, sources = []) => {
 }
 
 // ─── Signal 1: Keyword + compound decomposition ──────────────────
-const fetchKeywordBetas = async (alphaSymbol) => {
+const fetchKeywordBetas = async (alphaSymbol, alphaName = '') => {
+  const nameTerms  = getNameTerms(alphaSymbol, alphaName)
   const terms      = getSearchTerms(alphaSymbol)
   const decomposed = decomposeSymbol(alphaSymbol)
-  const allTerms   = [...new Set([...terms, ...decomposed])].slice(0, 8)
+  // Name terms go first — highest priority, most likely to find culturally relevant betas
+  // No cap — every meaningful term fires. DEXScreener has no strict rate limit.
+  const allTerms   = [...new Set([...nameTerms, ...terms, ...decomposed])]
   const results    = []
   for (const term of allTerms) {
     try {
-      const res = await axios.get(`${DEXSCREENER_BASE}/latest/dex/search?q=${term}`)
+      const res = await axios.get(`${DEXSCREENER_BASE}/latest/dex/search?q=${encodeURIComponent(term)}`)
       ;(res.data?.pairs || [])
         .filter(p =>
           p.chainId === 'solana' &&
@@ -473,10 +451,12 @@ const fetchMorphologyBetas = async (alphaSymbol) => {
 }
 
 // ─── Signal 4: PumpFun trending ──────────────────────────────────
-const fetchPumpFunBetas = async (alphaSymbol, descKeywords = []) => {
+const fetchPumpFunBetas = async (alphaSymbol, descKeywords = [], alphaName = '') => {
+  const nameTerms  = getNameTerms(alphaSymbol, alphaName).map(t => t.toLowerCase())
   const concepts   = getConcepts(alphaSymbol)
   const decomposed = decomposeSymbol(alphaSymbol).map(d => d.toLowerCase())
-  const allTerms   = [...new Set([...concepts, ...decomposed, ...descKeywords])]
+  // Name terms included — critical for CJK tokens like MOYU/摸鱼
+  const allTerms   = [...new Set([...nameTerms, ...concepts, ...decomposed, ...descKeywords])]
   const results    = []
 
   try {
@@ -612,11 +592,11 @@ const useBetas = (alpha, parentAlpha = null) => {
       // Run all signals in parallel
       const [keywordRes, descRes, loreRes, morphRes, pumpRes, lpRes] =
         await Promise.allSettled([
-          fetchKeywordBetas(enrichedAlpha.symbol),
+          fetchKeywordBetas(enrichedAlpha.symbol, enrichedAlpha.name),
           fetchDescriptionBetas(enrichedAlpha, descKeywords),
           fetchLoreBetas(enrichedAlpha.symbol),
           fetchMorphologyBetas(enrichedAlpha.symbol),
-          fetchPumpFunBetas(enrichedAlpha.symbol, descKeywords),
+          fetchPumpFunBetas(enrichedAlpha.symbol, descKeywords, enrichedAlpha.name),
           fetchLPPairBetas(enrichedAlpha),
         ])
 
@@ -642,10 +622,10 @@ const useBetas = (alpha, parentAlpha = null) => {
       if (parentAlpha) {
         try {
           const [sibKeyword, sibLore, sibMorph, sibPump] = await Promise.allSettled([
-            fetchKeywordBetas(parentAlpha.symbol),
+            fetchKeywordBetas(parentAlpha.symbol, parentAlpha.name),
             fetchLoreBetas(parentAlpha.symbol),
             fetchMorphologyBetas(parentAlpha.symbol),
-            fetchPumpFunBetas(parentAlpha.symbol),
+            fetchPumpFunBetas(parentAlpha.symbol, [], parentAlpha.name),
           ])
           const sibRaw = [
             ...(sibKeyword.status === 'fulfilled' ? sibKeyword.value : []),
