@@ -15,11 +15,24 @@
 // from community votes alone.
 
 export const LEGEND_CRITERIA = {
+  // Age — must have survived at least one full market cycle
   minAgeDays:      365,
-  minMcap:         50_000_000,
-  minVolume24h:    500_000,
-  minLiquidity:    500_000,
+
+  // Peak mcap — what the token reached at its height, not current price.
+  // Bear markets don't strip legend status. $20M peak = real narrative moment.
+  minPeakMcap:     20_000_000,
+
+  // Narrative proof — spawned meaningful derivative tokens
+  // Tracked via betaplays_beta_spawn_counts in localStorage
   minBetasSpawned: 3,
+
+  // Liquidity floor — was ever tradeable at scale (historical check, not current)
+  minPeakLiquidity: 200_000,
+
+  // Once earned, legend status is PERMANENT.
+  // Price dumps, bear markets, low volume — none of these revoke it.
+  // Legend = historical significance, not current market size.
+  permanent: true,
 }
 
 const LEGENDS = [
@@ -106,28 +119,6 @@ const LEGENDS = [
     category:       'dogs',
     universe:       'solana-dogs',
     dexUrl:         'https://dexscreener.com/solana/HhJpBhRRn4g56VsyLuT8DL5Bv31HkXqsrahTTUCZeZg4',
-    nominationCount: 0,
-    nominatedBy:    [],
-    promotedBy:     'manual',
-    promotedAt:     '2024-01-01',
-  },
-  {
-    id:             'legend-pepe',
-    symbol:         'PEPE',
-    name:           'Pepe',
-    address:        '6GCihgDB8fe6KNjn2MYtkzZcRjQy3t9GHdC8uHYmW2hr',
-    priceUsd:       null,
-    priceChange24h: null,
-    volume24h:      null,
-    marketCap:      null,
-    liquidity:      null,
-    logoUrl:        null,
-    pairCreatedAt:  '2023-04-14',
-    isHistorical:   false,
-    isLegend:       true,
-    category:       'frogs',
-    universe:       'pepe',
-    dexUrl:         'https://dexscreener.com/ethereum/pepe',
     nominationCount: 0,
     nominatedBy:    [],
     promotedBy:     'manual',
@@ -261,20 +252,17 @@ export const checkLegendCriteria = (token) => {
     ? passes.push(`Age: ${Math.round(ageDays)}d ✓`)
     : failing.push(`Age: ${Math.round(ageDays)}d (need ${LEGEND_CRITERIA.minAgeDays}d)`)
 
-  const mcap = token.marketCap || 0
-  mcap >= LEGEND_CRITERIA.minMcap
-    ? passes.push(`Mcap: $${(mcap/1e6).toFixed(1)}M ✓`)
-    : failing.push(`Mcap: $${(mcap/1e6).toFixed(1)}M (need $${LEGEND_CRITERIA.minMcap/1e6}M)`)
+  // Use peak mcap — bear markets don't disqualify a token from legend status
+  const peakMcap = token.peakMarketCap || token.marketCap || 0
+  peakMcap >= LEGEND_CRITERIA.minPeakMcap
+    ? passes.push(`Peak Mcap: $${(peakMcap/1e6).toFixed(1)}M ✓`)
+    : failing.push(`Peak Mcap: $${(peakMcap/1e6).toFixed(1)}M (need $${LEGEND_CRITERIA.minPeakMcap/1e6}M)`)
 
-  const vol = token.volume24h || 0
-  vol >= LEGEND_CRITERIA.minVolume24h
-    ? passes.push(`Vol: $${(vol/1e3).toFixed(0)}K ✓`)
-    : failing.push(`Vol: $${(vol/1e3).toFixed(0)}K (need $${LEGEND_CRITERIA.minVolume24h/1e3}K)`)
-
-  const liq = token.liquidity || 0
-  liq >= LEGEND_CRITERIA.minLiquidity
-    ? passes.push(`Liq: $${(liq/1e3).toFixed(0)}K ✓`)
-    : failing.push(`Liq: $${(liq/1e3).toFixed(0)}K (need $${LEGEND_CRITERIA.minLiquidity/1e3}K)`)
+  // Liquidity — historical peak check
+  const peakLiq = token.peakLiquidity || token.liquidity || 0
+  peakLiq >= LEGEND_CRITERIA.minPeakLiquidity
+    ? passes.push(`Peak Liq: $${(peakLiq/1e3).toFixed(0)}K ✓`)
+    : failing.push(`Peak Liq: $${(peakLiq/1e3).toFixed(0)}K (need $${LEGEND_CRITERIA.minPeakLiquidity/1e3}K)`)
 
   return {
     qualifies: failing.length === 0,

@@ -772,20 +772,23 @@ const refreshLegendPrices = async (setLegends) => {
     const updated = await Promise.all(
       LEGENDS.map(async (legend) => {
         try {
+          // Use token endpoint — works with mint/token addresses across chains
           const res = await axios.get(
-            `https://api.dexscreener.com/latest/dex/pairs/solana/${legend.address}`,
+            `https://api.dexscreener.com/latest/dex/tokens/${legend.address}`,
             { timeout: 5000 }
           )
-          const pair = res.data?.pair || res.data?.pairs?.[0]
-          if (!pair) return legend
+          // Pick highest-liquidity pair as canonical price source
+          const pairs = res.data?.pairs || []
+          if (!pairs.length) return legend
+          const best = pairs.sort((a, b) => (b.liquidity?.usd || 0) - (a.liquidity?.usd || 0))[0]
           return {
             ...legend,
-            priceUsd:      pair.priceUsd     || legend.priceUsd,
-            priceChange24h: pair.priceChange?.h24 || 0,
-            volume24h:     pair.volume?.h24  || legend.volume24h,
-            marketCap:     pair.marketCap    || legend.marketCap,
-            liquidity:     pair.liquidity?.usd || legend.liquidity,
-            logoUrl:       pair.info?.imageUrl || legend.logoUrl,
+            priceUsd:       best.priceUsd         || legend.priceUsd,
+            priceChange24h: best.priceChange?.h24 || 0,
+            volume24h:      best.volume?.h24      || legend.volume24h,
+            marketCap:      best.marketCap        || legend.marketCap,
+            liquidity:      best.liquidity?.usd   || legend.liquidity,
+            logoUrl:        best.info?.imageUrl   || legend.logoUrl,
           }
         } catch { return legend }
       })
@@ -818,11 +821,11 @@ export const checkLegendCandidates = (alphas) => {
       betaCount = spawnData[alpha.address] || 0
     } catch {}
 
+    // Use peak mcap — legend status based on historical significance, not current price
+    const peakMcap = alpha.peakMarketCap || mcap
     return (
-      age     >= ONE_YEAR                    &&
-      mcap    >= LEGEND_CRITERIA.minMcap     &&
-      vol     >= LEGEND_CRITERIA.minVolume24h &&
-      liq     >= LEGEND_CRITERIA.minLiquidity &&
+      age       >= ONE_YEAR                         &&
+      peakMcap  >= LEGEND_CRITERIA.minPeakMcap      &&
       betaCount >= LEGEND_CRITERIA.minBetasSpawned
     )
   }).map(a => ({ ...a, candidateLegend: true }))
