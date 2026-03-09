@@ -1,7 +1,7 @@
 import { useState, useMemo, useCallback, useRef, useEffect } from 'react'
 import { createPortal } from 'react-dom'
 import useAlphas from './hooks/useAlphas'
-import { submitNomination, getNominations, NOMINATIONS_KEY } from './data/historical_alphas'
+import LEGENDS, { submitNomination, getNominations, NOMINATIONS_KEY } from './data/historical_alphas'
 import useBetas, { getSignal, getWavePhase, getMcapRatio } from './hooks/useBetas'
 import useParentAlpha from './hooks/useParentAlpha'
 import useNarrativeSzn from './hooks/useNarrativeSzn'
@@ -326,23 +326,26 @@ const AlphaCard = ({ alpha, isSelected, onClick, isWatched, onToggleWatch }) => 
   const derivative = isDerivative(alpha.symbol)
 
   const [showNomMenu, setShowNomMenu] = useState(false)
+  const [menuPos,     setMenuPos]     = useState({ x: 0, y: 0 })
 
   return (
     <div
       className={`card alpha-card ${isSelected ? 'active' : ''}`}
       onClick={onClick}
-      onContextMenu={e => { e.preventDefault(); setShowNomMenu(m => !m) }}
+      onContextMenu={e => { e.preventDefault(); setMenuPos({ x: e.clientX, y: e.clientY }); setShowNomMenu(m => !m) }}
       style={{ position: 'relative' }}
     >
-      {showNomMenu && (
+      {showNomMenu && createPortal(
         <>
-          {/* Invisible backdrop — click anywhere to close */}
+          {/* Portal backdrop — escapes any parent overflow/transform/stacking context */}
           <div
-            style={{ position: 'fixed', inset: 0, zIndex: 49 }}
-            onClick={e => { e.stopPropagation(); setShowNomMenu(false) }}
+            style={{ position: 'fixed', inset: 0, zIndex: 998 }}
+            onClick={() => setShowNomMenu(false)}
           />
           <div style={{
-            position: 'absolute', top: 8, right: 8, zIndex: 50,
+            position: 'fixed',
+            top: menuPos.y, left: menuPos.x,
+            zIndex: 999,
             background: 'var(--surface-1)', border: '1px solid rgba(255,184,0,0.25)',
             borderRadius: 6, padding: '10px 12px', minWidth: 170,
             boxShadow: '0 6px 20px rgba(0,0,0,0.5)',
@@ -365,7 +368,8 @@ const AlphaCard = ({ alpha, isSelected, onClick, isWatched, onToggleWatch }) => 
             </div>
             <NominateButton address={alpha.address} symbol={alpha.symbol} name={alpha.name} compact />
           </div>
-        </>
+        </>,
+        document.body
       )}
       <div className="alpha-card-top">
         <div className="token-info">
@@ -1208,16 +1212,23 @@ const NominateSearchBar = () => {
       const pairs = (data.pairs || []).filter(p => p.chainId === 'solana')
       if (!pairs.length) { setError('No Solana token found. Try the token address.'); setLoading(false); return }
       const best = pairs.sort((a, b) => (b.liquidity?.usd || 0) - (a.liquidity?.usd || 0))[0]
+      const resultAddr = best.baseToken?.address
+      const resultSym  = best.baseToken?.symbol?.toUpperCase()
+      // Check if already a confirmed OG
+      const alreadyOG  = LEGENDS.some(l =>
+        l.address === resultAddr || l.symbol === resultSym
+      )
       setResult({
-        address:   best.baseToken?.address,
+        address:   resultAddr,
         symbol:    best.baseToken?.symbol,
         name:      best.baseToken?.name,
         marketCap: best.marketCap || 0,
         volume24h: best.volume?.h24 || 0,
         liquidity: best.liquidity?.usd || 0,
         logoUrl:   best.info?.imageUrl || null,
-        dexUrl:    best.url || `https://dexscreener.com/solana/${best.baseToken?.address}`,
+        dexUrl:    best.url || `https://dexscreener.com/solana/${resultAddr}`,
         pairCreatedAt: best.pairCreatedAt ? new Date(best.pairCreatedAt).toISOString().split('T')[0] : null,
+        isAlreadyOG: alreadyOG,
       })
     } catch { setError('Search failed. Try again.') }
     setLoading(false)
@@ -1258,8 +1269,9 @@ const NominateSearchBar = () => {
 
       {result && (
         <div style={{
-          marginTop: 8, background: 'var(--surface-2)', border: '1px solid var(--border)',
-          borderRadius: 6, padding: '10px 12px', display: 'flex', flexDirection: 'column', gap: 6,
+          marginTop: 8, background: 'var(--surface-2)',
+          border: `1px solid ${result.isAlreadyOG ? 'rgba(255,184,0,0.3)' : 'var(--border)'}`,
+          borderRadius: 6, padding: '10px 12px', display: 'flex', flexDirection: 'column', gap: 8,
         }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
             {result.logoUrl && (
@@ -1267,8 +1279,13 @@ const NominateSearchBar = () => {
                 style={{ width: 28, height: 28, borderRadius: '50%', objectFit: 'cover' }} />
             )}
             <div>
-              <div style={{ fontFamily: 'var(--font-mono)', fontSize: 11, color: 'var(--text-primary)', fontWeight: 700 }}>
-                ${result.symbol}
+              <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                <span style={{ fontFamily: 'var(--font-mono)', fontSize: 11, color: 'var(--text-primary)', fontWeight: 700 }}>
+                  ${result.symbol}
+                </span>
+                {result.isAlreadyOG && (
+                  <span className="badge badge-verified" style={{ fontSize: 7, padding: '1px 5px' }}>🏆 OG</span>
+                )}
               </div>
               <div style={{ fontFamily: 'var(--font-mono)', fontSize: 9, color: 'var(--text-muted)' }}>{result.name}</div>
             </div>
@@ -1283,11 +1300,17 @@ const NominateSearchBar = () => {
               </div>
             </div>
           </div>
-          <NominateButton
-            address={result.address}
-            symbol={result.symbol}
-            name={result.name}
-          />
+          {result.isAlreadyOG ? (
+            <div style={{ fontFamily: 'var(--font-mono)', fontSize: 9, color: 'var(--amber)' }}>
+              ✓ Already an OG — this token is on the confirmed legends list.
+            </div>
+          ) : (
+            <NominateButton
+              address={result.address}
+              symbol={result.symbol}
+              name={result.name}
+            />
+          )}
         </div>
       )}
     </div>
