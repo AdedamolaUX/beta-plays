@@ -1,6 +1,7 @@
 import { useState, useMemo, useCallback, useRef, useEffect } from 'react'
 import { createPortal } from 'react-dom'
 import useAlphas from './hooks/useAlphas'
+import { submitNomination, getNominations, NOMINATIONS_KEY } from './data/historical_alphas'
 import useBetas, { getSignal, getWavePhase, getMcapRatio } from './hooks/useBetas'
 import useParentAlpha from './hooks/useParentAlpha'
 import useNarrativeSzn from './hooks/useNarrativeSzn'
@@ -324,8 +325,38 @@ const AlphaCard = ({ alpha, isSelected, onClick, isWatched, onToggleWatch }) => 
   const isPositive = change >= 0
   const derivative = isDerivative(alpha.symbol)
 
+  const [showNomMenu, setShowNomMenu] = useState(false)
+
   return (
-    <div className={`card alpha-card ${isSelected ? 'active' : ''}`} onClick={onClick}>
+    <div
+      className={`card alpha-card ${isSelected ? 'active' : ''}`}
+      onClick={onClick}
+      onContextMenu={e => { e.preventDefault(); setShowNomMenu(m => !m) }}
+      style={{ position: 'relative' }}
+    >
+      {showNomMenu && (
+        <div style={{
+          position: 'absolute', top: 8, right: 8, zIndex: 50,
+          background: 'var(--surface-1)', border: '1px solid var(--border)',
+          borderRadius: 6, padding: '8px 10px', minWidth: 160,
+          boxShadow: '0 4px 16px rgba(0,0,0,0.4)',
+        }}
+          onClick={e => e.stopPropagation()}
+        >
+          <div style={{ fontFamily: 'var(--font-mono)', fontSize: 8, color: 'var(--text-muted)', marginBottom: 6, letterSpacing: 1 }}>
+            OPTIONS
+          </div>
+          <NominateButton address={alpha.address} symbol={alpha.symbol} name={alpha.name} compact />
+          <button
+            onClick={() => setShowNomMenu(false)}
+            style={{
+              marginTop: 6, background: 'transparent', border: 'none',
+              fontFamily: 'var(--font-mono)', fontSize: 8,
+              color: 'var(--text-muted)', cursor: 'pointer', padding: 0,
+            }}
+          >✕ close</button>
+        </div>
+      )}
       <div className="alpha-card-top">
         <div className="token-info">
           <div className="token-icon">
@@ -433,9 +464,146 @@ const AlphaCard = ({ alpha, isSelected, onClick, isWatched, onToggleWatch }) => 
 
 // ─── Alpha Board ─────────────────────────────────────────────────
 
+// ─── Admin Nomination Panel ───────────────────────────────────────
+// Hidden. Access via Ctrl+Shift+A — only you know this exists.
+// Shows pending nominations with stats for approve/reject decisions.
+const AdminNominationPanel = ({ onClose }) => {
+  const [nominations, setNominations] = useState(() => {
+    try { return Object.values(JSON.parse(localStorage.getItem('betaplays_nominations') || '{}')) }
+    catch { return [] }
+  })
+
+  const updateStatus = (address, status) => {
+    try {
+      const all = JSON.parse(localStorage.getItem('betaplays_nominations') || '{}')
+      if (all[address]) {
+        all[address].status = status
+        all[address].reviewedAt = Date.now()
+        localStorage.setItem('betaplays_nominations', JSON.stringify(all))
+        setNominations(Object.values(all))
+      }
+    } catch {}
+  }
+
+  const pending  = nominations.filter(n => n.status === 'pending')
+  const approved = nominations.filter(n => n.status === 'approved')
+  const rejected = nominations.filter(n => n.status === 'rejected')
+
+  const NomCard = ({ nom }) => {
+    const ageDays = nom.nominatedAt ? Math.round((Date.now() - nom.nominatedAt) / 86_400_000) : 0
+    const statusColor = { approved: 'var(--neon-green)', rejected: 'var(--red)', pending: 'var(--amber)' }[nom.status]
+    return (
+      <div style={{
+        background: 'var(--surface-2)', border: '1px solid var(--border)',
+        borderRadius: 6, padding: '10px 12px', display: 'flex', flexDirection: 'column', gap: 6,
+      }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+          <div>
+            <span style={{ fontFamily: 'var(--font-mono)', fontSize: 11, color: 'var(--text-primary)', fontWeight: 700 }}>
+              ${nom.symbol}
+            </span>
+            <span style={{ fontFamily: 'var(--font-mono)', fontSize: 9, color: 'var(--text-muted)', marginLeft: 6 }}>
+              {nom.name}
+            </span>
+          </div>
+          <span style={{ fontFamily: 'var(--font-mono)', fontSize: 8, color: statusColor, textTransform: 'uppercase' }}>
+            {nom.status}
+          </span>
+        </div>
+        <div style={{ display: 'flex', gap: 14, flexWrap: 'wrap' }}>
+          {[['Mcap', formatNum(nom.mcap)], ['Vol 24h', formatNum(nom.volume24h)],
+            ['Nominations', nom.nominationCount], ['Submitted', `${ageDays}d ago`]
+          ].map(([k, v]) => (
+            <div key={k}>
+              <div style={{ fontFamily: 'var(--font-mono)', fontSize: 7, color: 'var(--text-muted)' }}>{k}</div>
+              <div style={{ fontFamily: 'var(--font-mono)', fontSize: 9, color: 'var(--text-primary)' }}>{v}</div>
+            </div>
+          ))}
+        </div>
+        {nom.note && (
+          <div style={{ fontFamily: 'var(--font-mono)', fontSize: 9, color: 'var(--text-muted)', fontStyle: 'italic' }}>
+            "{nom.note}"
+          </div>
+        )}
+        <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+          {nom.dexUrl && (
+            <a href={nom.dexUrl} target="_blank" rel="noreferrer"
+              style={{ fontFamily: 'var(--font-mono)', fontSize: 8, color: 'var(--cyan)', textDecoration: 'none' }}>
+              DEX ↗
+            </a>
+          )}
+          {nom.status === 'pending' && (
+            <>
+              <button onClick={() => updateStatus(nom.address, 'approved')} style={{
+                background: 'rgba(0,255,136,0.1)', border: '1px solid rgba(0,255,136,0.3)',
+                borderRadius: 4, padding: '2px 10px', cursor: 'pointer',
+                fontFamily: 'var(--font-mono)', fontSize: 8, color: 'var(--neon-green)',
+              }}>✓ Approve</button>
+              <button onClick={() => updateStatus(nom.address, 'rejected')} style={{
+                background: 'rgba(255,68,102,0.1)', border: '1px solid rgba(255,68,102,0.3)',
+                borderRadius: 4, padding: '2px 10px', cursor: 'pointer',
+                fontFamily: 'var(--font-mono)', fontSize: 8, color: 'var(--red)',
+              }}>✕ Reject</button>
+            </>
+          )}
+          {nom.status !== 'pending' && (
+            <button onClick={() => updateStatus(nom.address, 'pending')} style={{
+              background: 'transparent', border: '1px solid var(--border)',
+              borderRadius: 4, padding: '2px 8px', cursor: 'pointer',
+              fontFamily: 'var(--font-mono)', fontSize: 8, color: 'var(--text-muted)',
+            }}>↩ Reopen</button>
+          )}
+        </div>
+      </div>
+    )
+  }
+
+  return createPortal(
+    <div style={{
+      position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.75)', zIndex: 2000,
+      display: 'flex', alignItems: 'center', justifyContent: 'center',
+    }} onClick={onClose}>
+      <div style={{
+        background: 'var(--surface-1)', border: '1px solid var(--border)',
+        borderRadius: 10, padding: 20, width: 500, maxHeight: '80vh',
+        overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 12,
+      }} onClick={e => e.stopPropagation()}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+          <div>
+            <div style={{ fontFamily: 'var(--font-mono)', fontSize: 13, color: 'var(--amber)', fontWeight: 700 }}>
+              ⭐ OG NOMINATION REVIEW
+            </div>
+            <div style={{ fontFamily: 'var(--font-mono)', fontSize: 9, color: 'var(--text-muted)', marginTop: 2 }}>
+              {pending.length} pending · {approved.length} approved · {rejected.length} rejected
+            </div>
+          </div>
+          <button onClick={onClose} style={{
+            background: 'transparent', border: 'none',
+            color: 'var(--text-muted)', cursor: 'pointer', fontSize: 18,
+          }}>✕</button>
+        </div>
+        {nominations.length === 0 ? (
+          <div style={{
+            fontFamily: 'var(--font-mono)', fontSize: 10,
+            color: 'var(--text-muted)', textAlign: 'center', padding: '24px 0',
+          }}>
+            No nominations yet. They'll appear here when users nominate tokens.
+          </div>
+        ) : (
+          [...pending, ...approved, ...rejected].map(nom => (
+            <NomCard key={nom.address} nom={nom} />
+          ))
+        )}
+      </div>
+    </div>,
+    document.body
+  )
+}
+
 const AlphaBoard = ({ selectedAlpha, onSelect }) => {
   const [activeTab,        setActiveTab]        = useState('live')
   const [searchQuery,      setSearchQuery]      = useState('')
+  const [showAdminPanel,   setShowAdminPanel]   = useState(false)
   const [coolingTimeframe, setCoolingTimeframe] = useState('24h')
   const [watchlist,        setWatchlist]        = useState(() => getWatchlistRaw())
 
@@ -468,6 +636,18 @@ const AlphaBoard = ({ selectedAlpha, onSelect }) => {
   // Restore selected alpha from sessionStorage when alphas first load
   const restoredRef  = useRef(false)
   const alphaListRef = useRef(null)
+  // Ctrl+Shift+A → open admin nomination review panel
+  useEffect(() => {
+    const handler = (e) => {
+      if (e.ctrlKey && e.shiftKey && e.key === 'A') {
+        e.preventDefault()
+        setShowAdminPanel(p => !p)
+      }
+    }
+    window.addEventListener('keydown', handler)
+    return () => window.removeEventListener('keydown', handler)
+  }, [])
+
   useEffect(() => {
     if (restoredRef.current || selectedAlpha || liveAlphas.length === 0) return
     const savedAddress = sessionStorage.getItem('betaplays_selected')
@@ -521,6 +701,7 @@ const AlphaBoard = ({ selectedAlpha, onSelect }) => {
 
   return (
     <aside className="alpha-board">
+      {showAdminPanel && <AdminNominationPanel onClose={() => setShowAdminPanel(false)} />}
       <div className="alpha-board-header">
         <span className="alpha-board-title">🎯 Runners</span>
       </div>
@@ -635,9 +816,12 @@ const AlphaBoard = ({ selectedAlpha, onSelect }) => {
             </p>
           )}
           {activeTab === 'legends' && (
-            <p style={{ fontFamily: 'var(--font-mono)', fontSize: 9, color: 'var(--amber)', lineHeight: 1.5 }}>
-              Established narrative anchors. Still spawn betas when they move.
-            </p>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+              <p style={{ fontFamily: 'var(--font-mono)', fontSize: 9, color: 'var(--amber)', lineHeight: 1.5, margin: 0 }}>
+                Established narrative anchors. Still spawn betas when they move.
+              </p>
+              <NominateSearchBar />
+            </div>
           )}
         </div>
       )}
@@ -844,6 +1028,199 @@ const McapRatioBadge = ({ ratio }) => {
     <span style={{ fontFamily: 'var(--font-mono)', fontSize: 8, fontWeight: 700, color, letterSpacing: 0.5 }}>
       {ratio >= 1000 ? `${(ratio / 1000).toFixed(1)}Kx` : `${ratio}x`} room
     </span>
+  )
+}
+
+// ─── Nominate for Legend button ──────────────────────────────────
+const NominateButton = ({ address, symbol, name, compact = false }) => {
+  const [submitted, setSubmitted]   = useState(false)
+  const [count, setCount]           = useState(() => getNominations()[address]?.nominationCount || 0)
+  const [showForm, setShowForm]     = useState(false)
+  const [note, setNote]             = useState('')
+
+  const handleSubmit = () => {
+    const result = submitNomination(address, symbol, name, note)
+    setCount(result.nominationCount)
+    setSubmitted(true)
+    setShowForm(false)
+    setNote('')
+  }
+
+  if (compact) {
+    // Compact version — used in runner card right-click menu and beta drawer
+    return submitted ? (
+      <span style={{ fontFamily: 'var(--font-mono)', fontSize: 9, color: 'var(--amber)' }}>
+        ⭐ Nominated
+      </span>
+    ) : (
+      <button
+        onClick={(e) => { e.stopPropagation(); setShowForm(f => !f) }}
+        style={{
+          background: 'rgba(255,179,0,0.08)', border: '1px solid rgba(255,179,0,0.3)',
+          borderRadius: 4, padding: '3px 8px', cursor: 'pointer',
+          fontFamily: 'var(--font-mono)', fontSize: 9, color: 'var(--amber)',
+        }}
+      >
+        ⭐ Nominate for OG
+      </button>
+    )
+  }
+
+  // Full version — used in OGs tab nomination flow
+  return (
+    <div>
+      {submitted ? (
+        <div style={{
+          background: 'rgba(255,179,0,0.08)', border: '1px solid rgba(255,179,0,0.3)',
+          borderRadius: 6, padding: '10px 14px',
+          fontFamily: 'var(--font-mono)', fontSize: 10, color: 'var(--amber)',
+        }}>
+          ⭐ Nominated! {count > 1 && `${count} nominations so far`}<br/>
+          <span style={{ color: 'var(--text-muted)', fontSize: 9 }}>
+            Under review. You'll see it here if approved.
+          </span>
+        </div>
+      ) : showForm ? (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+          <textarea
+            value={note}
+            onChange={e => setNote(e.target.value)}
+            placeholder="Why should this be an OG? (optional)"
+            style={{
+              background: 'var(--surface-2)', border: '1px solid var(--border)',
+              borderRadius: 4, padding: '6px 10px', color: 'var(--text-primary)',
+              fontFamily: 'var(--font-mono)', fontSize: 10, resize: 'none', height: 60,
+            }}
+          />
+          <div style={{ display: 'flex', gap: 8 }}>
+            <button onClick={handleSubmit} style={{
+              background: 'rgba(255,179,0,0.15)', border: '1px solid rgba(255,179,0,0.4)',
+              borderRadius: 4, padding: '4px 12px', cursor: 'pointer',
+              fontFamily: 'var(--font-mono)', fontSize: 10, color: 'var(--amber)',
+            }}>Submit Nomination</button>
+            <button onClick={() => setShowForm(false)} style={{
+              background: 'transparent', border: '1px solid var(--border)',
+              borderRadius: 4, padding: '4px 10px', cursor: 'pointer',
+              fontFamily: 'var(--font-mono)', fontSize: 10, color: 'var(--text-muted)',
+            }}>Cancel</button>
+          </div>
+        </div>
+      ) : (
+        <button onClick={() => setShowForm(true)} style={{
+          background: 'rgba(255,179,0,0.08)', border: '1px solid rgba(255,179,0,0.3)',
+          borderRadius: 6, padding: '6px 14px', cursor: 'pointer',
+          fontFamily: 'var(--font-mono)', fontSize: 10, color: 'var(--amber)',
+          display: 'flex', alignItems: 'center', gap: 6,
+        }}>
+          ⭐ Nominate as OG {count > 0 && <span style={{ color: 'var(--text-muted)' }}>({count})</span>}
+        </button>
+      )}
+    </div>
+  )
+}
+
+// ─── NominateSearchBar ───────────────────────────────────────────
+// Lives in OGs tab — search any token by symbol/address and nominate it
+const NominateSearchBar = () => {
+  const [query,   setQuery]   = useState('')
+  const [result,  setResult]  = useState(null)
+  const [loading, setLoading] = useState(false)
+  const [error,   setError]   = useState(null)
+
+  const handleSearch = async () => {
+    if (!query.trim()) return
+    setLoading(true); setResult(null); setError(null)
+    try {
+      const res = await fetch(
+        `https://api.dexscreener.com/latest/dex/search?q=${encodeURIComponent(query.trim())}`
+      )
+      const data = await res.json()
+      const pairs = (data.pairs || []).filter(p => p.chainId === 'solana')
+      if (!pairs.length) { setError('No Solana token found. Try the token address.'); setLoading(false); return }
+      const best = pairs.sort((a, b) => (b.liquidity?.usd || 0) - (a.liquidity?.usd || 0))[0]
+      setResult({
+        address:   best.baseToken?.address,
+        symbol:    best.baseToken?.symbol,
+        name:      best.baseToken?.name,
+        marketCap: best.marketCap || 0,
+        volume24h: best.volume?.h24 || 0,
+        liquidity: best.liquidity?.usd || 0,
+        logoUrl:   best.info?.imageUrl || null,
+        dexUrl:    best.url || `https://dexscreener.com/solana/${best.baseToken?.address}`,
+        pairCreatedAt: best.pairCreatedAt ? new Date(best.pairCreatedAt).toISOString().split('T')[0] : null,
+      })
+    } catch { setError('Search failed. Try again.') }
+    setLoading(false)
+  }
+
+  return (
+    <div style={{ marginTop: 8 }}>
+      <div style={{ fontFamily: 'var(--font-mono)', fontSize: 8, color: 'var(--text-muted)', marginBottom: 6, letterSpacing: 1 }}>
+        ⭐ NOMINATE A TOKEN FOR OG STATUS
+      </div>
+      <div style={{ display: 'flex', gap: 6 }}>
+        <input
+          value={query}
+          onChange={e => setQuery(e.target.value)}
+          onKeyDown={e => e.key === 'Enter' && handleSearch()}
+          placeholder="Symbol or token address..."
+          style={{
+            flex: 1, background: 'var(--surface-2)', border: '1px solid var(--border)',
+            borderRadius: 5, padding: '5px 10px', color: 'var(--text-primary)',
+            fontFamily: 'var(--font-mono)', fontSize: 10, outline: 'none',
+          }}
+        />
+        <button
+          onClick={handleSearch}
+          disabled={loading}
+          style={{
+            background: 'rgba(255,184,0,0.1)', border: '1px solid rgba(255,184,0,0.3)',
+            borderRadius: 5, padding: '5px 12px', cursor: 'pointer',
+            fontFamily: 'var(--font-mono)', fontSize: 10, color: 'var(--amber)',
+            opacity: loading ? 0.5 : 1,
+          }}
+        >{loading ? '...' : 'Search'}</button>
+      </div>
+
+      {error && (
+        <div style={{ fontFamily: 'var(--font-mono)', fontSize: 9, color: 'var(--red)', marginTop: 6 }}>{error}</div>
+      )}
+
+      {result && (
+        <div style={{
+          marginTop: 8, background: 'var(--surface-2)', border: '1px solid var(--border)',
+          borderRadius: 6, padding: '10px 12px', display: 'flex', flexDirection: 'column', gap: 6,
+        }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            {result.logoUrl && (
+              <img src={result.logoUrl} alt={result.symbol}
+                style={{ width: 28, height: 28, borderRadius: '50%', objectFit: 'cover' }} />
+            )}
+            <div>
+              <div style={{ fontFamily: 'var(--font-mono)', fontSize: 11, color: 'var(--text-primary)', fontWeight: 700 }}>
+                ${result.symbol}
+              </div>
+              <div style={{ fontFamily: 'var(--font-mono)', fontSize: 9, color: 'var(--text-muted)' }}>{result.name}</div>
+            </div>
+            <div style={{ marginLeft: 'auto', display: 'flex', gap: 12 }}>
+              <div style={{ textAlign: 'right' }}>
+                <div style={{ fontFamily: 'var(--font-mono)', fontSize: 8, color: 'var(--text-muted)' }}>MCAP</div>
+                <div style={{ fontFamily: 'var(--font-mono)', fontSize: 10, color: 'var(--text-primary)' }}>{formatNum(result.marketCap)}</div>
+              </div>
+              <div style={{ textAlign: 'right' }}>
+                <div style={{ fontFamily: 'var(--font-mono)', fontSize: 8, color: 'var(--text-muted)' }}>LIQ</div>
+                <div style={{ fontFamily: 'var(--font-mono)', fontSize: 10, color: 'var(--text-primary)' }}>{formatNum(result.liquidity)}</div>
+              </div>
+            </div>
+          </div>
+          <NominateButton
+            address={result.address}
+            symbol={result.symbol}
+            name={result.name}
+          />
+        </div>
+      )}
+    </div>
   )
 }
 
@@ -1631,6 +2008,15 @@ const TokenDrawer = ({ token, alpha, onClose }) => {
             <div style={{ fontFamily: 'var(--font-mono)', fontSize: 9, color: 'var(--text-muted)', marginBottom: 8 }}>No flags yet — be the first</div>
           )}
           <FlagButton address={token.address} symbol={token.symbol} />
+        </div>
+
+        {/* Nominate for OG — compact version */}
+        <div style={{ background: 'var(--surface-2)', borderRadius: 8, padding: '12px 14px' }}>
+          <div style={{ fontFamily: 'var(--font-mono)', fontSize: 8, color: 'var(--text-muted)', marginBottom: 8, letterSpacing: 1 }}>⭐ NOMINATE FOR OG STATUS</div>
+          <div style={{ fontFamily: 'var(--font-mono)', fontSize: 9, color: 'var(--text-muted)', marginBottom: 8 }}>
+            Think this token deserves Legend status? Nominate it for review.
+          </div>
+          <NominateButton address={token.address} symbol={token.symbol} name={token.name} compact />
         </div>
 
         {/* Quick links */}

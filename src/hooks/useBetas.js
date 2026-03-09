@@ -689,6 +689,17 @@ const useBetas = (alpha, parentAlpha = null) => {
       // Merge signals 1-5 into deduplicated list
       const merged = mergeAndScore(allResults, enrichedAlpha.symbol, enrichedAlpha.marketCap)
 
+      // Track how many betas this alpha has spawned — feeds Legend algorithm
+      if (merged.length > 0) {
+        try {
+          const spawnCounts = JSON.parse(localStorage.getItem('betaplays_beta_spawn_counts') || '{}')
+          const addr = enrichedAlpha.address
+          // Keep the highest count seen — scans vary, don't regress
+          spawnCounts[addr] = Math.max(spawnCounts[addr] || 0, merged.length)
+          localStorage.setItem('betaplays_beta_spawn_counts', JSON.stringify(spawnCounts))
+        } catch {}
+      }
+
       // ── Sibling scan: find narrative siblings via parent ─────────
       // If this token has a known parent alpha ($PIPPIKO → parent: $PIPPIN),
       // run keyword + lore signals against the PARENT's symbol too.
