@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from 'react'
 import axios from 'axios'
-import LEGENDS from '../data/historical_alphas'
+import LEGENDS, { LEGEND_CRITERIA, checkLegendCriteria } from '../data/historical_alphas'
 
 const DEXSCREENER_BASE = 'https://api.dexscreener.com'
 const BACKEND_URL      = import.meta.env.VITE_BACKEND_URL || 'http://localhost:3001'
@@ -196,7 +196,7 @@ const loadPositioningPlays = () => {
         }
       })
       .sort((a, b) => b.opportunityScore - a.opportunityScore)
-      .slice(0, 30)
+      .slice(0, 50)
 
   } catch {
     return []
@@ -764,11 +764,75 @@ const refreshHistoricalPrices = async () => {
 }
 
 // ─── Main hook ───────────────────────────────────────────────────
+// ─── Legend price refresh ────────────────────────────────────────
+// Legends had hardcoded stale prices. This fetches live data for each
+// legend from DEXScreener and updates state — same pattern as historical tokens.
+const refreshLegendPrices = async (setLegends) => {
+  try {
+    const updated = await Promise.all(
+      LEGENDS.map(async (legend) => {
+        try {
+          const res = await axios.get(
+            `https://api.dexscreener.com/latest/dex/pairs/solana/${legend.address}`,
+            { timeout: 5000 }
+          )
+          const pair = res.data?.pair || res.data?.pairs?.[0]
+          if (!pair) return legend
+          return {
+            ...legend,
+            priceUsd:      pair.priceUsd     || legend.priceUsd,
+            priceChange24h: pair.priceChange?.h24 || 0,
+            volume24h:     pair.volume?.h24  || legend.volume24h,
+            marketCap:     pair.marketCap    || legend.marketCap,
+            liquidity:     pair.liquidity?.usd || legend.liquidity,
+            logoUrl:       pair.info?.imageUrl || legend.logoUrl,
+          }
+        } catch { return legend }
+      })
+    )
+    setLegends(updated)
+  } catch {}
+}
+
+// ─── Algorithm auto-promotion check ──────────────────────────────
+// Checks if any token in the live/cooling feed qualifies for Legend status.
+// Qualifying tokens are flagged as candidateLegend — you still approve manually.
+// Criteria: age ≥ 1yr, mcap ≥ $50M, volume + liquidity still alive.
+// Beta spawn count is tracked via localStorage betaSpawnCounts key.
+export const checkLegendCandidates = (alphas) => {
+  const now = Date.now()
+  const ONE_YEAR = 365 * 24 * 60 * 60 * 1000
+  const existingAddresses = new Set(LEGENDS.map(l => l.address))
+
+  return alphas.filter(alpha => {
+    if (existingAddresses.has(alpha.address)) return false  // already a legend
+    const age        = alpha.pairCreatedAt ? now - alpha.pairCreatedAt : 0
+    const mcap       = alpha.marketCap     || 0
+    const vol        = alpha.volume24h     || 0
+    const liq        = alpha.liquidity     || 0
+
+    // Check beta spawn count from localStorage
+    let betaCount = 0
+    try {
+      const spawnData = JSON.parse(localStorage.getItem('betaplays_beta_spawn_counts') || '{}')
+      betaCount = spawnData[alpha.address] || 0
+    } catch {}
+
+    return (
+      age     >= ONE_YEAR                    &&
+      mcap    >= LEGEND_CRITERIA.minMcap     &&
+      vol     >= LEGEND_CRITERIA.minVolume24h &&
+      liq     >= LEGEND_CRITERIA.minLiquidity &&
+      betaCount >= LEGEND_CRITERIA.minBetasSpawned
+    )
+  }).map(a => ({ ...a, candidateLegend: true }))
+}
+
 const useAlphas = () => {
   const [liveAlphas,        setLiveAlphas]        = useState([])
   const [coolingAlphas,     setCoolingAlphas]     = useState([])
   const [positioningAlphas, setPositioningAlphas] = useState([])
-  const [legends]                                  = useState(LEGENDS)
+  const [legends, setLegends]                       = useState(LEGENDS)
   const [loading,           setLoading]           = useState(true)
   const [isRefreshing,      setIsRefreshing]      = useState(false)
   const [error,             setError]             = useState(null)
@@ -803,6 +867,9 @@ const useAlphas = () => {
       // Runs in background — doesn't block the UI update below
       // After it completes, re-classify so tabs show fresh prices
       const currentAddresses = new Set(freshRaw.map(a => a.address))
+      // Refresh live prices for legends — they were hardcoded, now stay fresh
+      refreshLegendPrices(setLegends)
+
       refreshHistoricalPrices().then(() => {
         // Re-run historical classification with freshly updated prices
         const { historicalLive: freshHistLive, historicalCooling: freshHistCool } =
@@ -814,14 +881,14 @@ const useAlphas = () => {
           return [
             ...prev.filter(a => !a.isHistorical),
             ...freshHistLive.filter(a => !freshAddrs.has(a.address)),
-          ].sort((a, b) => (b.momentumScore || 0) - (a.momentumScore || 0)).slice(0, 40)
+          ].sort((a, b) => (b.momentumScore || 0) - (a.momentumScore || 0)).slice(0, 100)
         })
         setCoolingAlphas(prev => {
           const freshAddrs = new Set(prev.filter(a => !a.isHistorical).map(a => a.address))
           return [
             ...prev.filter(a => !a.isHistorical),
             ...freshHistCool.filter(a => !freshAddrs.has(a.address)),
-          ].sort((a, b) => (parseFloat(a.priceChange24h) || 0) - (parseFloat(b.priceChange24h) || 0)).slice(0, 30)
+          ].sort((a, b) => (parseFloat(a.priceChange24h) || 0) - (parseFloat(b.priceChange24h) || 0)).slice(0, 50)
         })
         setPositioningAlphas(loadPositioningPlays())
         console.log('[PriceRefresh] Tabs updated with fresh historical prices')
@@ -851,11 +918,11 @@ const useAlphas = () => {
       const sortedLive = allLive
         .map(a => ({ ...a, momentumScore: getMomentumScore(a) }))
         .sort((a, b) => b.momentumScore - a.momentumScore)
-        .slice(0, 40)
+        .slice(0, 100)
 
       const sortedCooling = allCooling
         .sort((a, b) => (parseFloat(a.priceChange24h) || 0) - (parseFloat(b.priceChange24h) || 0))
-        .slice(0, 30)
+        .slice(0, 50)
 
       if (sortedLive.length === 0) {
         setError('No live runners detected. Trenches might be cooked.')
