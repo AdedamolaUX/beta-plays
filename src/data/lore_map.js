@@ -6,24 +6,28 @@ export const generateTickerVariants = (symbol) => {
 
   const variants = new Set()
 
-  // Prefix patterns
-  const prefixes = ['BABY', 'MINI', 'MIKO', 'MICRO', 'GIGA', 'MEGA', 'SUPER',
+  // Prefix patterns — English + Japanese + Spanish + Korean
+  const prefixes = [
+    // English
+    'BABY', 'MINI', 'MIKO', 'MICRO', 'GIGA', 'MEGA', 'SUPER',
     'BASED', 'REAL', 'OG', 'THE', 'RETRO', 'TURBO', 'CHAD', 'DEGEN', 'FAT', 'TINY',
-    // Japanese/Korean prefixes common in memecoin tickers
+    // Japanese
     'NEKO', 'SHIRO', 'KURO', 'HANA', 'YUKI',
-    // Spanish prefixes
+    // Spanish
     'EL', 'LA', 'LOS', 'DEL',
   ]
   prefixes.forEach(p => variants.add(`${p}${s}`))
 
-  // Suffix patterns
-  const suffixes = ['INU', 'WIF', 'HAT', 'CAT', 'DOG', 'AI', 'GPT',
+  // Suffix patterns — English + Japanese + Korean + Spanish
+  const suffixes = [
+    // English
+    'INU', 'WIF', 'HAT', 'CAT', 'DOG', 'AI', 'GPT',
     'DAO', 'FI', 'X', '2', '3', 'PLUS', 'PRO', 'MOON', 'PUMP',
-    // Japanese suffixes
+    // Japanese honorifics
     'SAN', 'KUN', 'CHAN', 'SAMA', 'SENSEI',
-    // Korean suffixes
+    // Korean
     'OPPA', 'UNNIE',
-    // Spanish suffixes
+    // Spanish diminutives
     'ITO', 'ITA', 'ILLO',
   ]
   suffixes.forEach(sfx => variants.add(`${s}${sfx}`))
@@ -156,23 +160,23 @@ const LORE_MAP = {
   CHAD:   { terms: ['chad','virgin','gigachad','sigma','alpha'], concepts: ['chad','meme','sigma'], category: 'memes', universe: 'chad' },
   NPC:    { terms: ['npc','wojak','bot','sheep','normie'], concepts: ['npc','meme','social'], category: 'memes', universe: 'wojak' },
 
-  // ── Chinese cultural narrative ──────────────────────────────────
-  // Chinese meme tokens use full Chinese characters as symbols.
-  // These entries map known viral Chinese figures/phrases to related search terms.
-  // The key insight: DEXScreener search works with Chinese characters directly.
-  HAJIMI: { terms: ['哈基米','hajimi','hachimi','cat','猫'], concepts: ['哈基米','cat','china','viral'], category: 'chinese', universe: 'china-memes' },
-  // 刘元立 — Chinese viral figure
+  // ── Chinese cultural narrative ───────────────────────────────────
+  // 摸鱼 (Moyu) = Chinese internet slang for "slacking off at work" — massive meme
+  MOYU:    { terms: ['摸鱼','moyu','躺平','打工','社畜','fish','slack'], concepts: ['摸鱼','moyu','china','slang','viral'], category: 'chinese', universe: 'china-slang' },
+  '摸鱼':  { terms: ['摸鱼','moyu','躺平','鱼','fish'], concepts: ['摸鱼','moyu','china'], category: 'chinese', universe: 'china-slang' },
+  // 哈基米 — viral Chinese cat meme
+  HAJIMI:  { terms: ['哈基米','hajimi','hachimi','cat','猫'], concepts: ['哈基米','cat','china','viral'], category: 'chinese', universe: 'china-memes' },
+  // Chinese viral figures
   '刘元立': { terms: ['刘元立','liu','yuanli','china'], concepts: ['刘元立','china','viral'], category: 'chinese', universe: 'china-memes' },
-  // 索姥姥 — Chinese grandmother meme
   '索姥姥': { terms: ['索姥姥','grandma','china','granny'], concepts: ['索姥姥','china','viral'], category: 'chinese', universe: 'china-memes' },
-  // Chinese zodiac — frequent memecoin theme
-  DRAGON:  { terms: ['dragon','龙','loong','dragonball','fire'], concepts: ['dragon','china','zodiac'], category: 'chinese', universe: 'chinese-zodiac' },
+  // Chinese zodiac / animals
+  DRAGON:  { terms: ['dragon','龙','loong','fire'], concepts: ['dragon','china','zodiac'], category: 'chinese', universe: 'chinese-zodiac' },
   TIGER:   { terms: ['tiger','虎','tigercoin','bengal'], concepts: ['tiger','china','zodiac'], category: 'chinese', universe: 'chinese-zodiac' },
   PANDA:   { terms: ['panda','熊猫','bamboo','china','bear'], concepts: ['panda','china','animal'], category: 'chinese', universe: 'china-animals' },
-  // Chinese internet slang tickers
+  // Chinese internet slang
   YYDS:    { terms: ['yyds','永远滴神','goat','china','legend'], concepts: ['yyds','china','slang'], category: 'chinese', universe: 'china-slang' },
 
-  // ── Japanese cultural narrative ─────────────────────────────────
+  // ── Japanese cultural narrative ──────────────────────────────────
   NEKO:    { terms: ['neko','cat','nekocoin','kawaii','japan','にゃん'], concepts: ['neko','cat','japan'], category: 'japanese', universe: 'japan-memes' },
   SHIBA:   { terms: ['shiba','inu','doge','shib','japan','dog','柴犬'], concepts: ['shiba','dog','japan'], category: 'japanese', universe: 'japan-dogs' },
   SAKURA:  { terms: ['sakura','cherry','blossom','japan','spring','桜'], concepts: ['sakura','japan','flower'], category: 'japanese', universe: 'japan-culture' },
@@ -186,8 +190,10 @@ const LORE_MAP = {
   KPOP:    { terms: ['kpop','blackpink','twice','aespa','ive','korea','idol'], concepts: ['kpop','korea','idol'], category: 'korean', universe: 'kpop' },
   KIMCHI:  { terms: ['kimchi','korea','seoul','kfood','bibimbap'], concepts: ['kimchi','korea','food'], category: 'korean', universe: 'korea-culture' },
 
-  // ── Spanish / Latin American narrative ─────────────────────────
+  // ── Spanish / Latin American narrative ──────────────────────────
   PAPI:    { terms: ['papi','mami','latin','español','loco','chico'], concepts: ['papi','latin','spanish'], category: 'spanish', universe: 'latin-memes' },
+
+  // ── Expanded anime ───────────────────────────────────────────────
   LUFFY:   { terms: ['luffy','onepiece','zoro','nami','pirate','nakama'], concepts: ['luffy','onepiece','anime'], category: 'anime', universe: 'onepiece' },
 }
 
@@ -202,9 +208,9 @@ const LORE_MAP = {
 export const NARRATIVE_CATEGORIES = {
   // ── Tier 1: Highly specific — unique keywords, low overlap ──────
   aliens:    { label: '👽 Aliens',    priority: 1, keywords: ['alien','ufo','disclosure','area51','extraterrestrial','greys','abduct','roswell','saucer'] },
-  frogs:     { label: '🐸 Frogs',     priority: 1, keywords: ['pepe','frog','toad','feels','kek','peepo','ribbit','kermit'] },
-  dogs:      { label: '🐕 Dogs',      priority: 1, keywords: ['wif','bonk','shib','doge','inu','pup','mutt','puppy','doggo','woofie'] },
-  cats:      { label: '🐱 Cats',      priority: 1, keywords: ['cat','mew','nyan','kitty','meow','kitten','purr','whisker'] },
+  frogs:     { label: '🐸 Frog',     priority: 1, keywords: ['pepe','frog','toad','feels','kek','peepo','ribbit','kermit'] },
+  dogs:      { label: '🐕 Dog',      priority: 1, keywords: ['wif','bonk','shib','doge','inu','pup','mutt','puppy','doggo','woofie'] },
+  cats:      { label: '🐱 Cat',      priority: 1, keywords: ['cat','mew','nyan','kitty','meow','kitten','purr','whisker'] },
   elon:      { label: '⚡ Elon',      priority: 1, keywords: ['elon','musk','spacex','grok','neuralink','xaei'] },
   trump:     { label: '🇺🇸 Trump',    priority: 1, keywords: ['trump','maga','melania','barron','ivanka','donnie','magahat'] },
   pippin:    { label: '🧙 Fantasy',   priority: 1, keywords: ['pippin','frodo','gandalf','hobbit','lotr','tolkien','shire','sauron','gollum','mordor'] },
@@ -229,52 +235,36 @@ export const NARRATIVE_CATEGORIES = {
   animals:   { label: '🦎 Animals',   priority: 3, keywords: ['bird','fish','bull','ape','monkey','snake','wolf','fox','lion','tiger','rhino','hippo','croc','hamster','rabbit'] },
   holiday:   { label: '🎄 Seasonal',  priority: 3, keywords: ['christmas','halloween','easter','thanksgiving','xmas','santa','pumpkin','turkey','firework','valentine'] },
 
-  // ── Tier 1: Language/Cultural narratives ────────────────────────
-  // These use both romanized terms AND native characters for matching
+  // ── Language / Cultural narratives ──────────────────────────────
   chinese:   {
-    label: '🇨🇳 Chinese',  priority: 1,
+    label: '🇨🇳 Chinese', priority: 1,
     keywords: [
-      // Romanized
-      'china','chinese','beijing','shanghai','shenzhen','guangzhou',
-      'dragon','panda','kung','fu','wuxia','hanzi','mandarin','yuan',
-      'yyds','hajimi','hachimi',
-      // Native characters — DEXScreener indexes these directly
-      '中','文','人','生','刘','元','立','索','姥','哈','基','米',
-      '龙','虎','猫','熊','猫','狗','牛','鼠','兔','蛇','马','羊',
-      '猴','鸡','猪','永','远','滴','神','华','国','民',
+      'china','chinese','beijing','shanghai','moyu','yyds','hajimi','hachimi','panda','dragon',
+      '摸鱼','躺平','打工','社畜','内卷','绝绝子','永远滴神',
+      '中','文','刘','元','立','索','姥','哈','基','米','龙','虎','猫','熊','鱼',
+      '狗','牛','鼠','兔','蛇','马','羊','猴','鸡','猪','神','华','国','民',
     ],
   },
   japanese:  {
     label: '🇯🇵 Japanese', priority: 1,
     keywords: [
-      // Romanized
-      'japan','japanese','tokyo','osaka','kyoto','samurai','ninja',
-      'neko','shiba','sakura','ramen','sushi','sake','miko','sensei',
-      'kawaii','desu','chan','kun','san','sama','oshi','otaku',
-      'miku','vocaloid','kaito',
-      // Native characters
-      '日','本','東','京','猫','犬','桜','花','雪','月','星',
-      '神','龍','侍','忍','鬼','初','音','未','来',
+      'japan','japanese','tokyo','osaka','neko','shiba','sakura','miku','kawaii',
+      'desu','chan','kun','san','sama','oshi','otaku','vocaloid',
+      'の','日','本','東','京','猫','犬','桜','初','音','未','来','神','侍','忍',
     ],
   },
   korean:    {
-    label: '🇰🇷 Korean',   priority: 1,
+    label: '🇰🇷 Korean', priority: 1,
     keywords: [
-      // Romanized
-      'korea','korean','seoul','busan','kpop','bts','blackpink',
-      'twice','aespa','kimchi','oppa','unnie','noona','hyung',
-      'hangul','daebak','jungkook','jimin','taehyung',
-      // Native characters
+      'korea','korean','seoul','kpop','bts','blackpink','kimchi','oppa','daebak',
       '한','국','서','울','케','이','팝','비','티','에','스',
     ],
   },
   spanish:   {
-    label: '🌮 Latino',    priority: 2,
+    label: '🌮 Latino', priority: 2,
     keywords: [
-      'papi','mami','latin','latino','latina','español','mexico',
-      'taco','nacho','churro','loco','chico','chica','amigo',
-      'dios','mio','cartel','narco','pablo','escobar','peso',
-      'brazil','brasil','samba','capoeira','carnival',
+      'papi','mami','latin','latino','español','mexico','taco','loco','chico',
+      'chica','amigo','dios','mio','peso','brazil','samba','carnival',
     ],
   },
 }

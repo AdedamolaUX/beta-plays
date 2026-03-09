@@ -802,7 +802,7 @@ const SignalBadge = ({ beta }) => {
     AI:       'badge-verified',
   }
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 3, alignItems: 'flex-end' }}>
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 3, alignItems: 'flex-start', justifyContent: 'center', width: '100%' }}>
       {beta.tokenClass && (
         <span
           className={`badge ${beta.tokenClass === 'OG' ? 'badge-verified' : beta.tokenClass === 'RIVAL' ? 'badge-cabal' : 'badge-weak'}`}
@@ -1332,7 +1332,7 @@ const getFlags = () => {
 const submitFlag = (address, flagType, symbol) => {
   try {
     const flags = getFlags()
-    if (!flags[address]) flags[address] = { rug: 0, honeypot: 0, legit: 0, symbol }
+    if (!flags[address]) flags[address] = { rug: 0, honeypot: 0, not_beta: 0, symbol }
     flags[address][flagType] = (flags[address][flagType] || 0) + 1
     flags[address].lastFlagged = Date.now()
     localStorage.setItem(FLAG_STORE_KEY, JSON.stringify(flags))
@@ -1342,27 +1342,43 @@ const submitFlag = (address, flagType, symbol) => {
 
 const FlagButton = ({ address, symbol }) => {
   const [counts, setCounts] = useState(() => getFlags()[address] || null)
-  const [voted,  setVoted]  = useState(false)
-  const [open,   setOpen]   = useState(false)
+  const [voted,  setVoted]  = useState(() => {
+    const f = getFlags()[address]
+    return !!(f && (f.rug > 0 || f.honeypot > 0 || f.not_beta > 0))
+  })
+  const [votedType, setVotedType] = useState(() => {
+    const f = getFlags()[address]
+    if (!f) return null
+    if (f.not_beta > 0) return 'not_beta'
+    if (f.rug > 0)      return 'rug'
+    if (f.honeypot > 0) return 'honeypot'
+    return null
+  })
+  const [open, setOpen] = useState(false)
 
   const handleFlag = (e, flagType) => {
     e.stopPropagation()
     const result = submitFlag(address, flagType, symbol)
     setCounts(result)
     setVoted(true)
+    setVotedType(flagType)
     setOpen(false)
   }
 
-  const total    = counts ? (counts.rug + counts.honeypot + counts.legit) : 0
-  const topFlag  = counts && total > 0
-    ? (counts.rug >= counts.honeypot && counts.rug >= counts.legit ? 'rug'
-      : counts.honeypot >= counts.legit ? 'honeypot' : 'legit')
-    : null
+  const total = counts
+    ? (counts.rug || 0) + (counts.honeypot || 0) + (counts.not_beta || 0)
+    : 0
+
+  const LABEL_MAP = {
+    rug:      { emoji: '🪤', label: 'Rug pull',  color: 'var(--red)'        },
+    honeypot: { emoji: '🍯', label: 'Honeypot',  color: 'var(--amber)'      },
+    not_beta: { emoji: '❌', label: 'Not a beta', color: 'var(--text-muted)' },
+  }
 
   const OPTIONS = [
-    ['rug',      '🪤 Rug pull', 'var(--red)'],
-    ['honeypot', '🍯 Honeypot', 'var(--amber)'],
-    ['legit',    '✅ Legit',    'var(--neon-green)'],
+    ['rug',      '🪤 Rug pull',   'var(--red)'],
+    ['honeypot', '🍯 Honeypot',   'var(--amber)'],
+    ['not_beta', '❌ Not a beta', 'var(--text-muted)'],
   ]
 
   return (
@@ -1370,14 +1386,18 @@ const FlagButton = ({ address, symbol }) => {
       {/* Current counts */}
       {total > 0 && (
         <div style={{ display: 'flex', gap: 10, marginBottom: 8, flexWrap: 'wrap' }}>
-          {counts.rug      > 0 && <span style={{ fontFamily: 'var(--font-mono)', fontSize: 10, color: 'var(--red)'        }}>🪤 Rug: {counts.rug}</span>}
-          {counts.honeypot > 0 && <span style={{ fontFamily: 'var(--font-mono)', fontSize: 10, color: 'var(--amber)'      }}>🍯 Honeypot: {counts.honeypot}</span>}
-          {counts.legit    > 0 && <span style={{ fontFamily: 'var(--font-mono)', fontSize: 10, color: 'var(--neon-green)' }}>✅ Legit: {counts.legit}</span>}
+          {(counts?.rug      || 0) > 0 && <span style={{ fontFamily: 'var(--font-mono)', fontSize: 10, color: 'var(--red)'        }}>🪤 Rug: {counts.rug}</span>}
+          {(counts?.honeypot || 0) > 0 && <span style={{ fontFamily: 'var(--font-mono)', fontSize: 10, color: 'var(--amber)'      }}>🍯 Honeypot: {counts.honeypot}</span>}
+          {(counts?.not_beta || 0) > 0 && <span style={{ fontFamily: 'var(--font-mono)', fontSize: 10, color: 'var(--text-muted)' }}>❌ Not a beta: {counts.not_beta}</span>}
         </div>
       )}
 
-      {/* Vote button / voted state */}
-      {voted ? (
+      {/* Voted state — shows what they picked, persists across drawer opens */}
+      {voted && votedType ? (
+        <span style={{ fontFamily: 'var(--font-mono)', fontSize: 9, color: LABEL_MAP[votedType]?.color || 'var(--neon-green)' }}>
+          ✓ Flagged as {LABEL_MAP[votedType]?.label}
+        </span>
+      ) : voted ? (
         <span style={{ fontFamily: 'var(--font-mono)', fontSize: 9, color: 'var(--neon-green)' }}>✓ Flagged</span>
       ) : (
         <>
@@ -1420,17 +1440,18 @@ const FlagButton = ({ address, symbol }) => {
 const FlagWarningBadge = ({ address }) => {
   const flags = getFlags()[address] || null
   if (!flags) return null
-  const rugWarn   = flags.rug      >= 3
-  const honeyWarn = flags.honeypot >= 3
-  if (!rugWarn && !honeyWarn) return null
+  const rugWarn      = (flags.rug      || 0) >= 3
+  const honeyWarn    = (flags.honeypot || 0) >= 3
+  const notBetaWarn  = (flags.not_beta || 0) >= 3
+  if (!rugWarn && !honeyWarn && !notBetaWarn) return null
   return (
     <span className="badge" style={{
       fontSize: 7, padding: '1px 4px',
-      background: 'rgba(255,68,102,0.15)',
-      borderColor: 'rgba(255,68,102,0.4)',
-      color: 'var(--red)',
+      background: notBetaWarn ? 'rgba(255,255,255,0.06)' : 'rgba(255,68,102,0.15)',
+      borderColor: notBetaWarn ? 'rgba(255,255,255,0.2)'  : 'rgba(255,68,102,0.4)',
+      color: notBetaWarn ? 'var(--text-muted)' : 'var(--red)',
     }}>
-      {rugWarn ? '⚠️ RUG' : '⚠️ HONEY'}
+      {rugWarn ? '⚠️ RUG' : honeyWarn ? '⚠️ HONEY' : '⚠️ DISPUTED'}
     </span>
   )
 }
@@ -1454,7 +1475,7 @@ const TokenDrawer = ({ token, alpha, onClose }) => {
   const wave       = getWavePhase(alpha, token)
   const signal     = getSignal(token)
   const flags      = getFlags()[token.address] || null
-  const totalFlags = flags ? flags.rug + flags.honeypot + flags.legit : 0
+  const totalFlags = flags ? (flags.rug || 0) + (flags.honeypot || 0) + (flags.not_beta || 0) : 0
 
   return (
     <div

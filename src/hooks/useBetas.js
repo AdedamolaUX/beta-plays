@@ -83,6 +83,10 @@ const DECOMP_SUFFIXES = [
   'LAND', 'ZONE', 'CAT', 'DOG', 'HAT', 'WIF', 'INU', 'DAO',
   'MOON', 'PUMP', 'STAR', 'KING', 'LORD', 'APE', 'BOY', 'MAN',
   'GIRL', 'SON', 'ZEN', 'FI', 'PAD', 'NET', 'BIT', 'PAY',
+  // Extended — catches $CUMIFY, $CUMRIO style affixes
+  'IFY', 'FY', 'RIO', 'IO', 'LY', 'ER', 'EST', 'ISH',
+  'STER', 'LING', 'ETTE', 'TION', 'NESS', 'MENT', 'ABLE',
+  'FUN', 'GUY', 'LAD', 'BRO', 'SIS', 'MAX', 'PRO', 'XL',
 ]
 const DECOMP_PREFIXES = [
   'BABY', 'MINI', 'MICRO', 'GIGA', 'MEGA', 'SUPER',
@@ -94,6 +98,32 @@ const DECOMP_PREFIXES = [
 const decomposeSymbol = (symbol) => {
   const s = symbol.toUpperCase()
   const parts = new Set()
+
+  // ── CJK fast-path ──────────────────────────────────────────────
+  // Chinese/Japanese/Korean symbols can't be decomposed by suffix stripping.
+  // Return the whole symbol as the search root + 2-char substrings.
+  const CJK_REGEX = /[　-鿿가-힯豈-﫿]/
+  if (CJK_REGEX.test(symbol)) {
+    parts.add(symbol)
+    if (symbol.length >= 4) {
+      for (let i = 0; i <= symbol.length - 2; i++) {
+        const sub = symbol.slice(i, i + 2)
+        if (CJK_REGEX.test(sub)) parts.add(sub)
+      }
+    }
+    return Array.from(parts)
+  }
+
+  // ── Fallback stem extractor ────────────────────────────────────
+  // When no suffix/prefix matches, strip 2-4 chars from end to find root.
+  // e.g. CUMIFY → CUM, CUMRIO → CUM — they share the root and find each other.
+  const tryFallbackStem = (sym) => {
+    for (let stripLen = 2; stripLen <= 4; stripLen++) {
+      const stem = sym.slice(0, sym.length - stripLen)
+      if (stem.length >= 3) return stem
+    }
+    return null
+  }
 
   DECOMP_SUFFIXES.forEach((suffix) => {
     if (s.endsWith(suffix) && s.length > suffix.length + 2) {
@@ -116,6 +146,13 @@ const decomposeSymbol = (symbol) => {
     .trim().split(/\s+/)
     .filter(p => p.length >= 3)
   camelParts.forEach(p => parts.add(p.toUpperCase()))
+
+  // Fallback stem: if nothing found yet, strip 2-4 chars from end
+  // This catches affixes not in our list (IFY, RIO, etc.)
+  if (parts.size === 0) {
+    const stem = tryFallbackStem(s)
+    if (stem) parts.add(stem)
+  }
 
   parts.delete(s)
   return Array.from(parts)
@@ -176,24 +213,56 @@ const STOP_WORDS = new Set([
   'about', 'into', 'through', 'token', 'coin', 'crypto', 'solana',
   'pump', 'moon', 'hold', 'buy', 'sell', 'trading', 'market',
   'price', 'chart', 'wallet', 'contract', 'launch', 'fair',
+  // Chinese filler characters
+  '的', '了', '在', '是', '我', '有', '和', '就', '不', '人',
+  '都', '一', '上', '也', '很', '到', '说', '要', '去',
+  '你', '会', '着', '看', '好', '自己', '这',
+  // Japanese particles
+  'の', 'は', 'が', 'を', 'に', 'で', 'と', 'も', 'か', 'な',
+  // Korean particles
+  '이', '가', '은', '는', '을', '를', '의', '에', '와', '과',
 ])
 
 const extractDescriptionKeywords = (description) => {
   if (!description || description.length < 10) return []
 
+  const CJK_REGEX = /[　-鿿가-힯豈-﫿]/
+  const hasCJK = CJK_REGEX.test(description)
+
+  if (hasCJK) {
+    // CJK text: extract 2-4 char n-grams + any Latin words mixed in
+    const cjkRuns = description.match(/[　-鿿가-힯豈-﫿]+/g) || []
+    const latinWords = description
+      .toLowerCase()
+      .replace(/[^a-z0-9\s]/g, ' ')
+      .split(/\s+/)
+      .filter(w => w.length >= 3 && !STOP_WORDS.has(w) && !/^\d+$/.test(w))
+    const cjkNgrams = []
+    cjkRuns.forEach(run => {
+      for (let len = 2; len <= 4 && len <= run.length; len++) {
+        for (let i = 0; i <= run.length - len; i++) {
+          cjkNgrams.push(run.slice(i, i + len))
+        }
+      }
+      if (run.length >= 2 && run.length <= 6) cjkNgrams.push(run)
+    })
+    return [...new Set([...cjkNgrams, ...latinWords])]
+      .filter(w => !STOP_WORDS.has(w))
+      .sort((a, b) => b.length - a.length)
+      .slice(0, 8)
+  }
+
+  // Latin path — unchanged
   const words = description
     .toLowerCase()
     .replace(/[^a-z0-9\s]/g, ' ')
     .split(/\s+/)
     .filter(w =>
-      w.length >= 3 &&          // Lowered from 4 — catches 'claw', 'gork', etc.
+      w.length >= 3 &&
       w.length <= 20 &&
       !STOP_WORDS.has(w) &&
-      !/^\d+$/.test(w)          // Skip pure numbers
+      !/^\d+$/.test(w)
     )
-
-  // Deduplicate and take top 8 most meaningful words
-  // Prioritise longer words as they're more specific
   return [...new Set(words)]
     .sort((a, b) => b.length - a.length)
     .slice(0, 8)
@@ -408,12 +477,20 @@ const fetchDescriptionBetas = async (alpha, descKeywords) => {
 }
 
 // ─── Signal 2: Lore matching ─────────────────────────────────────
-const fetchLoreBetas = async (alphaSymbol) => {
-  const concepts = getConcepts(alphaSymbol)
-  const results  = []
-  for (const concept of concepts.slice(0, 3)) {
+const fetchLoreBetas = async (alphaSymbol, alphaName = '') => {
+  // Get concepts from both symbol AND name — critical for tokens where the
+  // cultural reference lives in the name (e.g. symbol=MOYU, name=摸鱼)
+  const symbolConcepts = getConcepts(alphaSymbol)
+  const nameConcepts   = alphaName && alphaName.toLowerCase() !== alphaSymbol.toLowerCase()
+    ? getConcepts(alphaName)
+    : []
+  // Also treat the raw name itself as a search term if it has a lore entry
+  const nameTerms = getNameTerms(alphaSymbol, alphaName)
+  const concepts  = [...new Set([...symbolConcepts, ...nameConcepts, ...nameTerms])]
+  const results   = []
+  for (const concept of concepts) {
     try {
-      const res = await axios.get(`${DEXSCREENER_BASE}/latest/dex/search?q=${concept}`)
+      const res = await axios.get(`${DEXSCREENER_BASE}/latest/dex/search?q=${encodeURIComponent(concept)}`)
       ;(res.data?.pairs || [])
         .filter(p =>
           p.chainId === 'solana' &&
@@ -594,7 +671,7 @@ const useBetas = (alpha, parentAlpha = null) => {
         await Promise.allSettled([
           fetchKeywordBetas(enrichedAlpha.symbol, enrichedAlpha.name),
           fetchDescriptionBetas(enrichedAlpha, descKeywords),
-          fetchLoreBetas(enrichedAlpha.symbol),
+          fetchLoreBetas(enrichedAlpha.symbol, enrichedAlpha.name),
           fetchMorphologyBetas(enrichedAlpha.symbol),
           fetchPumpFunBetas(enrichedAlpha.symbol, descKeywords, enrichedAlpha.name),
           fetchLPPairBetas(enrichedAlpha),
@@ -623,7 +700,7 @@ const useBetas = (alpha, parentAlpha = null) => {
         try {
           const [sibKeyword, sibLore, sibMorph, sibPump] = await Promise.allSettled([
             fetchKeywordBetas(parentAlpha.symbol, parentAlpha.name),
-            fetchLoreBetas(parentAlpha.symbol),
+            fetchLoreBetas(parentAlpha.symbol, parentAlpha.name),
             fetchMorphologyBetas(parentAlpha.symbol),
             fetchPumpFunBetas(parentAlpha.symbol, [], parentAlpha.name),
           ])
