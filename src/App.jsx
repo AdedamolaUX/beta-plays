@@ -335,27 +335,37 @@ const AlphaCard = ({ alpha, isSelected, onClick, isWatched, onToggleWatch }) => 
       style={{ position: 'relative' }}
     >
       {showNomMenu && (
-        <div style={{
-          position: 'absolute', top: 8, right: 8, zIndex: 50,
-          background: 'var(--surface-1)', border: '1px solid var(--border)',
-          borderRadius: 6, padding: '8px 10px', minWidth: 160,
-          boxShadow: '0 4px 16px rgba(0,0,0,0.4)',
-        }}
-          onClick={e => e.stopPropagation()}
-        >
-          <div style={{ fontFamily: 'var(--font-mono)', fontSize: 8, color: 'var(--text-muted)', marginBottom: 6, letterSpacing: 1 }}>
-            OPTIONS
+        <>
+          {/* Invisible backdrop — click anywhere to close */}
+          <div
+            style={{ position: 'fixed', inset: 0, zIndex: 49 }}
+            onClick={e => { e.stopPropagation(); setShowNomMenu(false) }}
+          />
+          <div style={{
+            position: 'absolute', top: 8, right: 8, zIndex: 50,
+            background: 'var(--surface-1)', border: '1px solid rgba(255,184,0,0.25)',
+            borderRadius: 6, padding: '10px 12px', minWidth: 170,
+            boxShadow: '0 6px 20px rgba(0,0,0,0.5)',
+          }}
+            onClick={e => e.stopPropagation()}
+          >
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+              <div style={{ fontFamily: 'var(--font-mono)', fontSize: 8, color: 'var(--text-muted)', letterSpacing: 1 }}>
+                OPTIONS
+              </div>
+              <button
+                onClick={() => setShowNomMenu(false)}
+                style={{
+                  background: 'rgba(255,255,255,0.08)', border: '1px solid rgba(255,255,255,0.15)',
+                  borderRadius: 3, padding: '1px 6px', cursor: 'pointer',
+                  fontFamily: 'var(--font-mono)', fontSize: 9, color: 'var(--text-secondary)',
+                  lineHeight: 1.4,
+                }}
+              >✕</button>
+            </div>
+            <NominateButton address={alpha.address} symbol={alpha.symbol} name={alpha.name} compact />
           </div>
-          <NominateButton address={alpha.address} symbol={alpha.symbol} name={alpha.name} compact />
-          <button
-            onClick={() => setShowNomMenu(false)}
-            style={{
-              marginTop: 6, background: 'transparent', border: 'none',
-              fontFamily: 'var(--font-mono)', fontSize: 8,
-              color: 'var(--text-muted)', cursor: 'pointer', padding: 0,
-            }}
-          >✕ close</button>
-        </div>
+        </>
       )}
       <div className="alpha-card-top">
         <div className="token-info">
@@ -467,11 +477,27 @@ const AlphaCard = ({ alpha, isSelected, onClick, isWatched, onToggleWatch }) => 
 // ─── Admin Nomination Panel ───────────────────────────────────────
 // Hidden. Access via Ctrl+Shift+A — only you know this exists.
 // Shows pending nominations with stats for approve/reject decisions.
+const ADMIN_PASSWORD = 'betaplays_og_2025'
+
 const AdminNominationPanel = ({ onClose }) => {
+  const [authed, setAuthed]           = useState(() => sessionStorage.getItem('bp_admin') === '1')
+  const [pwInput, setPwInput]         = useState('')
+  const [pwError, setPwError]         = useState(false)
   const [nominations, setNominations] = useState(() => {
     try { return Object.values(JSON.parse(localStorage.getItem('betaplays_nominations') || '{}')) }
     catch { return [] }
   })
+
+  const handleAuth = () => {
+    if (pwInput === ADMIN_PASSWORD) {
+      sessionStorage.setItem('bp_admin', '1')
+      setAuthed(true)
+    } else {
+      setPwError(true)
+      setPwInput('')
+      setTimeout(() => setPwError(false), 2000)
+    }
+  }
 
   const updateStatus = (address, status) => {
     try {
@@ -573,16 +599,55 @@ const AdminNominationPanel = ({ onClose }) => {
             <div style={{ fontFamily: 'var(--font-mono)', fontSize: 13, color: 'var(--amber)', fontWeight: 700 }}>
               ⭐ OG NOMINATION REVIEW
             </div>
-            <div style={{ fontFamily: 'var(--font-mono)', fontSize: 9, color: 'var(--text-muted)', marginTop: 2 }}>
-              {pending.length} pending · {approved.length} approved · {rejected.length} rejected
-            </div>
+            {authed && (
+              <div style={{ fontFamily: 'var(--font-mono)', fontSize: 9, color: 'var(--text-muted)', marginTop: 2 }}>
+                {pending.length} pending · {approved.length} approved · {rejected.length} rejected
+              </div>
+            )}
           </div>
           <button onClick={onClose} style={{
-            background: 'transparent', border: 'none',
-            color: 'var(--text-muted)', cursor: 'pointer', fontSize: 18,
+            background: 'rgba(255,255,255,0.08)', border: '1px solid rgba(255,255,255,0.15)',
+            borderRadius: 4, padding: '2px 8px',
+            color: 'var(--text-secondary)', cursor: 'pointer', fontSize: 13,
+            fontFamily: 'var(--font-mono)',
           }}>✕</button>
         </div>
-        {nominations.length === 0 ? (
+
+        {/* Password gate */}
+        {!authed ? (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 8, padding: '8px 0' }}>
+            <div style={{ fontFamily: 'var(--font-mono)', fontSize: 9, color: 'var(--text-muted)' }}>
+              Admin access required
+            </div>
+            <div style={{ display: 'flex', gap: 8 }}>
+              <input
+                type="password"
+                value={pwInput}
+                onChange={e => setPwInput(e.target.value)}
+                onKeyDown={e => e.key === 'Enter' && handleAuth()}
+                placeholder="Password"
+                autoFocus
+                style={{
+                  flex: 1, background: 'var(--surface-2)',
+                  border: `1px solid ${pwError ? 'var(--red)' : 'var(--border)'}`,
+                  borderRadius: 4, padding: '5px 10px', color: 'var(--text-primary)',
+                  fontFamily: 'var(--font-mono)', fontSize: 10, outline: 'none',
+                  transition: 'border-color 0.2s',
+                }}
+              />
+              <button onClick={handleAuth} style={{
+                background: 'rgba(255,184,0,0.1)', border: '1px solid rgba(255,184,0,0.3)',
+                borderRadius: 4, padding: '5px 12px', cursor: 'pointer',
+                fontFamily: 'var(--font-mono)', fontSize: 10, color: 'var(--amber)',
+              }}>Enter</button>
+            </div>
+            {pwError && (
+              <div style={{ fontFamily: 'var(--font-mono)', fontSize: 9, color: 'var(--red)' }}>
+                Incorrect password
+              </div>
+            )}
+          </div>
+        ) : nominations.length === 0 ? (
           <div style={{
             fontFamily: 'var(--font-mono)', fontSize: 10,
             color: 'var(--text-muted)', textAlign: 'center', padding: '24px 0',
@@ -693,8 +758,8 @@ const AlphaBoard = ({ selectedAlpha, onSelect }) => {
 
   const tabs = [
     { key: 'live',        label: '🔥 Live',     count: liveAlphas.length        },
-    { key: 'cooling',     label: '❄️ Cooling',  count: coolingAlphas.length     },
-    { key: 'positioning', label: '🎯 Position', count: positioningAlphas.length },
+    { key: 'cooling',     label: '❄️ Cooling',  count: null                     },
+    { key: 'positioning', label: '🎯 Position', count: null                     },
     { key: 'watch',       label: '⭐ Watch',    count: watchlist.length         },
     { key: 'legends',     label: '🏆 OGs',      count: legends.length, noUppercase: true },
   ]
@@ -1047,21 +1112,26 @@ const NominateButton = ({ address, symbol, name, compact = false }) => {
   }
 
   if (compact) {
-    // Compact version — used in runner card right-click menu and beta drawer
+    // Compact — one click submits immediately, no note required
     return submitted ? (
-      <span style={{ fontFamily: 'var(--font-mono)', fontSize: 9, color: 'var(--amber)' }}>
-        ⭐ Nominated
-      </span>
+      <div style={{ fontFamily: 'var(--font-mono)', fontSize: 9, color: 'var(--amber)', padding: '3px 0' }}>
+        ⭐ Nominated! Under review.
+      </div>
     ) : (
       <button
-        onClick={(e) => { e.stopPropagation(); setShowForm(f => !f) }}
+        onClick={(e) => {
+          e.stopPropagation()
+          const result = submitNomination(address, symbol, name, '')
+          if (result) { setCount(result.nominationCount); setSubmitted(true) }
+        }}
         style={{
           background: 'rgba(255,179,0,0.08)', border: '1px solid rgba(255,179,0,0.3)',
-          borderRadius: 4, padding: '3px 8px', cursor: 'pointer',
+          borderRadius: 4, padding: '4px 10px', cursor: 'pointer',
           fontFamily: 'var(--font-mono)', fontSize: 9, color: 'var(--amber)',
+          width: '100%', textAlign: 'left',
         }}
       >
-        ⭐ Nominate for OG
+        ⭐ Nominate for OG {count > 0 && <span style={{ color: 'var(--text-muted)', fontSize: 8 }}>({count})</span>}
       </button>
     )
   }
