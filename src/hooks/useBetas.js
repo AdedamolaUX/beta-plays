@@ -1,11 +1,47 @@
 import { useState, useEffect, useCallback } from 'react'
 import axios from 'axios'
 import { getSearchTerms, getConcepts, generateTickerVariants } from '../data/lore_map'
-import scoreWithAI from './useAIBetaScoring'
+import classifyRelationships from './useAIBetaScoring'
 import { compareLogos, shouldRunVision } from './useImageAnalysis'
 
 const DEXSCREENER_BASE = 'https://api.dexscreener.com'
 const BACKEND_URL      = import.meta.env.VITE_BACKEND_URL || 'http://localhost:3001'
+
+// ─── Vector 0: Fetch AI concept expansion from server ────────────
+// Server caches per alpha address — shared across all users.
+// Client detects re-entry via mcap growth and sends forceRefresh.
+const fetchAlphaExpansion = async (alpha) => {
+  let forceRefresh = false
+  try {
+    const localCache = JSON.parse(localStorage.getItem('betaplays_v0_cache') || '{}')
+    const prev = localCache[alpha.address]
+    if (prev) {
+      const mcapGrew = alpha.marketCap && prev.mcap && alpha.marketCap > prev.mcap * 1.5
+      const stale    = Date.now() - prev.timestamp > 6 * 60 * 60 * 1000  // 6h local TTL
+      forceRefresh   = mcapGrew || stale
+      if (forceRefresh) console.log(`[Vector0] Force refresh for $${alpha.symbol} — ${mcapGrew ? 'mcap grew' : 'stale'}`)
+    }
+  } catch {}
+
+  const res = await axios.post(`${BACKEND_URL}/api/expand-alpha`, {
+    address:     alpha.address,
+    symbol:      alpha.symbol,
+    name:        alpha.name     || '',
+    description: alpha.description || '',
+    logoUrl:     alpha.logoUrl  || null,
+    marketCap:   alpha.marketCap || 0,
+    forceRefresh,
+  }, { timeout: 12000 })
+
+  // Track locally for re-entry detection
+  try {
+    const localCache = JSON.parse(localStorage.getItem('betaplays_v0_cache') || '{}')
+    localCache[alpha.address] = { timestamp: Date.now(), mcap: alpha.marketCap || 0 }
+    localStorage.setItem('betaplays_v0_cache', JSON.stringify(localCache))
+  } catch {}
+
+  return res.data || { searchTerms: [], visualTerms: [], relationshipHints: {} }
+}
 const MIN_LIQUIDITY    = 1000   // Lowered from 5000 — small derivatives matter
 
 // ─── Beta persistence ─────────────────────────────────────────────
@@ -433,13 +469,12 @@ const formatBeta = (pair, sources = []) => {
 }
 
 // ─── Signal 1: Keyword + compound decomposition ──────────────────
-const fetchKeywordBetas = async (alphaSymbol, alphaName = '') => {
+const fetchKeywordBetas = async (alphaSymbol, alphaName = '', extraTerms = []) => {
   const nameTerms  = getNameTerms(alphaSymbol, alphaName)
   const terms      = getSearchTerms(alphaSymbol)
   const decomposed = decomposeSymbol(alphaSymbol)
-  // Name terms go first — highest priority, most likely to find culturally relevant betas
-  // No cap — every meaningful term fires. DEXScreener has no strict rate limit.
-  const allTerms   = [...new Set([...nameTerms, ...terms, ...decomposed])]
+  // Name terms first, then Vector 0 AI terms, then morphology
+  const allTerms   = [...new Set([...nameTerms, ...extraTerms, ...terms, ...decomposed])]
   const results    = []
   for (const term of allTerms) {
     try {
@@ -457,10 +492,11 @@ const fetchKeywordBetas = async (alphaSymbol, alphaName = '') => {
 }
 
 // ─── Signal 1b: Description-driven search (Vector 1 complete) ────
-const fetchDescriptionBetas = async (alpha, descKeywords) => {
-  if (!descKeywords || descKeywords.length === 0) return []
+const fetchDescriptionBetas = async (alpha, descKeywords, extraTerms = []) => {
+  const allKeywords = [...new Set([...(descKeywords || []), ...extraTerms])]
+  if (!allKeywords.length) return []
   const results = []
-  for (const keyword of descKeywords.slice(0, 4)) {
+  for (const keyword of allKeywords.slice(0, 6)) {
     try {
       const res = await axios.get(`${DEXSCREENER_BASE}/latest/dex/search?q=${keyword}`)
       ;(res.data?.pairs || [])
@@ -477,7 +513,7 @@ const fetchDescriptionBetas = async (alpha, descKeywords) => {
 }
 
 // ─── Signal 2: Lore matching ─────────────────────────────────────
-const fetchLoreBetas = async (alphaSymbol, alphaName = '') => {
+const fetchLoreBetas = async (alphaSymbol, alphaName = '', extraTerms = []) => {
   // Get concepts from both symbol AND name — critical for tokens where the
   // cultural reference lives in the name (e.g. symbol=MOYU, name=摸鱼)
   const symbolConcepts = getConcepts(alphaSymbol)
@@ -486,7 +522,8 @@ const fetchLoreBetas = async (alphaSymbol, alphaName = '') => {
     : []
   // Also treat the raw name itself as a search term if it has a lore entry
   const nameTerms = getNameTerms(alphaSymbol, alphaName)
-  const concepts  = [...new Set([...symbolConcepts, ...nameConcepts, ...nameTerms])]
+  // Vector 0 AI terms — these are the conceptual expansions (shelter for house, etc.)
+  const concepts  = [...new Set([...symbolConcepts, ...nameConcepts, ...nameTerms, ...extraTerms])]
   const results   = []
   for (const concept of concepts) {
     try {
@@ -528,12 +565,13 @@ const fetchMorphologyBetas = async (alphaSymbol) => {
 }
 
 // ─── Signal 4: PumpFun trending ──────────────────────────────────
-const fetchPumpFunBetas = async (alphaSymbol, descKeywords = [], alphaName = '') => {
+const fetchPumpFunBetas = async (alphaSymbol, descKeywords = [], alphaName = '', extraTerms = []) => {
   const nameTerms  = getNameTerms(alphaSymbol, alphaName).map(t => t.toLowerCase())
   const concepts   = getConcepts(alphaSymbol)
   const decomposed = decomposeSymbol(alphaSymbol).map(d => d.toLowerCase())
-  // Name terms included — critical for CJK tokens like MOYU/摸鱼
-  const allTerms   = [...new Set([...nameTerms, ...concepts, ...decomposed, ...descKeywords])]
+  const aiTerms    = extraTerms.map(t => t.toLowerCase())
+  // AI expansion terms included — catches betas by concept even without ticker similarity
+  const allTerms   = [...new Set([...nameTerms, ...aiTerms, ...concepts, ...decomposed, ...descKeywords])]
   const results    = []
 
   try {
@@ -657,7 +695,6 @@ const useBetas = (alpha, parentAlpha = null) => {
 
     try {
       // Fetch description keywords first — feeds into multiple signals
-      // Also returns raw description for Vector 8 AI scoring
       const { keywords: descKeywords, description: alphaDescription } =
         await fetchDescriptionKeywords(alpha)
 
@@ -666,14 +703,28 @@ const useBetas = (alpha, parentAlpha = null) => {
         ? { ...alpha, description: alphaDescription }
         : alpha
 
-      // Run all signals in parallel
+      // ── Vector 0: AI concept expansion ───────────────────────────
+      // Runs first — generates semantically targeted search terms.
+      // Server caches per alpha, shared across all users.
+      let v0Terms          = []
+      let relationshipHints = {}
+      try {
+        const expansion = await fetchAlphaExpansion(enrichedAlpha)
+        v0Terms           = [...(expansion.searchTerms || []), ...(expansion.visualTerms || [])]
+        relationshipHints = expansion.relationshipHints || {}
+        console.log(`[Vector0] $${enrichedAlpha.symbol} → ${v0Terms.length} expansion terms${expansion.fromCache ? ' (cached)' : ''}`)
+      } catch (v0Err) {
+        console.warn('[Vector0] Expansion failed (non-fatal — continuing without):', v0Err.message)
+      }
+
+      // Run all signals in parallel, seeded with Vector 0 terms
       const [keywordRes, descRes, loreRes, morphRes, pumpRes, lpRes] =
         await Promise.allSettled([
-          fetchKeywordBetas(enrichedAlpha.symbol, enrichedAlpha.name),
-          fetchDescriptionBetas(enrichedAlpha, descKeywords),
-          fetchLoreBetas(enrichedAlpha.symbol, enrichedAlpha.name),
+          fetchKeywordBetas(enrichedAlpha.symbol, enrichedAlpha.name, v0Terms),
+          fetchDescriptionBetas(enrichedAlpha, descKeywords, v0Terms),
+          fetchLoreBetas(enrichedAlpha.symbol, enrichedAlpha.name, v0Terms),
           fetchMorphologyBetas(enrichedAlpha.symbol),
-          fetchPumpFunBetas(enrichedAlpha.symbol, descKeywords, enrichedAlpha.name),
+          fetchPumpFunBetas(enrichedAlpha.symbol, descKeywords, enrichedAlpha.name, v0Terms),
           fetchLPPairBetas(enrichedAlpha),
         ])
 
@@ -759,16 +810,21 @@ const useBetas = (alpha, parentAlpha = null) => {
       setBetas(mergedWithSiblings)
 
       try {
-        const aiScored = await scoreWithAI(enrichedAlpha, mergedWithSiblings)
+        const aiScored = await classifyRelationships(enrichedAlpha, mergedWithSiblings, relationshipHints)
         if (aiScored.length > 0) {
           // Merge AI scores into mergedWithSiblings — NOT merged —
           // so siblings are preserved after AI scoring runs
           const aiAddresses = new Map(aiScored.map(b => [b.address, b]))
-          const withAI = mergedWithSiblings.map(b =>
-            aiAddresses.has(b.address)
-              ? { ...b, ...aiAddresses.get(b.address) }
-              : b
-          )
+          const withAI = mergedWithSiblings.map(b => {
+            if (!aiAddresses.has(b.address)) return b
+            const aiData = aiAddresses.get(b.address)
+            return {
+              ...b,
+              ...aiData,
+              // Preserve non-null relationshipType — never overwrite with undefined
+              relationshipType: aiData.relationshipType || b.relationshipType || null,
+            }
+          })
           // Add any new betas found only by AI
           const existingAddresses = new Set(mergedWithSiblings.map(b => b.address))
           const aiOnly = aiScored.filter(b => !existingAddresses.has(b.address))

@@ -184,6 +184,130 @@ Respond ONLY with a JSON array. No markdown. Example:
 const isGeminiQuotaError = (err) =>
   err.message.includes('429') || err.message.includes('quota') || err.message.includes('RESOURCE_EXHAUSTED')
 
+// ─── Server-side expansion cache ─────────────────────────────────
+// Shared across ALL users. One expansion per alpha, not per user.
+// Key: token address. Value: { data, timestamp, mcap }
+const expansionCache = new Map()
+const EXPANSION_CACHE_TTL_MS = 24 * 60 * 60 * 1000  // 24h
+
+const isExpansionCacheValid = (cached, currentMcap, forceRefresh) => {
+  if (forceRefresh) return false
+  if (!cached) return false
+  if (Date.now() - cached.timestamp > EXPANSION_CACHE_TTL_MS) return false
+  // Invalidate if mcap grew >50% — significant new attention = new betas spawning
+  if (currentMcap && cached.mcap && currentMcap > cached.mcap * 1.5) return false
+  return true
+}
+
+// Vector 0A: Text concept expansion prompt
+const buildExpansionPrompt = (alpha) => {
+  const context = [
+    `Symbol: $${alpha.symbol}`,
+    alpha.name && alpha.name.toLowerCase() !== alpha.symbol.toLowerCase()
+      ? `Name: ${alpha.name}` : null,
+    alpha.description ? `Description: ${alpha.description}` : null,
+  ].filter(Boolean).join('\n')
+
+  return `You are analyzing a Solana meme token to find related beta tokens.
+
+ALPHA TOKEN:
+${context}
+
+Generate search terms for finding derivative/beta tokens on DEXScreener.
+
+Think about ALL of these relationship types:
+- TWIN: synonyms and equivalents ($HOUSECOIN → shelter, crib, home, dwelling)
+- SECTOR: same industry peers ($CLAUDE → cursor, copilot, gemini, devin)
+- COUNTER: conceptual opposites ($EMPLOYED → jobless, fired, layoff)
+- ECHO: narrative consequences ($HOUSECOIN → eviction, foreclosure, mortgage)
+- UNIVERSE: same fictional/cultural world ($NARUTO → sasuke, kakashi, konoha)
+- EVIL_TWIN: dark/inverted variant ($SHIBA → darkshiba, evil twin)
+
+Rules:
+- Return 6-10 high-value terms only
+- Single words or max 2-word phrases
+- Focus on terms a token creator would actually use as a ticker or name
+- Skip generic crypto words (moon, pump, degen, etc.)
+
+Respond ONLY with valid JSON. No explanation, no markdown:
+{
+  "searchTerms": ["shelter","eviction","landlord","crib","mortgage"],
+  "relationshipHints": {
+    "shelter": "TWIN",
+    "eviction": "ECHO",
+    "landlord": "COUNTER",
+    "crib": "TWIN",
+    "mortgage": "SECTOR"
+  }
+}`
+}
+
+// Vector 0B: Image expansion via Groq vision (called when Gemini quota exhausted)
+const callGroqImageExpansion = async (symbol, name, imgData) => {
+  const GROQ_KEY = process.env.GROQ_API_KEY
+  if (!GROQ_KEY) throw new Error('GROQ_API_KEY not configured')
+
+  const response = await fetch('https://api.groq.com/openai/v1/chat/completions', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${GROQ_KEY}` },
+    body: JSON.stringify({
+      model: 'meta-llama/llama-4-scout-17b-16e-instruct',
+      max_tokens: 250,
+      temperature: 0.1,
+      messages: [{
+        role: 'user',
+        content: [
+          {
+            type: 'image_url',
+            image_url: { url: `data:${imgData.mimeType};base64,${imgData.base64}` },
+          },
+          {
+            type: 'text',
+            text: `This is the logo of Solana meme token $${symbol}${name && name.toLowerCase() !== symbol.toLowerCase() ? ' (' + name + ')' : ''}.
+
+Identify the 2-3 most SPECIFIC visual elements a beta token creator would consciously copy, reference, or subvert.
+Good specific elements: "shiba inu breed", "red baseball cap", "crying expression", "astronaut suit"
+Bad generic elements: "dog", "cute", "colorful", "round logo"
+
+Also note the overall mood (happy/evil/stoic/chaotic/sad/angry).
+
+Respond ONLY with valid JSON. No markdown:
+{"visualTerms":["shiba","red hat"],"mood":"happy","visualHints":{"shiba":"TWIN","red hat":"TWIN"}}`,
+          },
+        ],
+      }],
+    }),
+  })
+
+  if (!response.ok) {
+    const err = await response.text()
+    throw new Error(`Groq vision error ${response.status}: ${err}`)
+  }
+
+  const data  = await response.json()
+  const text  = data.choices?.[0]?.message?.content || ''
+  const clean = text.replace(/```json|```/g, '').trim()
+  return JSON.parse(clean)
+}
+
+// Vector 0B: Image expansion parts for Gemini
+const buildImageExpansionParts = (symbol, name, imgData) => [
+  {
+    text: `This is the logo of Solana meme token $${symbol}${name && name.toLowerCase() !== symbol.toLowerCase() ? ' (' + name + ')' : ''}.`,
+  },
+  { inline_data: { mime_type: imgData.mimeType, data: imgData.base64 } },
+  {
+    text: `Identify the 2-3 most SPECIFIC visual elements a beta token creator would consciously copy, reference, or subvert.
+Good specific elements: "shiba inu breed", "red baseball cap", "crying expression", "astronaut suit"
+Bad generic elements: "dog", "cute", "colorful", "round logo"
+
+Also note the overall mood (happy/evil/stoic/chaotic/sad/angry).
+
+Respond ONLY with valid JSON. No markdown:
+{"visualTerms":["shiba","red hat"],"mood":"happy","visualHints":{"shiba":"TWIN","red hat":"TWIN"}}`,
+  },
+]
+
 // ─── Image fetch helper ───────────────────────────────────────────
 const GROQ_SUPPORTED_TYPES = ['image/jpeg', 'image/jpg', 'image/png', 'image/webp']
 
@@ -260,6 +384,98 @@ app.post('/api/score-betas', async (req, res) => {
     res.json(result)
   } catch (err) {
     console.error('Score error:', err.message)
+    res.status(500).json({ error: err.message })
+  }
+})
+
+// ─── Vector 0: Alpha concept expansion (Groq + Gemini) ──────────
+// Generates search terms + visual terms for the full beta scan.
+// Server-side cached — shared across all users. One call per alpha.
+// Cache invalidated on re-entry events (forceRefresh) or mcap growth.
+app.post('/api/expand-alpha', async (req, res) => {
+  try {
+    const { address, symbol, name, description, logoUrl, marketCap, forceRefresh } = req.body
+    if (!address || !symbol) return res.status(400).json({ error: 'address and symbol required' })
+
+    // Check server-side cache first
+    const cached = expansionCache.get(address)
+    if (isExpansionCacheValid(cached, marketCap, forceRefresh)) {
+      console.log(`[Vector0] Cache hit for $${symbol}`)
+      return res.json({ ...cached.data, fromCache: true })
+    }
+
+    console.log(`[Vector0] Expanding $${symbol}${forceRefresh ? ' (forced refresh)' : ''}...`)
+
+    // ── Vector 0A: Text expansion ─────────────────────────────────
+    let searchTerms      = []
+    let relationshipHints = {}
+
+    try {
+      const textResult = await callGroq(
+        buildExpansionPrompt({ symbol, name, description }),
+        'You are a crypto narrative analyst. Always respond with valid JSON only — no explanation, no markdown.'
+      )
+      searchTerms       = textResult.searchTerms      || []
+      relationshipHints = textResult.relationshipHints || {}
+      console.log(`[Vector0A] $${symbol} → ${searchTerms.length} text terms`)
+    } catch (textErr) {
+      console.warn(`[Vector0A] Text expansion failed for $${symbol}:`, textErr.message)
+    }
+
+    // ── Vector 0B: Image expansion ────────────────────────────────
+    let visualTerms  = []
+    let visualHints  = {}
+    let mood         = null
+
+    if (logoUrl) {
+      try {
+        const imgData = await fetchImageAsBase64(logoUrl)
+        if (imgData && GROQ_SUPPORTED_TYPES.includes(imgData.mimeType)) {
+          // Try Gemini first — better at visual cultural analysis
+          try {
+            const parts  = buildImageExpansionParts(symbol, name, imgData)
+            const result = await callGemini(parts)
+            visualTerms  = result.visualTerms || []
+            visualHints  = result.visualHints  || {}
+            mood         = result.mood         || null
+            console.log(`[Vector0B] $${symbol} → ${visualTerms.length} visual terms via Gemini`)
+          } catch (geminiErr) {
+            if (isGeminiQuotaError(geminiErr)) {
+              console.warn(`[Vector0B] Gemini quota — falling back to Groq vision for $${symbol}`)
+              try {
+                const result = await callGroqImageExpansion(symbol, name, imgData)
+                visualTerms  = result.visualTerms || []
+                visualHints  = result.visualHints  || {}
+                mood         = result.mood         || null
+                console.log(`[Vector0B] $${symbol} → ${visualTerms.length} visual terms via Groq`)
+              } catch (groqErr) {
+                console.warn(`[Vector0B] Groq vision fallback failed:`, groqErr.message)
+              }
+            } else {
+              console.warn(`[Vector0B] Gemini error (non-quota):`, geminiErr.message)
+            }
+          }
+        }
+      } catch (imgErr) {
+        console.warn(`[Vector0B] Image fetch failed for $${symbol}:`, imgErr.message)
+      }
+    }
+
+    const data = {
+      searchTerms,
+      visualTerms,
+      relationshipHints: { ...relationshipHints, ...visualHints },
+      mood,
+      expandedAt: Date.now(),
+    }
+
+    // Cache server-side — shared across all users
+    expansionCache.set(address, { data, timestamp: Date.now(), mcap: marketCap || 0 })
+    console.log(`[Vector0] $${symbol} cached — ${searchTerms.length} text + ${visualTerms.length} visual terms`)
+
+    res.json({ ...data, fromCache: false })
+  } catch (err) {
+    console.error('[Vector0] Expand error:', err.message)
     res.status(500).json({ error: err.message })
   }
 })

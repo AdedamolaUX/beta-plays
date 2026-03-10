@@ -1043,8 +1043,23 @@ const AlphaBoard = ({ selectedAlpha, onSelect }) => {
 
 // ─── Signal Badge ────────────────────────────────────────────────
 
+// ─── Relationship type badge config ──────────────────────────────
+const RELATIONSHIP_CONFIG = {
+  TWIN:      { emoji: '🪞', label: 'TWIN',      color: 'var(--cyan)',       bg: 'rgba(0,212,255,0.12)',   border: 'rgba(0,212,255,0.35)'  },
+  COUNTER:   { emoji: '⚡', label: 'COUNTER',   color: 'var(--amber)',      bg: 'rgba(255,184,0,0.12)',   border: 'rgba(255,184,0,0.35)'  },
+  ECHO:      { emoji: '🌊', label: 'ECHO',      color: '#b48eff',           bg: 'rgba(180,142,255,0.12)', border: 'rgba(180,142,255,0.35)' },
+  UNIVERSE:  { emoji: '🌌', label: 'UNIVERSE',  color: '#5cf0b0',           bg: 'rgba(92,240,176,0.10)',  border: 'rgba(92,240,176,0.3)'  },
+  SECTOR:    { emoji: '🏭', label: 'SECTOR',    color: 'var(--neon-green)', bg: 'rgba(0,255,136,0.08)',   border: 'rgba(0,255,136,0.3)'   },
+  EVIL_TWIN: { emoji: '😈', label: 'EVIL TWIN', color: 'var(--red)',        bg: 'rgba(255,68,102,0.12)',  border: 'rgba(255,68,102,0.35)' },
+  SPIN:      { emoji: '🌀', label: 'SPIN',      color: 'var(--text-muted)', bg: 'rgba(255,255,255,0.05)', border: 'rgba(255,255,255,0.12)' },
+}
+
 const SignalBadge = ({ beta }) => {
   const signal = getSignal(beta)
+  const relType = beta.relationshipType && RELATIONSHIP_CONFIG[beta.relationshipType]
+    ? RELATIONSHIP_CONFIG[beta.relationshipType]
+    : null
+
   const classMap = {
     CABAL:    'badge-cabal',
     TRENDING: 'badge-strong',
@@ -1062,6 +1077,16 @@ const SignalBadge = ({ beta }) => {
           style={{ fontSize: 8, padding: '2px 6px' }}
         >
           {beta.tokenClass === 'OG' ? '👑 OG' : beta.tokenClass === 'RIVAL' ? '⚔️ RIVAL' : '🌀 SPIN'}
+        </span>
+      )}
+      {/* Relationship type badge — AI classified */}
+      {relType && (
+        <span style={{
+          fontFamily: 'var(--font-mono)', fontSize: 8, padding: '2px 6px',
+          borderRadius: 3, border: `1px solid ${relType.border}`,
+          background: relType.bg, color: relType.color, whiteSpace: 'nowrap',
+        }}>
+          {relType.emoji} {relType.label}
         </span>
       )}
       <span className={`badge ${classMap[signal.label] || 'badge-weak'}`} style={{ fontSize: 8, padding: '2px 6px' }}>
