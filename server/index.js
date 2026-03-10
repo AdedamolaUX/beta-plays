@@ -66,6 +66,44 @@ const callGroq = async (prompt, systemPrompt = null) => {
   return JSON.parse(clean)
 }
 
+// ─── Groq Fast helper (llama-3.1-8b-instant) ────────────────────
+// Separate model = separate TPD quota (500k/day vs 70b's 100k/day).
+// Used for structured output tasks that don't need 70B reasoning:
+//   - Vector 0A concept expansion
+// Vector 8 classification stays on 70b for quality.
+const callGroqFast = async (prompt, systemPrompt = null) => {
+  const GROQ_KEY = process.env.GROQ_API_KEY
+  if (!GROQ_KEY) throw new Error('GROQ_API_KEY not configured')
+
+  const messages = []
+  if (systemPrompt) messages.push({ role: 'system', content: systemPrompt })
+  messages.push({ role: 'user', content: prompt })
+
+  const response = await fetch('https://api.groq.com/openai/v1/chat/completions', {
+    method: 'POST',
+    headers: {
+      'Content-Type':  'application/json',
+      'Authorization': `Bearer ${GROQ_KEY}`,
+    },
+    body: JSON.stringify({
+      model:       'llama-3.1-8b-instant',
+      max_tokens:  600,
+      temperature: 0.1,
+      messages,
+    }),
+  })
+
+  if (!response.ok) {
+    const err = await response.text()
+    throw new Error(`Groq error ${response.status}: ${err}`)
+  }
+
+  const data  = await response.json()
+  const text  = data.choices?.[0]?.message?.content || ''
+  const clean = text.replace(/```json|```/g, '').trim()
+  return JSON.parse(clean)
+}
+
 // ─── Gemini helper ────────────────────────────────────────────────
 const callGemini = async (parts) => {
   const GEMINI_KEY = process.env.GEMINI_API_KEY
@@ -411,7 +449,7 @@ app.post('/api/expand-alpha', async (req, res) => {
     let relationshipHints = {}
 
     try {
-      const textResult = await callGroq(
+      const textResult = await callGroqFast(
         buildExpansionPrompt({ symbol, name, description }),
         'You are a crypto narrative analyst. Always respond with valid JSON only — no explanation, no markdown.'
       )
