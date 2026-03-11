@@ -114,6 +114,95 @@ const mergeBetas = (fresh, stored) => {
     })
 }
 
+// ─── Beta price refresh ───────────────────────────────────────────
+// PumpFun API returns bonding-curve mcap (~$36K) and priceChange24h: 0
+// for ALL tokens. After a token graduates to PumpSwap/Raydium the
+// PumpFun feed no longer has it — so stored prices freeze at bonding level.
+//
+// This runs after every fetch and hits DEXScreener's token endpoint for
+// any beta whose data looks stale:
+//   - priceChange24h === 0  (PumpFun placeholder — never real)
+//   - pumpfun is the ONLY source (never confirmed by DEXScreener search)
+//   - no fresh DEXScreener price seen yet (marketCap <= 80K safety window)
+//
+// Batches of 30 addresses per request — DEXScreener's token endpoint
+// accepts comma-separated addresses and returns all pairs in one call.
+
+const PRICE_REFRESH_BATCH = 30
+
+const isStalePrice = (b) => {
+  const sources = b.signalSources || []
+  const onlyPumpFun = sources.every(s => s === 'pumpfun')
+  const zeroPriceChange = parseFloat(b.priceChange24h) === 0
+  const bondingMcap = (b.marketCap || 0) <= 80_000
+  // Stale if: only came from pumpfun AND (no h24 change data OR stuck near bonding)
+  return onlyPumpFun || (zeroPriceChange && bondingMcap)
+}
+
+const refreshBetaPrices = async (betas) => {
+  const stale = betas.filter(b => isStalePrice(b) && b.address)
+  if (!stale.length) return betas
+
+  console.log(`[BetaRefresh] Refreshing prices for ${stale.length} stale betas...`)
+
+  const updated = new Map()
+
+  for (let i = 0; i < stale.length; i += PRICE_REFRESH_BATCH) {
+    const batch   = stale.slice(i, i + PRICE_REFRESH_BATCH)
+    const addrs   = batch.map(b => b.address).join(',')
+    try {
+      const res   = await axios.get(
+        `${DEXSCREENER_BASE}/latest/dex/tokens/${addrs}`,
+        { timeout: 8000 }
+      )
+      const pairs = res.data?.pairs || []
+
+      // For each address, pick the highest-volume Solana pair as canonical price
+      const bestPair = {}
+      pairs
+        .filter(p => p.chainId === 'solana')
+        .forEach(p => {
+          const addr = p.baseToken?.address
+          if (!addr) return
+          const prev = bestPair[addr]
+          if (!prev || (p.volume?.h24 || 0) > (prev.volume?.h24 || 0)) {
+            bestPair[addr] = p
+          }
+        })
+
+      batch.forEach(b => {
+        const pair = bestPair[b.address]
+        if (!pair) return
+        updated.set(b.address, {
+          priceUsd:       pair.priceUsd         || b.priceUsd,
+          priceChange24h: pair.priceChange?.h24 ?? b.priceChange24h,
+          volume24h:      pair.volume?.h24      || b.volume24h,
+          marketCap:      pair.marketCap || pair.fdv || b.marketCap,
+          liquidity:      pair.liquidity?.usd   || b.liquidity,
+          logoUrl:        pair.info?.imageUrl   || b.logoUrl,
+          // Correct the dexUrl now that we know the active pair
+          dexUrl:         `https://dexscreener.com/solana/${b.address}`,
+          priceRefreshedAt: Date.now(),
+        })
+        console.log(`[BetaRefresh] ✅ $${b.symbol}: mcap $${b.marketCap?.toLocaleString()} → $${(pair.marketCap || pair.fdv || 0).toLocaleString()} | 24h: ${pair.priceChange?.h24}%`)
+      })
+
+      if (i + PRICE_REFRESH_BATCH < stale.length) {
+        await new Promise(r => setTimeout(r, 500))
+      }
+    } catch (err) {
+      console.warn(`[BetaRefresh] Batch failed (non-fatal):`, err.message)
+    }
+  }
+
+  if (!updated.size) return betas
+
+  // Merge fresh prices into the full beta list
+  return betas.map(b =>
+    updated.has(b.address) ? { ...b, ...updated.get(b.address) } : b
+  )
+}
+
 const timeSince = (ts) => {
   if (!ts) return '?'
   const h = Math.floor((Date.now() - ts) / 3600000)
@@ -437,9 +526,11 @@ export const getSignal = (beta) => {
   // AI + any other signal = CABAL tier
   if (s.includes('ai_match')   && s.includes('keyword'))         return { label: 'CABAL',    tier: 5 }
   if (s.includes('ai_match')   && s.includes('morphology'))      return { label: 'CABAL',    tier: 5 }
+  if (s.includes('ai_match')   && s.includes('og_match'))        return { label: 'CABAL',    tier: 5 }
   if (s.includes('pumpfun')    && s.includes('keyword'))         return { label: 'CABAL',    tier: 4 }
   if (s.includes('morphology') && s.includes('keyword'))         return { label: 'CABAL',    tier: 4 }
   if (s.includes('description')&& s.includes('keyword'))         return { label: 'CABAL',    tier: 4 }
+  if (s.includes('og_match'))                                    return { label: 'OG',       tier: 4 }
   if (s.includes('pumpfun'))                                     return { label: 'TRENDING', tier: 3 }
   if (s.includes('ai_match'))                                    return { label: 'AI',       tier: 3 }
   if (s.includes('description'))                                 return { label: 'STRONG',   tier: 2 }
@@ -468,6 +559,7 @@ export const getSignal = (beta) => {
 
 const SIGNAL_TIER_MAP = {
   lp_pair:     5,
+  og_match:    4,  // exact same ticker — highest non-structural signal
   morphology:  4,
   keyword:     4,
   description: 3,
@@ -643,6 +735,102 @@ const fetchMorphologyBetas = async (alphaSymbol) => {
   return results
 }
 
+// ─── Signal 3b: Exact-match OG scan ─────────────────────────────
+// Searches for tokens with the EXACT same symbol as the alpha.
+// Catches dormant OGs (low volume, low liquidity) that are invisible
+// to normal search ranking but are the most obvious beta play:
+// when a new token launches with the same ticker, traders pile into
+// the OG expecting a sympathy pump — this is one of the most reliable
+// patterns on Solana (PVP narrative arbitrage).
+//
+// Uses a much lower liquidity floor ($250) since OGs often go dormant
+// after the original cycle but revive instantly when a new version launches.
+// Results tagged 'og_match' — distinct from morphology (variants)
+// so Vector 8 can classify them as TWIN or OG correctly.
+
+const MIN_LIQUIDITY_OG = 250  // OGs go dormant — they won't have $1K+ liquidity
+
+const fetchExactMatchOGs = async (alphaSymbol, alphaAddress) => {
+  const results  = []
+  const seen     = new Set()
+
+  const addResult = (pair) => {
+    const addr = pair.baseToken?.address
+    if (!addr || addr === alphaAddress || seen.has(addr)) return
+    if ((pair.liquidity?.usd || 0) < MIN_LIQUIDITY_OG) return
+    if (['SOL','USDC','USDT'].includes(pair.baseToken?.symbol)) return
+    if (pair.baseToken?.symbol?.toUpperCase() !== alphaSymbol.toUpperCase()) return
+    seen.add(addr)
+    results.push({ pair, sources: ['og_match'] })
+  }
+
+  // ── Pass 1: standard search ──────────────────────────────────
+  // Returns ~30 results ranked by recent activity. When a narrative
+  // goes viral, new tokens flood these slots and push OGs off the list.
+  try {
+    const res = await axios.get(
+      `${DEXSCREENER_BASE}/latest/dex/search?q=${encodeURIComponent(alphaSymbol)}`,
+      { timeout: 8000 }
+    )
+    ;(res.data?.pairs || [])
+      .filter(p => p.chainId === 'solana')
+      .forEach(p => addResult(p))
+  } catch (err) {
+    console.warn('[OGScan] Pass 1 failed:', err.message)
+  }
+
+  // ── Pass 2: name-based search ────────────────────────────────
+  // DEXScreener indexes token name separately from symbol. Searching
+  // by name often returns a different result set — catches OGs whose
+  // name matches even when symbol search is overwhelmed by new tokens.
+  // Only run if pass 1 didn't already saturate with OG candidates.
+  try {
+    const res = await axios.get(
+      `${DEXSCREENER_BASE}/latest/dex/search?q=${encodeURIComponent(alphaSymbol.toLowerCase())}`,
+      { timeout: 8000 }
+    )
+    ;(res.data?.pairs || [])
+      .filter(p => p.chainId === 'solana')
+      .forEach(p => addResult(p))
+  } catch { /* silent */ }
+
+  // ── Pass 3: recover known OG addresses from localStorage ─────
+  // If this alpha's betas were previously scanned and stored, check
+  // those stored betas for og_match tokens — their addresses persist
+  // even if they've since fallen off search results entirely.
+  // This is the definitive fix for "OG pushed off 30-result window":
+  // once found, the OG address is preserved in localStorage forever.
+  try {
+    const store  = JSON.parse(localStorage.getItem(BETA_STORE_KEY) || '{}')
+    const stored = store[alphaAddress] || []
+    const ogAddresses = stored
+      .filter(b =>
+        b.signalSources?.includes('og_match') &&
+        b.address &&
+        !seen.has(b.address)
+      )
+      .map(b => b.address)
+
+    if (ogAddresses.length > 0) {
+      const addrs = ogAddresses.join(',')
+      const res = await axios.get(
+        `${DEXSCREENER_BASE}/latest/dex/tokens/${addrs}`,
+        { timeout: 8000 }
+      )
+      ;(res.data?.pairs || [])
+        .filter(p => p.chainId === 'solana')
+        .sort((a, b) => (b.volume?.h24 || 0) - (a.volume?.h24 || 0))
+        .forEach(p => addResult(p))
+      console.log(`[OGScan] Pass 3 recovered ${ogAddresses.length} known OG address(es) from localStorage`)
+    }
+  } catch { /* silent */ }
+
+  if (results.length > 0) {
+    console.log(`[OGScan] Found ${results.length} exact-match OG(s) for $${alphaSymbol} across all passes`)
+  }
+  return results
+}
+
 // ─── Signal 4: PumpFun trending ──────────────────────────────────
 const fetchPumpFunBetas = async (alphaSymbol, descKeywords = [], alphaName = '', extraTerms = []) => {
   const nameTerms  = getNameTerms(alphaSymbol, alphaName).map(t => t.toLowerCase())
@@ -757,13 +945,19 @@ const useBetas = (alpha, parentAlpha = null) => {
   const [loading, setLoading] = useState(false)
   const [error,   setError]   = useState(null)
 
-  // Load stored betas immediately on alpha change so panel is never empty
+  // Load stored betas immediately on alpha change so panel is never empty,
+  // then silently refresh their prices in the background
   useEffect(() => {
     if (!alpha?.address) { setBetas([]); return }
     const stored = loadStoredBetas(alpha.address)
     if (stored.length > 0) {
       setBetas(stored)
-      console.log()
+      // Silently refresh stale prices in background — don't block the UI
+      refreshBetaPrices(stored).then(refreshed => {
+        setBetas(refreshed)
+        saveStoredBetas(alpha.address, refreshed)
+      }).catch(() => {})
+      console.log(`[BetaStore] Loaded ${stored.length} stored betas for $${alpha.symbol}`)
     }
   }, [alpha?.address])
 
@@ -798,7 +992,7 @@ const useBetas = (alpha, parentAlpha = null) => {
       }
 
       // Run all signals in parallel, seeded with Vector 0 terms
-      const [keywordRes, descRes, loreRes, morphRes, pumpRes, lpRes] =
+      const [keywordRes, descRes, loreRes, morphRes, pumpRes, lpRes, ogRes] =
         await Promise.allSettled([
           fetchKeywordBetas(enrichedAlpha.symbol, enrichedAlpha.name, v0Terms),
           fetchDescriptionBetas(enrichedAlpha, descKeywords, v0Terms),
@@ -806,6 +1000,7 @@ const useBetas = (alpha, parentAlpha = null) => {
           fetchMorphologyBetas(enrichedAlpha.symbol),
           fetchPumpFunBetas(enrichedAlpha.symbol, descKeywords, enrichedAlpha.name, v0Terms),
           fetchLPPairBetas(enrichedAlpha),
+          fetchExactMatchOGs(enrichedAlpha.symbol, enrichedAlpha.address),
         ])
 
       const allResults = [
@@ -815,10 +1010,17 @@ const useBetas = (alpha, parentAlpha = null) => {
         ...(morphRes.status   === 'fulfilled' ? morphRes.value   : []),
         ...(pumpRes.status    === 'fulfilled' ? pumpRes.value    : []),
         ...(lpRes.status      === 'fulfilled' ? lpRes.value      : []),
+        ...(ogRes.status      === 'fulfilled' ? ogRes.value      : []),
       ]
 
       // Merge signals 1-5 into deduplicated list
-      const merged = mergeAndScore(allResults, enrichedAlpha.symbol, enrichedAlpha.marketCap)
+      const mergedRaw = mergeAndScore(allResults, enrichedAlpha.symbol, enrichedAlpha.marketCap)
+
+      // ── Beta price refresh ──────────────────────────────────────
+      // PumpFun betas arrive with bonding-curve mcap (~$36K) and 0% h24.
+      // After graduation they disappear from PumpFun feed but live on DEX.
+      // Refresh stale prices now so the list shows real post-migration data.
+      const merged = await refreshBetaPrices(mergedRaw)
 
       // Track how many betas this alpha has spawned — feeds Legend algorithm
       if (merged.length > 0) {
@@ -862,7 +1064,7 @@ const useBetas = (alpha, parentAlpha = null) => {
           // direct link to the alpha — too weak to show, causes noise like $Ajinomoto.
           // A sibling must have at least one of: keyword, morphology, lore, description,
           // pumpfun, lp_pair as an additional signal to be included.
-          const SIBLING_CORROBORATION = new Set(['keyword','morphology','lore','description','pumpfun','lp_pair'])
+          const SIBLING_CORROBORATION = new Set(['keyword','morphology','og_match','lore','description','pumpfun','lp_pair'])
           siblingResults = sibMerged
             .filter(b => {
               if (b.address === alphaAddress) return false
