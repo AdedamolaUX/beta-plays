@@ -31,7 +31,7 @@ const fetchAlphaExpansion = async (alpha) => {
     logoUrl:     alpha.logoUrl  || null,
     marketCap:   alpha.marketCap || 0,
     forceRefresh,
-  }, { timeout: 12000 })
+  }, { timeout: 45000 })  // 45s — handles Render cold start (free tier spins down)
 
   // Track locally for re-entry detection
   try {
