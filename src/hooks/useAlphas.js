@@ -25,9 +25,23 @@ const saveToHistory = (alphas) => {
       const prevPeak = prev?.peakMarketCap || 0
       // Cap % change before storing — bonding curve artifacts can show >100000%
       const safePriceChange = Math.min(Math.max(parseFloat(alpha.priceChange24h) || 0, -100), 5000)
-      // If this is fresh bonded data, always trust it over stale pumpfun_pre snapshot.
-      // This kills the $36K frozen bonding price that sticks after migration.
       const isFreshBonded = alpha.source === 'pumpfun_bonded'
+
+      // Guard: if we already have a verified DEXScreener price (priceRefreshedAt set,
+      // mcap > 80K) and incoming data looks like a bonding-curve snapshot (mcap ≤ 80K,
+      // priceChange24h = 0), keep the good data. PumpFun's API actively corrupts prices
+      // on every feed cycle for graduated tokens whose pool lookup returned no mcap.
+      const incomingLooksStale = (alpha.marketCap || 0) <= 80_000 && safePriceChange === 0
+      const haveGoodPrice = prev?.priceRefreshedAt && (prev.marketCap || 0) > 80_000
+      if (incomingLooksStale && haveGoodPrice) {
+        // Only update lastSeen — keep all price fields from the verified refresh
+        existing[alpha.address] = {
+          ...existing[alpha.address],
+          lastSeen: now,
+        }
+        return
+      }
+
       existing[alpha.address] = {
         ...alpha,
         priceChange24h:  safePriceChange,
@@ -682,12 +696,19 @@ const refreshHistoricalPrices = async () => {
     const existing = JSON.parse(localStorage.getItem(STORAGE_KEY) || '{}')
     const now      = Date.now()
 
-    // Only refresh tokens that are old enough to be historical but not expired
-    // Skip tokens seen within the last 2 minutes — they just got updated by main feed
+    // Refresh two categories:
+    // 1. Historical tokens (not seen in 2+ min) — standard refresh
+    // 2. ANY token stuck at bonding-curve mcap (≤80K + priceChange24h=0)
+    //    regardless of lastSeen — these are actively corrupted every cycle
+    //    by fetchPumpFunBonded writing stale PumpFun API data on every fetch
     const toRefresh = Object.values(existing).filter(a => {
       if (!a.address) return false
       const age = now - (a.lastSeen || 0)
-      return age > 2 * 60 * 1000 && age < HISTORY_MAX_AGE_MS
+      const isHistorical = age > 2 * 60 * 1000 && age < HISTORY_MAX_AGE_MS
+      const isStuckAtBonding = (a.marketCap || 0) <= 80_000 &&
+        parseFloat(a.priceChange24h || 0) === 0 &&
+        a.source !== 'pumpfun_pre'  // pre-grad tokens legitimately have no real price
+      return isHistorical || isStuckAtBonding
     })
 
     if (toRefresh.length === 0) return
