@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useRef } from 'react'
 import axios from 'axios'
 import LEGENDS, { LEGEND_CRITERIA, checkLegendCriteria } from '../data/historical_alphas'
 
@@ -862,9 +862,11 @@ const useAlphas = () => {
   const [error,             setError]             = useState(null)
   const [lastUpdated,       setLastUpdated]       = useState(null)
 
+  const liveAlphasRef = useRef([])
+
   const fetchLive = useCallback(async () => {
     // First load → show skeletons. Subsequent → silent refresh, keep existing list visible
-    const isFirstLoad = liveAlphas.length === 0
+    const isFirstLoad = liveAlphasRef.current.length === 0
     if (isFirstLoad) setLoading(true)
     else             setIsRefreshing(true)
     setError(null)
@@ -939,7 +941,22 @@ const useAlphas = () => {
       ]
 
       // Sort Live by momentum, Cooling by biggest drop first
-      const sortedLive = allLive
+      // Before sorting, patch any live runner stuck at bonding-curve price.
+      // These tokens are in the live feed but fetchPumpFunBonded returned
+      // null mcap from DEXScreener — read their refreshed price from localStorage.
+      const storedAlphas = JSON.parse(localStorage.getItem(STORAGE_KEY) || '{}')
+      const patchedLive = allLive.map(a => {
+        const stored = storedAlphas[a.address]
+        const isStuck = (a.marketCap || 0) <= 80_000 && parseFloat(a.priceChange24h || 0) === 0
+        const hasGoodStored = stored?.priceRefreshedAt && (stored.marketCap || 0) > 80_000
+        if (isStuck && hasGoodStored) {
+          console.log(`[AlphaRefresh] Patching $${a.symbol}: $${a.marketCap?.toLocaleString()} → $${stored.marketCap?.toLocaleString()}`)
+          return { ...a, ...stored, momentumScore: undefined }
+        }
+        return a
+      })
+
+      const sortedLive = patchedLive
         .map(a => ({ ...a, momentumScore: getMomentumScore(a) }))
         .sort((a, b) => b.momentumScore - a.momentumScore)
         .slice(0, 100)
@@ -953,6 +970,7 @@ const useAlphas = () => {
       }
 
       setLiveAlphas(sortedLive)
+      liveAlphasRef.current = sortedLive
       setCoolingAlphas(sortedCooling)
       setPositioningAlphas(loadPositioningPlays())
       setLastUpdated(new Date())
@@ -963,7 +981,7 @@ const useAlphas = () => {
       setLoading(false)
       setIsRefreshing(false)
     }
-  }, [liveAlphas.length])
+  }, [])  // No state dependencies — uses ref for first-load check to prevent infinite loop
 
   useEffect(() => {
     // Load from storage immediately before first fetch completes
