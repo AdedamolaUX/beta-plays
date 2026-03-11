@@ -59,8 +59,17 @@ const loadStoredBetas = (alphaAddress) => {
     const store = JSON.parse(localStorage.getItem(BETA_STORE_KEY) || '{}')
     const bucket = store[alphaAddress] || []
     const now = Date.now()
-    // Filter out expired betas
-    return bucket.filter(b => (now - (b.storedAt || 0)) < BETA_TTL_MS)
+    // Filter expired + recompute dexUrl from token address every load
+    // Pair addresses go stale when pools migrate (PumpFun → PumpSwap).
+    // Token address is permanent — DEXScreener routes to the active pool.
+    return bucket
+      .filter(b => (now - (b.storedAt || 0)) < BETA_TTL_MS)
+      .map(b => ({
+        ...b,
+        dexUrl: b.address
+          ? `https://dexscreener.com/solana/${b.address}`
+          : b.dexUrl,
+      }))
   } catch { return [] }
 }
 
@@ -532,7 +541,9 @@ const formatBeta = (pair, sources = []) => {
     ageLabel, ageMs,
     signalSources:  sources,
     tokenClass:     null,
-    dexUrl:         pair.url || `https://dexscreener.com/solana/${pair.pairAddress}`,
+    // Use TOKEN address not pair address — pairs change when pools migrate (PumpFun → PumpSwap etc)
+    // Token address is permanent; DEXScreener always routes to the active pool
+    dexUrl:         `https://dexscreener.com/solana/${pair.baseToken?.address || pair.pairAddress}`,
   }
 }
 
@@ -845,9 +856,30 @@ const useBetas = (alpha, parentAlpha = null) => {
           const mergedAddrs  = new Set(merged.map(b => b.address))
           const alphaAddress = enrichedAlpha.address
 
-          // Filter: exclude the current alpha itself, exclude already-found betas
+          // Filter: exclude the current alpha itself, exclude already-found betas,
+          // and exclude tokens with NO corroborating signal beyond 'sibling'.
+          // Pure sibling-only = found by scanning parent's namespace with no
+          // direct link to the alpha — too weak to show, causes noise like $Ajinomoto.
+          // A sibling must have at least one of: keyword, morphology, lore, description,
+          // pumpfun, lp_pair as an additional signal to be included.
+          const SIBLING_CORROBORATION = new Set(['keyword','morphology','lore','description','pumpfun','lp_pair'])
           siblingResults = sibMerged
-            .filter(b => b.address !== alphaAddress && !mergedAddrs.has(b.address))
+            .filter(b => {
+              if (b.address === alphaAddress) return false
+              if (mergedAddrs.has(b.address)) return false
+              const sources = b.signalSources || []
+              const hasCorroboration = sources.some(s => SIBLING_CORROBORATION.has(s))
+              if (!hasCorroboration) {
+                console.log(`[Siblings] Filtered noise $${b.symbol} — sibling-only, no corroborating signal`)
+              }
+              return hasCorroboration
+            })
+            .map(b => ({
+              ...b,
+              signalSources: [...new Set([...(b.signalSources || []), 'sibling'])],
+              isSibling:     true,
+              siblingOf:     parentAlpha.symbol,
+            }))
             .map(b => ({
               ...b,
               signalSources: [...new Set([...(b.signalSources || []), 'sibling'])],

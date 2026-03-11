@@ -256,7 +256,12 @@ Generate search terms for finding tokens that were CONSCIOUSLY created in respon
 Think about these relationship types:
 - TWIN: specific synonyms ($HOUSECOIN → shelter, crib, dwelling — NOT "home" which is too generic)
 - SECTOR: named peers in same space ($CLAUDE → cursor, devin, copilot — actual product names)
-- COUNTER: specific opposites ($EMPLOYED → fired, layoff, broke — NOT "poor" which is too broad)
+- COUNTER: the DIRECT OPPOSITE concept — this is critical and often missed
+  * $WAR → peace, truce, ceasefire, armistice, pacifist
+  * $BEAR → bull (the market pair)
+  * $DARK → light, bright, glow
+  * $CHAOS → order, calm, control
+  * For ANY single-concept token, always generate its direct antonym as a COUNTER term
 - ECHO: specific narrative consequences ($HOUSECOIN → eviction, foreclosure — NOT "money")
 - UNIVERSE: named characters/places from same fictional world ($NARUTO → sasuke, kakashi, itachi)
 - EVIL_TWIN: dark variant keywords (dark, evil, cursed, corrupt + the core subject)
