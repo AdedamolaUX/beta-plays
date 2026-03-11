@@ -92,9 +92,53 @@ const callBackend = async (prompt) => {
 const sleep = (ms) => new Promise(resolve => setTimeout(resolve, ms))
 const BATCH_DELAY_MS = 2500
 
+// ─── Process one batch and return results + scores ───────────────
+const processBatch = async (alpha, batch, batchNum, relationshipHints) => {
+  const prompt  = buildClassificationPrompt(alpha, batch, relationshipHints)
+  const results = await callBackend(prompt)
+
+  const classified      = []
+  const rejectedInBatch = []
+
+  // Log ALL scores for tuning — not just passing ones
+  console.log(`[Vector8] Batch ${batchNum} scores for $${alpha.symbol}:`)
+  results.forEach(r => {
+    const candidate = batch[r.index]
+    if (!candidate) return
+    const pass = r.score >= MIN_SCORE
+    console.log(
+      `  ${pass ? '✅' : '❌'} $${candidate.symbol} — score: ${r.score} | type: ${r.relationshipType} | ${r.reason}`
+    )
+    if (pass) {
+      classified.push({
+        ...candidate,
+        aiScore:          r.score,
+        relationshipType: r.relationshipType || 'SPIN',
+        aiReason:         r.reason,
+        signalSources:    [...(candidate.signalSources || []), 'ai_match'],
+      })
+    } else {
+      rejectedInBatch.push(candidate.address)
+    }
+  })
+
+  // Any candidate not mentioned in results = AI skipped it = treat as rejected
+  const mentionedIndices = new Set(results.map(r => r.index))
+  batch.forEach((c, i) => {
+    if (!mentionedIndices.has(i)) {
+      console.log(`  ⚠️  $${c.symbol} — not scored by AI (skipped)`)
+      rejectedInBatch.push(c.address)
+    }
+  })
+
+  return { classified, rejectedInBatch }
+}
+
 // ─── Main classification function ────────────────────────────────
+// Returns { results, rejectedAddresses } — caller uses rejectedAddresses
+// to remove confirmed-noise tokens from the beta list.
 export const classifyRelationships = async (alpha, candidates, relationshipHints = {}) => {
-  if (!alpha || !candidates?.length) return []
+  if (!alpha || !candidates?.length) return { results: [], rejectedAddresses: new Set() }
 
   const cacheKey = getCacheKey(
     alpha.address,
@@ -103,13 +147,14 @@ export const classifyRelationships = async (alpha, candidates, relationshipHints
 
   const cached = classifyCache.get(cacheKey)
   if (cached && Date.now() - cached.timestamp < CACHE_TTL_MS) {
-    console.log(`[Vector8] Cache hit for $${alpha.symbol} — ${cached.results.length} classified`)
-    return cached.results
+    console.log(`[Vector8] Cache hit for $${alpha.symbol} — ${cached.results.length} classified, ${cached.rejectedAddresses.size} rejected`)
+    return { results: cached.results, rejectedAddresses: cached.rejectedAddresses }
   }
 
   console.log(`[Vector8] Classifying ${candidates.length} candidates for $${alpha.symbol}...`)
 
-  const allClassified = []
+  const allClassified      = []
+  const allRejectedAddrs   = new Set()
 
   for (let i = 0; i < candidates.length; i += BATCH_SIZE) {
     const batch    = candidates.slice(i, i + BATCH_SIZE)
@@ -121,56 +166,36 @@ export const classifyRelationships = async (alpha, candidates, relationshipHints
     }
 
     try {
-      const prompt  = buildClassificationPrompt(alpha, batch, relationshipHints)
-      const results = await callBackend(prompt)
-
-      results
-        .filter(r => r.score >= MIN_SCORE)
-        .forEach(r => {
-          allClassified.push({
-            ...batch[r.index],
-            aiScore:          r.score,
-            relationshipType: r.relationshipType || 'SPIN',
-            aiReason:         r.reason,
-            signalSources:    [...(batch[r.index].signalSources || []), 'ai_match'],
-          })
-        })
+      const { classified, rejectedInBatch } = await processBatch(alpha, batch, batchNum, relationshipHints)
+      allClassified.push(...classified)
+      rejectedInBatch.forEach(addr => allRejectedAddrs.add(addr))
     } catch (err) {
       if (err.message?.includes('429') || err.message?.includes('rate')) {
         console.warn(`[Vector8] Rate limited on batch ${batchNum} — backing off 10s`)
         await sleep(10000)
         try {
-          const prompt  = buildClassificationPrompt(alpha, batch, relationshipHints)
-          const results = await callBackend(prompt)
-          results
-            .filter(r => r.score >= MIN_SCORE)
-            .forEach(r => {
-              allClassified.push({
-                ...batch[r.index],
-                aiScore:          r.score,
-                relationshipType: r.relationshipType || 'SPIN',
-                aiReason:         r.reason,
-                signalSources:    [...(batch[r.index].signalSources || []), 'ai_match'],
-              })
-            })
+          const { classified, rejectedInBatch } = await processBatch(alpha, batch, batchNum, relationshipHints)
+          allClassified.push(...classified)
+          rejectedInBatch.forEach(addr => allRejectedAddrs.add(addr))
         } catch (retryErr) {
           console.warn(`[Vector8] Retry failed for batch ${batchNum}:`, retryErr.message)
+          // Batch failed entirely — don't add to rejected (we simply don't know)
         }
       } else {
         console.warn(`[Vector8] Batch ${batchNum} failed:`, err.message)
+        // Batch failed entirely — don't add to rejected (we simply don't know)
       }
     }
   }
 
   const sorted = allClassified.sort((a, b) => b.aiScore - a.aiScore)
-  classifyCache.set(cacheKey, { results: sorted, timestamp: Date.now() })
-  console.log(`[Vector8] ${sorted.length} classified betas for $${alpha.symbol}`)
+  classifyCache.set(cacheKey, { results: sorted, rejectedAddresses: allRejectedAddrs, timestamp: Date.now() })
+  console.log(`[Vector8] $${alpha.symbol} — ✅ ${sorted.length} confirmed, ❌ ${allRejectedAddrs.size} rejected`)
 
-  return sorted
+  return { results: sorted, rejectedAddresses: allRejectedAddrs }
 }
 
 // ─── Backward compat alias ────────────────────────────────────────
-// Legacy calls still work — classification is strictly better than scoring
 export const scoreWithAI = (alpha, candidates) =>
   classifyRelationships(alpha, candidates, {})
 

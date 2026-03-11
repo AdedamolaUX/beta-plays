@@ -440,6 +440,74 @@ export const getSignal = (beta) => {
   return                                                                { label: 'WEAK',     tier: 0 }
 }
 
+// ─── Beta Ranking System ─────────────────────────────────────────
+// Two dimensions: Signal Confidence × Relationship Strength
+// Plus convergence bonus (multiple signals) and recency factor.
+//
+// Signal Tiers:
+//   T5 = lp_pair (structural, on-chain proof)
+//   T4 = morphology, keyword (creator consciously referenced alpha)
+//   T3 = description, lore, ai_match ≥ 0.75 (strong contextual)
+//   T2 = pumpfun, ai_match 0.45–0.74, sibling (weak/unverified)
+//   T1 = fallback
+//
+// Relationship Tiers:
+//   R4 = TWIN, EVIL_TWIN (direct derivative)
+//   R3 = UNIVERSE, COUNTER (narrative family)
+//   R2 = ECHO, SECTOR (narrative consequence)
+//   R1 = SPIN, unclassified
+
+const SIGNAL_TIER_MAP = {
+  lp_pair:     5,
+  morphology:  4,
+  keyword:     4,
+  description: 3,
+  lore:        3,
+  pumpfun:     2,
+  sibling:     2,
+}
+
+const RELATIONSHIP_TIER_MAP = {
+  TWIN:      4,
+  EVIL_TWIN: 4,
+  UNIVERSE:  3,
+  COUNTER:   3,
+  ECHO:      2,
+  SECTOR:    2,
+  SPIN:      1,
+}
+
+export const computeBetaRank = (beta) => {
+  const sources = beta.signalSources || []
+
+  // Signal tier: highest among all sources
+  let signalTier = 1
+  sources.forEach(s => {
+    if (s === 'ai_match') {
+      // ai_match tier depends on score quality
+      const aiTier = (beta.aiScore || 0) >= 0.75 ? 3 : 2
+      signalTier = Math.max(signalTier, aiTier)
+    } else {
+      signalTier = Math.max(signalTier, SIGNAL_TIER_MAP[s] || 1)
+    }
+  })
+
+  // Relationship tier — default 1 (unclassified = SPIN-level)
+  const relTier = RELATIONSHIP_TIER_MAP[beta.relationshipType] || 1
+
+  // Convergence bonus: each extra unique signal source adds +0.5, max +1.5
+  // Exclude 'sibling' — it's a meta-tag, not a detection signal
+  const uniqueSources = new Set(sources.filter(s => s !== 'sibling')).size
+  const convergenceBonus = Math.min((uniqueSources - 1) * 0.5, 1.5)
+
+  // Recency factor: fresh betas (≤7 days) are more relevant
+  const ageMs = beta.ageMs || (beta.pairCreatedAt ? Date.now() - beta.pairCreatedAt : null)
+  const recencyFactor = ageMs && ageMs < 7 * 24 * 60 * 60 * 1000 ? 1.2 : 1.0
+
+  const rank = signalTier * relTier * (1 + convergenceBonus) * recencyFactor
+  return Math.round(rank * 10) / 10
+}
+
 // ─── Format pair → beta ──────────────────────────────────────────
 const formatBeta = (pair, sources = []) => {
   const ageMs    = pair.pairCreatedAt ? Date.now() - pair.pairCreatedAt : null
@@ -658,13 +726,14 @@ const mergeAndScore = (rawResults, alphaSymbol, alphaMcap) => {
     .filter(b => !['SOL','USDC','USDT'].includes(b.symbol))
 
   return classifyTokens(deduped)
-    .map(b => ({ ...b, mcapRatio: getMcapRatio(alphaMcap, b.marketCap) }))
+    .map(b => ({ ...b, mcapRatio: getMcapRatio(alphaMcap, b.marketCap), betaRank: computeBetaRank(b) }))
     .sort((a, b) => {
-      // LP pair betas always float to top regardless of % change
+      // LP pair always floats to top — structural ground truth
       const aIsLP = a.signalSources?.includes('lp_pair') ? 1 : 0
       const bIsLP = b.signalSources?.includes('lp_pair') ? 1 : 0
       if (bIsLP !== aIsLP) return bIsLP - aIsLP
-      return (parseFloat(b.priceChange24h) || 0) - (parseFloat(a.priceChange24h) || 0)
+      // Otherwise sort by rank — signal confidence × relationship strength
+      return b.betaRank - a.betaRank
     })
     .slice(0, 30)
 }
@@ -810,36 +879,59 @@ const useBetas = (alpha, parentAlpha = null) => {
       setBetas(mergedWithSiblings)
 
       try {
-        const aiScored = await classifyRelationships(enrichedAlpha, mergedWithSiblings, relationshipHints)
-        if (aiScored.length > 0) {
-          // Merge AI scores into mergedWithSiblings — NOT merged —
-          // so siblings are preserved after AI scoring runs
-          const aiAddresses = new Map(aiScored.map(b => [b.address, b]))
-          const withAI = mergedWithSiblings.map(b => {
-            if (!aiAddresses.has(b.address)) return b
-            const aiData = aiAddresses.get(b.address)
-            return {
-              ...b,
-              ...aiData,
-              // Preserve non-null relationshipType — never overwrite with undefined
-              relationshipType: aiData.relationshipType || b.relationshipType || null,
-            }
+        const { results: aiScored, rejectedAddresses } =
+          await classifyRelationships(enrichedAlpha, mergedWithSiblings, relationshipHints)
+
+        // ── Merge AI classifications into list ─────────────────────
+        const aiAddresses = new Map(aiScored.map(b => [b.address, b]))
+
+        const withAI = mergedWithSiblings.map(b => {
+          if (!aiAddresses.has(b.address)) return b
+          const aiData = aiAddresses.get(b.address)
+          return {
+            ...b,
+            ...aiData,
+            relationshipType: aiData.relationshipType || b.relationshipType || null,
+          }
+        })
+
+        // Add any new betas found only by AI (rare but possible)
+        const existingAddresses = new Set(mergedWithSiblings.map(b => b.address))
+        const aiOnly = aiScored.filter(b => !existingAddresses.has(b.address))
+        const withAIAndNew = [...withAI, ...aiOnly]
+
+        // ── Remove confirmed noise ─────────────────────────────────
+        // Only remove tokens that Vector 8 explicitly evaluated AND rejected.
+        // LP_PAIR tokens are exempt — structural signal trumps AI opinion.
+        // Tokens from failed batches are NOT in rejectedAddresses, so they stay.
+        const filtered = withAIAndNew.filter(b => {
+          if (b.signalSources?.includes('lp_pair')) return true  // never remove LP pairs
+          if (rejectedAddresses.has(b.address)) {
+            console.log(`[Vector8] 🗑️  Removed $${b.symbol} — scored below threshold`)
+            return false
+          }
+          return true
+        })
+
+        // ── Recompute ranks now that relationshipType is set ───────
+        const reranked = filtered.map(b => ({ ...b, betaRank: computeBetaRank(b) }))
+
+        // ── Final sort: LP_PAIR → rank → recency ──────────────────
+        const finalList = reranked
+          .sort((a, b) => {
+            const aIsLP = a.signalSources?.includes('lp_pair') ? 1 : 0
+            const bIsLP = b.signalSources?.includes('lp_pair') ? 1 : 0
+            if (bIsLP !== aIsLP) return bIsLP - aIsLP
+            return b.betaRank - a.betaRank
           })
-          // Add any new betas found only by AI
-          const existingAddresses = new Set(mergedWithSiblings.map(b => b.address))
-          const aiOnly = aiScored.filter(b => !existingAddresses.has(b.address))
+          .slice(0, 40)
 
-          const finalList = [...withAI, ...aiOnly]
-            .sort((a, b) => {
-              const aIsLP = a.signalSources?.includes('lp_pair') ? 1 : 0
-              const bIsLP = b.signalSources?.includes('lp_pair') ? 1 : 0
-              if (bIsLP !== aIsLP) return bIsLP - aIsLP
-              return (parseFloat(b.priceChange24h) || 0) - (parseFloat(a.priceChange24h) || 0)
-            })
-            .slice(0, 40)
+        console.log(`[Ranking] $${enrichedAlpha.symbol} final list: ${finalList.length} betas`)
+        finalList.forEach(b => {
+          console.log(`  rank:${b.betaRank} | $${b.symbol} | ${b.relationshipType || 'unclassified'} | signals:[${(b.signalSources||[]).join(',')}]`)
+        })
 
-          setBetas(finalList)
-        }
+        setBetas(finalList)
       } catch (aiErr) {
         console.warn('[Vector8] AI scoring failed:', aiErr.message)
       }

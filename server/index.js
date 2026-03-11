@@ -246,36 +246,40 @@ const buildExpansionPrompt = (alpha) => {
     alpha.description ? `Description: ${alpha.description}` : null,
   ].filter(Boolean).join('\n')
 
-  return `You are analyzing a Solana meme token to find related beta tokens.
+  return `You are analyzing a Solana meme token to find SPECIFIC derivative/beta tokens on DEXScreener.
 
 ALPHA TOKEN:
 ${context}
 
-Generate search terms for finding derivative/beta tokens on DEXScreener.
+Generate search terms for finding tokens that were CONSCIOUSLY created in response to this alpha.
 
-Think about ALL of these relationship types:
-- TWIN: synonyms and equivalents ($HOUSECOIN → shelter, crib, home, dwelling)
-- SECTOR: same industry peers ($CLAUDE → cursor, copilot, gemini, devin)
-- COUNTER: conceptual opposites ($EMPLOYED → jobless, fired, layoff)
-- ECHO: narrative consequences ($HOUSECOIN → eviction, foreclosure, mortgage)
-- UNIVERSE: same fictional/cultural world ($NARUTO → sasuke, kakashi, konoha)
-- EVIL_TWIN: dark/inverted variant ($SHIBA → darkshiba, evil twin)
+Think about these relationship types:
+- TWIN: specific synonyms ($HOUSECOIN → shelter, crib, dwelling — NOT "home" which is too generic)
+- SECTOR: named peers in same space ($CLAUDE → cursor, devin, copilot — actual product names)
+- COUNTER: specific opposites ($EMPLOYED → fired, layoff, broke — NOT "poor" which is too broad)
+- ECHO: specific narrative consequences ($HOUSECOIN → eviction, foreclosure — NOT "money")
+- UNIVERSE: named characters/places from same fictional world ($NARUTO → sasuke, kakashi, itachi)
+- EVIL_TWIN: dark variant keywords (dark, evil, cursed, corrupt + the core subject)
 
-Rules:
-- Return 6-10 high-value terms only
-- Single words or max 2-word phrases
-- Focus on terms a token creator would actually use as a ticker or name
-- Skip generic crypto words (moon, pump, degen, etc.)
+STRICT RULES — violating these wastes quota:
+- NO generic words: chain, coin, token, green, blue, red, crypto, solana, degen, moon, pump, based
+- NO body parts, colors, or emotions unless they are THE defining feature of this specific token
+- NO words already in the token's symbol or name
+- ONLY terms specific enough that a token creator would use them as a ticker
+- Return 5-8 terms maximum — precision over volume
+
+BAD example for $DOGCHAIN: ["dog","chain","crypto","token","coin"] — all generic, useless
+GOOD example for $DOGCHAIN: ["leash","collar","kennel","breed","dogcatcher"] — specific to dog+chain narrative
 
 Respond ONLY with valid JSON. No explanation, no markdown:
 {
-  "searchTerms": ["shelter","eviction","landlord","crib","mortgage"],
+  "searchTerms": ["shelter","eviction","landlord","crib","foreclosure"],
   "relationshipHints": {
     "shelter": "TWIN",
     "eviction": "ECHO",
     "landlord": "COUNTER",
     "crib": "TWIN",
-    "mortgage": "SECTOR"
+    "foreclosure": "ECHO"
   }
 }`
 }
