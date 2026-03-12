@@ -26,7 +26,7 @@ const getCacheKey = (alphaAddress, betaAddresses) =>
 // ─── Classification prompt ────────────────────────────────────────
 const buildClassificationPrompt = (alpha, candidates, relationshipHints = {}) => {
   const alphaContext = [
-    `Symbol: $${alpha.symbol}`,
+    `Symbol: ${alpha.symbol}`,  // No $ prefix — it's display-only, not a semantic signal
     alpha.name        ? `Name: ${alpha.name}`               : null,
     alpha.description ? `Description: ${alpha.description}` : null,
   ].filter(Boolean).join('\n')
@@ -41,7 +41,7 @@ const buildClassificationPrompt = (alpha, candidates, relationshipHints = {}) =>
     : ''
 
   const candidateList = candidates.map((c, i) => [
-    `[${i}] $${c.symbol}`,
+    `[${i}] ${c.symbol}`,  // No $ prefix
     c.name        ? `    Name: ${c.name}`               : null,
     c.description ? `    Description: ${c.description}` : null,
   ].filter(Boolean).join('\n')).join('\n\n')
@@ -72,6 +72,12 @@ Scoring guide:
   0.45–0.59: Weak but possible — include with SPIN
   0.0–0.44: Unrelated — exclude
 
+INVALID REASONING — these are NOT connections, always score 0.1 or below:
+- "Both are cryptocurrencies / meme tokens / Solana tokens" — true of everything here, meaningless
+- "Both reference monetary concepts / dollar signs / financial value" — the symbol prefix is a display convention shared by ALL tokens, it carries zero thematic meaning
+- "Both have similar market caps / price action" — market data is not a narrative connection
+- "Both relate to currency/money/wealth" — only valid if the ALPHA's actual theme is explicitly about money (e.g. alpha is named GOLD or WEALTH)
+
 Respond ONLY with a JSON array. No explanation, no markdown:
 [{"index":0,"score":0.92,"relationshipType":"TWIN","reason":"Direct synonym for house/shelter"},{"index":1,"score":0.2,"relationshipType":"SPIN","reason":"Unrelated"}]`
 }
@@ -97,6 +103,28 @@ const processBatch = async (alpha, batch, batchNum, relationshipHints) => {
   const prompt  = buildClassificationPrompt(alpha, batch, relationshipHints)
   const results = await callBackend(prompt)
 
+  // Context-aware hallucination filter.
+  // Monetary/financial reasons are only invalid when the alpha is NOT money-themed.
+  const MONEY_ALPHA_KEYWORDS = [
+    'gold','wealth','money','dollar','coin','cash','rich',
+    'finance','bank','fund','capital','treasury','yield','profit','buck','dough'
+  ]
+  const alphaIsMoneyThemed = MONEY_ALPHA_KEYWORDS.some(kw =>
+    alpha.symbol?.toLowerCase().includes(kw) ||
+    alpha.name?.toLowerCase().includes(kw)
+  )
+  const ALWAYS_INVALID = [
+    'dollar sign','both are crypto','both tokens are',
+    'cryptocurrency','meme token','solana token','similar concept'
+  ]
+  const MONETARY_IF_NOT_THEMED = ['monetary','dollar','currency','financial']
+  const isHallucination = (reason = '') => {
+    const lower = reason.toLowerCase()
+    if (ALWAYS_INVALID.some(p => lower.includes(p))) return true
+    if (!alphaIsMoneyThemed && MONETARY_IF_NOT_THEMED.some(p => lower.includes(p))) return true
+    return false
+  }
+
   const classified      = []
   const rejectedInBatch = []
 
@@ -105,7 +133,10 @@ const processBatch = async (alpha, batch, batchNum, relationshipHints) => {
   results.forEach(r => {
     const candidate = batch[r.index]
     if (!candidate) return
-    const pass = r.score >= MIN_SCORE
+    const pass = r.score >= MIN_SCORE && !isHallucination(r.reason)
+    if (!pass && r.score >= MIN_SCORE) {
+      console.log(`  🚫 $${candidate.symbol} — blocked hallucination: "${r.reason}"`)
+    }
     console.log(
       `  ${pass ? '✅' : '❌'} $${candidate.symbol} — score: ${r.score} | type: ${r.relationshipType} | ${r.reason}`
     )
