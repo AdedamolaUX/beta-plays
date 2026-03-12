@@ -1,6 +1,7 @@
 // ─── BetaPlays Backend ────────────────────────────────────────────
 // Endpoints:
 //   POST /api/score-betas      — Vector 8 AI scoring via Groq (Llama 3.3 70B)
+//                                Fallback chain: 70b → scout-17b → 8b → OpenRouter
 //   POST /api/categorize-szn   — Narrative categorization via Groq
 //   POST /api/analyze-vision   — Logo analysis via Gemini Flash
 //   GET  /api/birdeye          — Birdeye data proxy
@@ -8,6 +9,8 @@
 //   GET  /health               — uptime check
 //
 // Keys live ONLY in server/.env — never in the frontend.
+// Required: GROQ_API_KEY, GEMINI_API_KEY
+// Optional: OPENROUTER_API_KEY (free at openrouter.ai — used as final fallback for Vector 8)
 
 const express   = require('express')
 const cors      = require('cors')
@@ -426,21 +429,22 @@ app.post('/api/score-betas', async (req, res) => {
 
     const SYSTEM = 'You are a crypto analyst. Always respond with valid JSON only — no explanation, no markdown fences.'
 
-    // Fallback chain: 70b (best quality) → scout-17b (separate quota) → 8b-instant (last resort)
-    // Each model has its own TPD quota so hitting 70b limit doesn't kill Vector 8 entirely.
-    const MODELS = [
-      'llama-3.3-70b-versatile',
-      'meta-llama/llama-4-scout-17b-16e-instruct',
-      'llama-3.1-8b-instant',
+    // ── Groq fallback chain (separate TPD quota per model) ────────
+    const GROQ_KEY = process.env.GROQ_API_KEY
+    const GROQ_MODELS = [
+      'llama-3.3-70b-versatile',               // 100K TPD — best quality
+      'meta-llama/llama-4-scout-17b-16e-instruct', // separate quota
+      'llama-3.1-8b-instant',                  // 500K TPD — last Groq resort
     ]
 
-    let lastErr = null
-    for (const model of MODELS) {
-      try {
-        const messages = []
-        if (SYSTEM) messages.push({ role: 'system', content: SYSTEM })
-        messages.push({ role: 'user', content: prompt })
+    const messages = [
+      { role: 'system', content: SYSTEM },
+      { role: 'user',   content: prompt },
+    ]
 
+    // Try each Groq model in order
+    for (const model of GROQ_MODELS) {
+      try {
         const response = await fetch('https://api.groq.com/openai/v1/chat/completions', {
           method: 'POST',
           headers: {
@@ -449,36 +453,76 @@ app.post('/api/score-betas', async (req, res) => {
           },
           body: JSON.stringify({ model, max_tokens: 1000, temperature: 0.1, messages }),
         })
-
         if (!response.ok) {
           const errText = await response.text()
-          // 429 = quota/rate limit — try next model
           if (response.status === 429) {
-            console.warn(`[Vector8] ${model} quota hit — trying next model`)
-            lastErr = new Error(`${model} 429: ${errText}`)
+            console.warn(`[Vector8] ${model} quota hit — trying next`)
             continue
           }
           throw new Error(`Groq error ${response.status}: ${errText}`)
         }
-
-        const data  = await response.json()
-        const text  = data.choices?.[0]?.message?.content || ''
-        const clean = text.replace(/```json|```/g, '').trim()
+        const data   = await response.json()
+        const text   = data.choices?.[0]?.message?.content || ''
+        const clean  = text.replace(/```json|```/g, '').trim()
         const result = JSON.parse(clean)
-        if (model !== MODELS[0]) console.log(`[Vector8] Used fallback model: ${model}`)
+        if (model !== GROQ_MODELS[0]) console.log(`[Vector8] Groq fallback used: ${model}`)
         return res.json(result)
-      } catch (modelErr) {
-        if (modelErr.message?.includes('429')) {
-          lastErr = modelErr
-          continue
-        }
-        throw modelErr  // Non-quota error — don't retry
+      } catch (err) {
+        if (err.message?.includes('429')) { continue }
+        throw err
       }
     }
 
+    // ── OpenRouter fallback (free tier, 200 req/day, 27 free models) ─
+    // Uses same OpenAI-compatible format — no code changes needed.
+    // Free models rotate automatically if one is overloaded.
+    // Get key free at openrouter.ai — add OPENROUTER_KEY to server/.env
+    const OR_KEY = process.env.OPENROUTER_API_KEY
+    if (OR_KEY) {
+      const OR_MODELS = [
+        'meta-llama/llama-3.3-70b-instruct:free',  // same quality as Groq 70b
+        'deepseek/deepseek-r1:free',                // strong reasoning
+        'google/gemini-2.0-flash-exp:free',         // Google's model, generous quota
+      ]
+      for (const model of OR_MODELS) {
+        try {
+          const response = await fetch('https://openrouter.ai/api/v1/chat/completions', {
+            method: 'POST',
+            headers: {
+              'Content-Type':  'application/json',
+              'Authorization': `Bearer ${OR_KEY}`,
+              'HTTP-Referer':  'https://betaplays.app',  // required by OpenRouter
+              'X-Title':       'BetaPlays',
+            },
+            body: JSON.stringify({ model, max_tokens: 1000, temperature: 0.1, messages }),
+          })
+          if (!response.ok) {
+            const errText = await response.text()
+            if (response.status === 429) {
+              console.warn(`[Vector8] OpenRouter ${model} quota hit — trying next`)
+              continue
+            }
+            throw new Error(`OpenRouter error ${response.status}: ${errText}`)
+          }
+          const data   = await response.json()
+          const text   = data.choices?.[0]?.message?.content || ''
+          const clean  = text.replace(/```json|```/g, '').trim()
+          const result = JSON.parse(clean)
+          console.log(`[Vector8] OpenRouter fallback used: ${model}`)
+          return res.json(result)
+        } catch (err) {
+          if (err.message?.includes('429')) { continue }
+          throw err
+        }
+      }
+    } else {
+      console.warn('[Vector8] OPENROUTER_API_KEY not set — skipping OpenRouter fallback')
+    }
+
     // All models exhausted
-    console.error('[Vector8] All models quota-exhausted:', lastErr?.message)
-    res.status(429).json({ error: 'All models quota exhausted. Try again after midnight UTC.' })
+    console.error('[Vector8] All models quota-exhausted for today')
+    res.status(429).json({ error: 'All AI models quota exhausted. Resets at midnight UTC.' })
+
   } catch (err) {
     console.error('Score error:', err.message)
     res.status(500).json({ error: err.message })
@@ -623,11 +667,67 @@ Respond ONLY with a JSON array. No explanation, no markdown. Example:
   {"index":2,"category":null,"newNarrative":null}
 ]`
 
-    const result = await callGroq(
-      prompt,
-      'You are a crypto analyst. Always respond with valid JSON only — no explanation, no markdown fences.'
-    )
-    res.json(result)
+    const GROQ_KEY = process.env.GROQ_API_KEY
+    const OR_KEY   = process.env.OPENROUTER_API_KEY
+    const SYSTEM   = 'You are a crypto analyst. Always respond with valid JSON only — no explanation, no markdown fences.'
+    const messages = [
+      { role: 'system', content: SYSTEM },
+      { role: 'user',   content: prompt },
+    ]
+
+    // Same fallback chain as score-betas
+    const GROQ_MODELS = [
+      'llama-3.3-70b-versatile',
+      'meta-llama/llama-4-scout-17b-16e-instruct',
+      'llama-3.1-8b-instant',
+    ]
+    const OR_MODELS = [
+      'meta-llama/llama-3.3-70b-instruct:free',
+      'deepseek/deepseek-r1:free',
+      'google/gemini-2.0-flash-exp:free',
+    ]
+
+    const tryModel = async (url, key, model, extraHeaders = {}) => {
+      const response = await fetch(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${key}`, ...extraHeaders },
+        body: JSON.stringify({ model, max_tokens: 1000, temperature: 0.1, messages }),
+      })
+      if (!response.ok) {
+        const errText = await response.text()
+        throw new Error(`${response.status}:${errText}`)
+      }
+      const data  = await response.json()
+      const text  = data.choices?.[0]?.message?.content || ''
+      const clean = text.replace(/```json|```/g, '').trim()
+      return JSON.parse(clean)
+    }
+
+    for (const model of GROQ_MODELS) {
+      try {
+        const result = await tryModel('https://api.groq.com/openai/v1/chat/completions', GROQ_KEY, model)
+        return res.json(result)
+      } catch (err) {
+        if (err.message?.startsWith('429')) { console.warn(`[SznAI] ${model} quota hit`); continue }
+        throw err
+      }
+    }
+
+    if (OR_KEY) {
+      const OR_HEADERS = { 'HTTP-Referer': 'https://betaplays.app', 'X-Title': 'BetaPlays' }
+      for (const model of OR_MODELS) {
+        try {
+          const result = await tryModel('https://openrouter.ai/api/v1/chat/completions', OR_KEY, model, OR_HEADERS)
+          console.log(`[SznAI] OpenRouter fallback used: ${model}`)
+          return res.json(result)
+        } catch (err) {
+          if (err.message?.startsWith('429')) { console.warn(`[SznAI] OpenRouter ${model} quota hit`); continue }
+          throw err
+        }
+      }
+    }
+
+    res.status(429).json({ error: 'All AI models quota exhausted. Resets at midnight UTC.' })
   } catch (err) {
     console.error('Categorize error:', err.message)
     res.status(500).json({ error: err.message })
