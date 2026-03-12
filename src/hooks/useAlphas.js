@@ -894,6 +894,56 @@ const useAlphas = () => {
         ...(newPairs.status  === 'fulfilled' ? newPairs.value  : []),
       ])
 
+      // ── Immediate bonding-price fix for freshly migrated tokens ──
+      // Tokens like $Reggae arrive in freshRaw at exactly $35K (the graduation
+      // threshold) with 0% change. refreshHistoricalPrices can't help them
+      // because they're not in localStorage yet. patchedLive can't help because
+      // priceRefreshedAt isn't stamped yet. We fix them HERE, before saveToHistory,
+      // so they enter the system with the correct post-migration price from the start.
+      const freshBonded = freshRaw.filter(a =>
+        (a.marketCap || 0) <= 80_000 &&
+        parseFloat(a.priceChange24h || 0) === 0 &&
+        a.source !== 'pumpfun_pre'
+      )
+      if (freshBonded.length > 0) {
+        try {
+          const addrs = freshBonded.map(a => a.address).join(',')
+          const res   = await axios.get(
+            `${DEXSCREENER_BASE}/latest/dex/tokens/${addrs}`,
+            { timeout: 10000 }
+          )
+          const bestPair = {}
+          ;(res.data?.pairs || [])
+            .filter(p => p.chainId === 'solana')
+            .forEach(p => {
+              const addr = p.baseToken?.address
+              if (!addr) return
+              const prev = bestPair[addr]
+              if (!prev || (p.volume?.h24 || 0) > (prev.volume?.h24 || 0)) bestPair[addr] = p
+            })
+          freshBonded.forEach(token => {
+            const pair = bestPair[token.address]
+            if (!pair) return
+            const idx = freshRaw.findIndex(a => a.address === token.address)
+            if (idx === -1) return
+            const realMcap   = pair.marketCap || pair.fdv || token.marketCap
+            const realChange = Math.min(Math.max(parseFloat(pair.priceChange?.h24 || 0), -100), 5000)
+            freshRaw[idx] = {
+              ...freshRaw[idx],
+              priceUsd:        pair.priceUsd || token.priceUsd,
+              priceChange24h:  realChange,
+              volume24h:       pair.volume?.h24    || token.volume24h,
+              marketCap:       realMcap,
+              liquidity:       pair.liquidity?.usd  || token.liquidity,
+              priceRefreshedAt: Date.now(),
+            }
+            console.log(`[FreshRefresh] $${token.symbol}: $${token.marketCap?.toLocaleString()} → $${realMcap?.toLocaleString()} | 24h: ${realChange}%`)
+          })
+        } catch (err) {
+          console.warn('[FreshRefresh] Failed (non-fatal):', err.message)
+        }
+      }
+
       // Save everything to localStorage before classifying
       saveToHistory(freshRaw)
 
