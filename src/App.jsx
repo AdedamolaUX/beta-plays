@@ -328,7 +328,7 @@ const AlphaCard = ({ alpha, isSelected, onClick, isWatched, onToggleWatch }) => 
   // Read parent symbol from localStorage map — written by useParentAlpha
   // when a parent is detected. Allows the card to show "DERIV of $TRUMP"
   // without needing to fetch parent data at card render time.
-  const parentSymbol = React.useMemo(() => {
+  const parentSymbol = useMemo(() => {
     if (!derivative || !alpha.address) return null
     try {
       const map = JSON.parse(localStorage.getItem('betaplays_parent_map') || '{}')
@@ -1767,7 +1767,8 @@ const BetaPanel = ({ alpha, onListBeta, onOpenDrawer }) => {
               <span>Signal</span>
             </div>
 
-            {betasLoading && (
+            {/* Skeletons only when loading AND no stored betas to show yet */}
+            {betasLoading && filteredBetas.length === 0 && (
               <>
                 <div className="skeleton loading-row" />
                 <div className="skeleton loading-row" />
@@ -1784,7 +1785,8 @@ const BetaPanel = ({ alpha, onListBeta, onOpenDrawer }) => {
               </div>
             )}
 
-            {!betasLoading && filteredBetas.map((beta, i) => (
+            {/* Show betas whenever available — even while loading is still true */}
+            {filteredBetas.map((beta, i) => (
               <BetaRow
                 key={beta.id || i}
                 beta={beta}
