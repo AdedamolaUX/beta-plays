@@ -87,6 +87,12 @@ const loadHistoricalByPriceAction = (currentAddresses) => {
       const volume      = a.volume24h || 0
       const mcap        = a.marketCap || 0
 
+      // Always recompute dexUrl from token address — pair addresses go stale
+      // when tokens migrate from Pump.fun → PumpSwap. Token address is permanent.
+      if (a.address) {
+        a = { ...a, dexUrl: `https://dexscreener.com/solana/${a.address}` }
+      }
+
       // Skip if still in current feed (already classified fresh)
       if (inFeed) return
       // Skip if too old
@@ -555,7 +561,9 @@ const fetchNewPairs = async () => {
         isCooling:      false,
         coolingLabel:   null,
         source:         'dex_new',
-        dexUrl:         best.url || `https://dexscreener.com/solana/${best.pairAddress}`,
+        dexUrl:         best.baseToken?.address
+          ? `https://dexscreener.com/solana/${best.baseToken.address}`
+          : (best.url || `https://dexscreener.com/solana/${best.pairAddress}`),
       })
     })
 
@@ -902,10 +910,28 @@ const useAlphas = () => {
           loadHistoricalByPriceAction(currentAddresses)
         const freshHistLiveAddrs = new Set(freshHistLive.map(a => a.address))
         const freshHistCoolAddrs = new Set(freshHistCool.map(a => a.address))
+
+        // Patch live tokens stuck at bonding price — refreshHistoricalPrices just
+        // wrote their real prices to localStorage so now we can read them.
+        // This is the fix for $WIZCLI/$lmeow stuck at $35K in the sidebar:
+        // they're LIVE (not historical) so loadHistoricalByPriceAction skips them,
+        // but refreshHistoricalPrices now targets them via isStuckAtBonding flag.
+        const freshStored = JSON.parse(localStorage.getItem(STORAGE_KEY) || '{}')
+
         setLiveAlphas(prev => {
-          const freshAddrs = new Set(prev.filter(a => !a.isHistorical).map(a => a.address))
+          const patched = prev.map(a => {
+            const isStuck = (a.marketCap || 0) <= 80_000 && parseFloat(a.priceChange24h || 0) === 0
+            const stored  = freshStored[a.address]
+            const hasGood = stored?.priceRefreshedAt && (stored.marketCap || 0) > 80_000
+            if (isStuck && hasGood) {
+              console.log(`[AlphaRefresh] ✅ $${a.symbol}: $${(a.marketCap||0).toLocaleString()} → $${(stored.marketCap||0).toLocaleString()} | 24h: ${stored.priceChange24h}%`)
+              return { ...a, ...stored, momentumScore: getMomentumScore({ ...a, ...stored }) }
+            }
+            return a
+          })
+          const freshAddrs = new Set(patched.filter(a => !a.isHistorical).map(a => a.address))
           return [
-            ...prev.filter(a => !a.isHistorical),
+            ...patched.filter(a => !a.isHistorical),
             ...freshHistLive.filter(a => !freshAddrs.has(a.address)),
           ].sort((a, b) => (b.momentumScore || 0) - (a.momentumScore || 0)).slice(0, 100)
         })
