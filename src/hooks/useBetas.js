@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useRef } from 'react'
 import axios from 'axios'
 import { getSearchTerms, getConcepts, generateTickerVariants } from '../data/lore_map'
 import classifyRelationships from './useAIBetaScoring'
@@ -951,6 +951,10 @@ const useBetas = (alpha, parentAlpha = null) => {
   const [betas,   setBetas]   = useState([])
   const [loading, setLoading] = useState(false)
   const [error,   setError]   = useState(null)
+  // Race condition guard — each fetch gets a unique ID.
+  // If alpha changes mid-fetch, the old fetch sees its ID is stale and
+  // discards its results instead of overwriting the new alpha's betas.
+  const fetchIdRef = useRef(0)
 
   // Preload stored betas on alpha change — this fires synchronously before
   // fetchBetas starts any async work, guaranteeing stored betas are visible
@@ -966,6 +970,12 @@ const useBetas = (alpha, parentAlpha = null) => {
 
   const fetchBetas = useCallback(async () => {
     if (!alpha) { setBetas([]); return }
+
+    // ── Race condition guard ──────────────────────────────────────
+    // Increment the fetch ID for this run. Any previous fetch still
+    // in-flight will see its ID no longer matches and discard results.
+    const myFetchId = ++fetchIdRef.current
+    const isStale = () => fetchIdRef.current !== myFetchId
 
     // ── Show stored betas instantly before any async work ────────
     // The preload useEffect fires in the same tick as fetchBetas, but
@@ -1082,16 +1092,60 @@ const useBetas = (alpha, parentAlpha = null) => {
           const alphaAddress = enrichedAlpha.address
 
           // Filter: exclude the current alpha itself, exclude already-found betas,
+          // exclude tokens that are themselves live alphas (independent runners
+          // should never appear as siblings — $mogging/$joy/$distorted case),
           // and exclude tokens with NO corroborating signal beyond 'sibling'.
-          // Pure sibling-only = found by scanning parent's namespace with no
-          // direct link to the alpha — too weak to show, causes noise like $Ajinomoto.
-          // A sibling must have at least one of: keyword, morphology, lore, description,
-          // pumpfun, lp_pair as an additional signal to be included.
           const SIBLING_CORROBORATION = new Set(['keyword','morphology','og_match','lore','description','pumpfun','lp_pair'])
+
+          // Read known alpha addresses from localStorage — alphas are independent
+          // runners and must never be classified as siblings of each other.
+          let knownAlphaAddresses = new Set()
+          try {
+            const seenAlphas = JSON.parse(localStorage.getItem('betaplays_seen_alphas') || '{}')
+            knownAlphaAddresses = new Set(Object.keys(seenAlphas))
+          } catch {}
+
+          // Read parent map to do two-way confirmation:
+          // A true sibling must share the SAME confirmed parent as the current alpha.
+          // "Found near the parent's namespace" is not enough — that's just proximity.
+          // $mogging (no parent) and $joy (parent: $AI Joy) are NOT siblings even if
+          // the keyword scan finds them together.
+          let parentMap = {}
+          try {
+            parentMap = JSON.parse(localStorage.getItem('betaplays_parent_map') || '{}')
+          } catch {}
+          const currentParentAddress = parentAlpha.address
+
           siblingResults = sibMerged
             .filter(b => {
               if (b.address === alphaAddress) return false
               if (mergedAddrs.has(b.address)) return false
+              // Live alphas are excluded as siblings UNLESS they share the
+              // same confirmed parent as the current alpha — in that case they
+              // are genuine co-derivatives and degens need to see the relationship.
+              // e.g. $PIPPIKO and $MEANPIPPIN both running, both children of $PIPPIN
+              // → true siblings. $mogging and $joy both running, different parents
+              // → not siblings, exclude.
+              if (knownAlphaAddresses.has(b.address)) {
+                const candidateParent = parentMap[b.address]
+                const isConfirmedCoDerivative = candidateParent?.address === currentParentAddress
+                if (!isConfirmedCoDerivative) {
+                  console.log(`[Siblings] Filtered $${b.symbol} — live alpha, unconfirmed co-derivative`)
+                  return false
+                }
+                console.log(`[Siblings] Kept $${b.symbol} — live alpha but confirmed co-derivative of $${parentAlpha.symbol}`)
+              }
+              // Two-way parent confirmation — candidate must share the same
+              // confirmed parent address as the current alpha.
+              // If we have no parent map entry for this candidate, we cannot
+              // confirm siblinghood — exclude it to avoid false positives.
+              const candidateParent = parentMap[b.address]
+              if (candidateParent && candidateParent.address !== currentParentAddress) {
+                console.log(`[Siblings] Filtered $${b.symbol} — different parent ($${candidateParent.symbol} vs $${parentAlpha.symbol})`)
+                return false
+              }
+              // If candidate has no parent map entry at all, it is unconfirmed —
+              // only allow through if it has strong corroboration (not just proximity)
               const sources = b.signalSources || []
               const hasCorroboration = sources.some(s => SIBLING_CORROBORATION.has(s))
               if (!hasCorroboration) {
@@ -1133,7 +1187,7 @@ const useBetas = (alpha, parentAlpha = null) => {
       // narrative context, not just symbol + name. Candidates also carry
       // .description where available (PumpFun devs often name their alpha
       // directly in the description, e.g. "the dog version of $PIPPIN").
-      setBetas(mergedWithSiblings)
+      if (!isStale()) setBetas(mergedWithSiblings)
 
       try {
         const { results: aiScored, rejectedAddresses } =
@@ -1188,7 +1242,7 @@ const useBetas = (alpha, parentAlpha = null) => {
           console.log(`  rank:${b.betaRank} | $${b.symbol} | ${b.relationshipType || 'unclassified'} | signals:[${(b.signalSources||[]).join(',')}]`)
         })
 
-        setBetas(finalList)
+        if (!isStale()) setBetas(finalList)
       } catch (aiErr) {
         console.warn('[Vector8] AI scoring failed:', aiErr.message)
       }
@@ -1245,21 +1299,25 @@ const useBetas = (alpha, parentAlpha = null) => {
       // update — this preserves AI scoring and visual matches.
       // Merge with any stored historical betas and save back.
       if (alpha?.address) {
-        setBetas(prev => {
-          const stored   = loadStoredBetas(alpha.address)
-          const fullList = mergeBetas(prev, stored)
-          saveStoredBetas(alpha.address, fullList)
-          if (fullList.length === 0) setError('No beta plays detected yet. Trenches might be cooked.')
-          return fullList.length > 0 ? fullList : prev  // never blank if prev had results
-        })
+        // Save to localStorage regardless of stale — persisting data is always safe
+        const stored   = loadStoredBetas(alpha.address)
+        const fullList = mergeBetas(betas, stored)
+        saveStoredBetas(alpha.address, fullList)
+        if (!isStale()) {
+          setBetas(prev => {
+            const merged2 = mergeBetas(prev, stored)
+            if (merged2.length === 0) setError('No beta plays detected yet. Trenches might be cooked.')
+            return merged2.length > 0 ? merged2 : prev
+          })
+        }
       } else {
-        if (merged.length === 0) setError('No beta plays detected yet. Trenches might be cooked.')
+        if (!isStale() && merged.length === 0) setError('No beta plays detected yet. Trenches might be cooked.')
       }
     } catch (err) {
       console.error('Beta detection failed:', err)
-      setError('Detection engine error. Try refreshing.')
+      if (!isStale()) setError('Detection engine error. Try refreshing.')
     } finally {
-      setLoading(false)
+      if (!isStale()) setLoading(false)
     }
   }, [alpha?.id, parentAlpha?.id])
 
