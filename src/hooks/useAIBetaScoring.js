@@ -26,7 +26,7 @@ const getCacheKey = (alphaAddress, betaAddresses) =>
 // ─── Classification prompt ────────────────────────────────────────
 const buildClassificationPrompt = (alpha, candidates, relationshipHints = {}) => {
   const alphaContext = [
-    `Symbol: ${alpha.symbol}`,  // No $ prefix — it's display-only, not a semantic signal
+    `Symbol: ${alpha.symbol}`,  // No $ prefix — display convention only, not a semantic signal
     alpha.name        ? `Name: ${alpha.name}`               : null,
     alpha.description ? `Description: ${alpha.description}` : null,
   ].filter(Boolean).join('\n')
@@ -62,8 +62,20 @@ For each candidate:
    ECHO      = narrative consequence or continuation
    UNIVERSE  = same fictional/cultural world
    SECTOR    = same industry/space peer
-   EVIL_TWIN = dark, inverted, or evil variant of the alpha
+   EVIL_TWIN = dark, inverted, or evil variant of the alpha — ONLY classify as EVIL_TWIN
+               if the description or branding explicitly shows dark/evil/destructive intent.
+               Never infer EVIL_TWIN from an ambiguous name alone. If the description is
+               neutral or positive, it is NOT an EVIL_TWIN regardless of what the name
+               could theoretically imply. Example: "Seal Club" + "Welcome to the Happy
+               Seal Club" = TWIN or UNIVERSE, NOT EVIL_TWIN. "Dark Shiba" + "the evil
+               version of Shiba" = EVIL_TWIN.
    SPIN      = general derivative with weaker connection
+
+CRITICAL RULE — Description overrides name inference:
+Always read the token description before classifying. If the description contradicts
+a dark or negative interpretation of the name, the description wins. A friendly or
+neutral description means the token is NOT a COUNTER or EVIL_TWIN, even if the name
+could theoretically imply opposition or harm.
 3. One-sentence reason
 
 Scoring guide:
@@ -76,7 +88,7 @@ INVALID REASONING — these are NOT connections, always score 0.1 or below:
 - "Both are cryptocurrencies / meme tokens / Solana tokens" — true of everything here, meaningless
 - "Both reference monetary concepts / dollar signs / financial value" — the symbol prefix is a display convention shared by ALL tokens, it carries zero thematic meaning
 - "Both have similar market caps / price action" — market data is not a narrative connection
-- "Both relate to currency/money/wealth" — only valid if the ALPHA's actual theme is explicitly about money (e.g. alpha is named GOLD or WEALTH)
+- "Both relate to currency/money/wealth" — only valid if the ALPHA's actual theme is explicitly about money
 
 Respond ONLY with a JSON array. No explanation, no markdown:
 [{"index":0,"score":0.92,"relationshipType":"TWIN","reason":"Direct synonym for house/shelter"},{"index":1,"score":0.2,"relationshipType":"SPIN","reason":"Unrelated"}]`
@@ -103,8 +115,7 @@ const processBatch = async (alpha, batch, batchNum, relationshipHints) => {
   const prompt  = buildClassificationPrompt(alpha, batch, relationshipHints)
   const results = await callBackend(prompt)
 
-  // Context-aware hallucination filter.
-  // Monetary/financial reasons are only invalid when the alpha is NOT money-themed.
+  // Context-aware hallucination filter
   const MONEY_ALPHA_KEYWORDS = [
     'gold','wealth','money','dollar','coin','cash','rich',
     'finance','bank','fund','capital','treasury','yield','profit','buck','dough'

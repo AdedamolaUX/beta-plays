@@ -184,7 +184,7 @@ const refreshBetaPrices = async (betas) => {
           dexUrl:         `https://dexscreener.com/solana/${b.address}`,
           priceRefreshedAt: Date.now(),
         })
-        console.log(`[BetaRefresh] ✅ $${b.symbol}: mcap $${b.marketCap?.toLocaleString()} → $${(pair.marketCap || pair.fdv || 0).toLocaleString()} | 24h: ${pair.priceChange?.h24}%`)
+        console.log(`[BetaRefresh] ✅ $${b.symbol}: mcap $${b.marketCap?.toLocaleString()} → $${(pair.marketCap || pair.fdv || 0).toLocaleString()} | 24h: ${pair.priceChange?.h24 ?? 0}%`)
       })
 
       if (i + PRICE_REFRESH_BATCH < stale.length) {

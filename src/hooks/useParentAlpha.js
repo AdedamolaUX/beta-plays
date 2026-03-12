@@ -278,7 +278,12 @@ const useParentAlpha = (alpha) => {
             // Description queries need only 0.30 base sim to qualify
             // Symbol-pattern queries need 0.65 to prevent garbage winning
             const minBase     = boost > 0 ? 0.30 : 0.65
-            const totalScore  = baseSim + boost
+            // Mcap tiebreaker: among equal-score candidates, prefer the one
+            // with higher market cap. This prevents low-cap impersonators
+            // (e.g. $5K fake GIGACHAD) from beating the real one ($5M+).
+            // Max boost is +0.05 so it only decides ties, never overrides sim.
+            const mcapBoost   = Math.min((p.marketCap || p.fdv || 0) / 200_000_000, 0.05)
+            const totalScore  = baseSim + boost + mcapBoost
 
             if (baseSim >= minBase && totalScore > bestScore) {
               bestScore = totalScore
