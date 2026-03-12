@@ -536,7 +536,11 @@ export const getSignal = (beta) => {
   if (s.includes('ai_match')   && s.includes('og_match'))        return { label: 'CABAL',    tier: 5 }
   if (s.includes('pumpfun')    && s.includes('keyword'))         return { label: 'CABAL',    tier: 4 }
   if (s.includes('morphology') && s.includes('keyword'))         return { label: 'CABAL',    tier: 4 }
+  if (s.includes('desc_match') && s.includes('keyword'))          return { label: 'CABAL',    tier: 5 }
+  if (s.includes('desc_match') && s.includes('ai_match'))         return { label: 'CABAL',    tier: 5 }
+  if (s.includes('desc_match') && s.includes('morphology'))       return { label: 'CABAL',    tier: 5 }
   if (s.includes('description')&& s.includes('keyword'))         return { label: 'CABAL',    tier: 4 }
+  if (s.includes('desc_match'))                                   return { label: 'NAMED',    tier: 4 }
   if (s.includes('og_match'))                                    return { label: 'OG',       tier: 4 }
   if (s.includes('pumpfun'))                                     return { label: 'TRENDING', tier: 3 }
   if (s.includes('ai_match'))                                    return { label: 'AI',       tier: 3 }
@@ -569,6 +573,7 @@ const SIGNAL_TIER_MAP = {
   og_match:    4,  // exact same ticker — highest non-structural signal
   morphology:  4,
   keyword:     4,
+  desc_match:  4,  // beta's own description explicitly references alpha narrative
   description: 3,
   lore:        3,
   pumpfun:     2,
@@ -644,6 +649,76 @@ const formatBeta = (pair, sources = []) => {
     // Token address is permanent; DEXScreener always routes to the active pool
     dexUrl:         `https://dexscreener.com/solana/${pair.baseToken?.address || pair.pairAddress}`,
   }
+}
+
+// ─── Signal 9: Vector 9 — Bidirectional Description Match ──────
+// Checks each beta candidate's OWN description for:
+//   1. Explicit alpha symbol/name reference ("the dog version of $PIPPIN")
+//   2. Keyword overlap with alpha's narrative keywords
+//
+// This is the only signal sourced from the BETA side — all other signals
+// are sourced by searching for things related to the ALPHA.
+// No API calls. No AI quota. Pure text matching.
+//
+// ⚠️ NOTE ON NUMBERING: Vector numbers are signal identities, not execution order.
+// Actual execution order: 1 → 1b → 2 → 3 → 4 → 5 → 6 → sibling scan → 9 → 8
+// Vector 9 runs BEFORE Vector 8 (AI) despite lower number — it pre-enriches
+// candidates with desc_match so Vector 8 classifies with more confidence.
+// Vector 8 runs last because it is the most expensive signal (AI quota).
+//
+// Returns: array of { address, matchType, matchedTerms }
+const scoreDescriptionMatch = (betas, alphaSymbol, alphaName, alphaKeywords) => {
+  if (!betas?.length) return []
+
+  // Build alpha reference set: symbol variants + name words + keywords
+  const alphaRefs = new Set([
+    alphaSymbol.toLowerCase(),
+    alphaName.toLowerCase(),
+    ...(alphaKeywords || []).map(k => k.toLowerCase()),
+  ])
+
+  // Also check for $ prefixed symbol mentions (devs often write "$PIPPIN")
+  const dollarSymbol = `$${alphaSymbol.toLowerCase()}`
+
+  const matches = []
+  betas.forEach(b => {
+    const desc = (b.description || '').toLowerCase()
+    if (!desc || desc.length < 5) return
+
+    const matchedTerms = []
+
+    // Check 1: explicit alpha symbol/name in description (strongest)
+    // e.g. "the dog version of $PIPPIN" or "sister token to TRUMP"
+    if (desc.includes(dollarSymbol)) {
+      matchedTerms.push(dollarSymbol)
+    } else if (desc.includes(alphaSymbol.toLowerCase()) && alphaSymbol.length >= 3) {
+      matchedTerms.push(alphaSymbol.toLowerCase())
+    } else if (alphaName.length >= 4 && desc.includes(alphaName.toLowerCase())) {
+      matchedTerms.push(alphaName.toLowerCase())
+    }
+
+    // Check 2: keyword overlap — at least 2 alpha keywords found in description
+    // Requiring 2+ prevents single common-word false positives
+    const keywordHits = (alphaKeywords || [])
+      .filter(k => k.length >= 4 && desc.includes(k.toLowerCase()))
+    if (keywordHits.length >= 2) {
+      keywordHits.forEach(k => matchedTerms.push(k))
+    }
+
+    if (matchedTerms.length > 0) {
+      const isExplicit = matchedTerms.some(t =>
+        t === dollarSymbol ||
+        t === alphaSymbol.toLowerCase() ||
+        t === alphaName.toLowerCase()
+      )
+      matches.push({
+        address:     b.address,
+        matchType:   isExplicit ? 'explicit' : 'keyword_overlap',
+        matchedTerms: [...new Set(matchedTerms)],
+      })
+    }
+  })
+  return matches
 }
 
 // ─── Signal 1: Keyword + compound decomposition ──────────────────
@@ -954,17 +1029,19 @@ const useBetas = (alpha, parentAlpha = null) => {
   // Race condition guard — each fetch gets a unique ID.
   // If alpha changes mid-fetch, the old fetch sees its ID is stale and
   // discards its results instead of overwriting the new alpha's betas.
-  const fetchIdRef = useRef(0)
+  const fetchIdRef    = useRef(0)
+  const lastAlphaRef  = useRef(null)  // tracks which alpha is currently displayed
 
-  // Preload stored betas on alpha change — this fires synchronously before
-  // fetchBetas starts any async work, guaranteeing stored betas are visible
-  // immediately with zero blank-panel delay.
+  // Clear betas immediately when switching to a NEW alpha — never show
+  // Token A's betas while Token B is loading. Only preload stored betas
+  // when RE-selecting the same alpha (e.g. clicking it again after navigating away).
   useEffect(() => {
-    if (!alpha?.address) { setBetas([]); return }
-    const stored = loadStoredBetas(alpha.address)
-    if (stored.length > 0) {
-      setBetas(stored)
-      console.log(`[BetaStore] Preloaded ${stored.length} stored betas for $${alpha.symbol}`)
+    if (!alpha?.address) { setBetas([]); lastAlphaRef.current = null; return }
+    const isSameAlpha = lastAlphaRef.current === alpha.address
+    if (!isSameAlpha) {
+      // New alpha — clear immediately so no stale betas flash on screen
+      setBetas([])
+      lastAlphaRef.current = alpha.address
     }
   }, [alpha?.address])
 
@@ -972,27 +1049,28 @@ const useBetas = (alpha, parentAlpha = null) => {
     if (!alpha) { setBetas([]); return }
 
     // ── Race condition guard ──────────────────────────────────────
-    // Increment the fetch ID for this run. Any previous fetch still
-    // in-flight will see its ID no longer matches and discard results.
     const myFetchId = ++fetchIdRef.current
     const isStale = () => fetchIdRef.current !== myFetchId
 
-    // ── Show stored betas instantly before any async work ────────
-    // The preload useEffect fires in the same tick as fetchBetas, but
-    // React may batch renders causing a blank flash. Loading stored betas
-    // here too guarantees they are set before setLoading(true) triggers
-    // the first re-render — zero blank panel on alpha selection.
-    const storedNow = loadStoredBetas(alpha.address)
-    if (storedNow.length > 0) setBetas(storedNow)
+    // ── Preload stored betas only for re-selection of same alpha ──
+    // For a new alpha we start blank (cleared by the effect above).
+    // For a re-selected alpha, show stored betas instantly so the panel
+    // isn't empty while the fresh fetch runs.
+    const isSameAlpha = lastAlphaRef.current === alpha.address
+    const storedNow   = isSameAlpha ? loadStoredBetas(alpha.address) : []
+    if (storedNow.length > 0) {
+      setBetas(storedNow)
+      console.log(`[BetaStore] Re-selected $${alpha.symbol} — showing ${storedNow.length} stored betas`)
+    }
+    lastAlphaRef.current = alpha.address
 
     setLoading(true)
     setError(null)
 
-    // Silently refresh stored prices in background while fetch runs
+    // Silently refresh stored prices in background while fresh fetch runs
     if (storedNow.length > 0) {
       refreshBetaPrices(storedNow).then(refreshed => {
         saveStoredBetas(alpha.address, refreshed)
-        // Only update UI with refreshed prices if no fresh fetch has landed yet
         setBetas(prev => {
           const hasFreshData = prev.some(b => !b.isHistorical)
           return hasFreshData ? prev : refreshed
@@ -1095,7 +1173,7 @@ const useBetas = (alpha, parentAlpha = null) => {
           // exclude tokens that are themselves live alphas (independent runners
           // should never appear as siblings — $mogging/$joy/$distorted case),
           // and exclude tokens with NO corroborating signal beyond 'sibling'.
-          const SIBLING_CORROBORATION = new Set(['keyword','morphology','og_match','lore','description','pumpfun','lp_pair'])
+          const SIBLING_CORROBORATION = new Set(['keyword','morphology','og_match','lore','description','desc_match','pumpfun','lp_pair'])
 
           // Read known alpha addresses from localStorage — alphas are independent
           // runners and must never be classified as siblings of each other.
@@ -1182,21 +1260,56 @@ const useBetas = (alpha, parentAlpha = null) => {
         })
         .slice(0, 40)
 
+      // ── Signal 9: Vector 9 — Bidirectional Description Match ─────
+      // Scan each candidate's OWN description for alpha references and
+      // keyword overlap. Zero API calls — pure text match on data we
+      // already have. Runs before Vector 8 so AI gets pre-enriched signals.
+      const descMatches = scoreDescriptionMatch(
+        mergedWithSiblings,
+        enrichedAlpha.symbol,
+        enrichedAlpha.name || '',
+        descKeywords
+      )
+      const descMatchMap = new Map(descMatches.map(m => [m.address, m]))
+
+      const mergedWithDesc = descMatches.length > 0
+        ? mergedWithSiblings.map(b => {
+            const match = descMatchMap.get(b.address)
+            if (!match) return b
+            console.log(
+              `[Vector9] $${b.symbol} desc_match (${match.matchType}): ` +
+              `"${match.matchedTerms.join(', ')}"`
+            )
+            return {
+              ...b,
+              signalSources: [...new Set([...(b.signalSources || []), 'desc_match'])],
+              descMatchType:  match.matchType,
+              descMatchTerms: match.matchedTerms,
+            }
+          })
+        : mergedWithSiblings
+
+      if (descMatches.length > 0) {
+        console.log(`[Vector9] ${descMatches.length} desc_match hits for $${enrichedAlpha.symbol}`)
+      }
+
       // ── Signal 6: Vector 8 AI scoring ───────────────────────────
+      // Runs LAST despite being "Vector 8" — numbers are identities not order.
+      // Receives candidates already enriched by Vector 9 (desc_match).
       // enrichedAlpha.description is now populated — Claude gets full
       // narrative context, not just symbol + name. Candidates also carry
       // .description where available (PumpFun devs often name their alpha
       // directly in the description, e.g. "the dog version of $PIPPIN").
-      if (!isStale()) setBetas(mergedWithSiblings)
+      if (!isStale()) setBetas(mergedWithDesc)
 
       try {
         const { results: aiScored, rejectedAddresses } =
-          await classifyRelationships(enrichedAlpha, mergedWithSiblings, relationshipHints)
+          await classifyRelationships(enrichedAlpha, mergedWithDesc, relationshipHints)
 
         // ── Merge AI classifications into list ─────────────────────
         const aiAddresses = new Map(aiScored.map(b => [b.address, b]))
 
-        const withAI = mergedWithSiblings.map(b => {
+        const withAI = mergedWithDesc.map(b => {
           if (!aiAddresses.has(b.address)) return b
           const aiData = aiAddresses.get(b.address)
           return {
@@ -1207,7 +1320,7 @@ const useBetas = (alpha, parentAlpha = null) => {
         })
 
         // Add any new betas found only by AI (rare but possible)
-        const existingAddresses = new Set(mergedWithSiblings.map(b => b.address))
+        const existingAddresses = new Set(mergedWithDesc.map(b => b.address))
         const aiOnly = aiScored.filter(b => !existingAddresses.has(b.address))
         const withAIAndNew = [...withAI, ...aiOnly]
 
