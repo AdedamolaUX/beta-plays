@@ -129,14 +129,21 @@ const mergeBetas = (fresh, stored) => {
 // accepts comma-separated addresses and returns all pairs in one call.
 
 const PRICE_REFRESH_BATCH = 30
+const PRICE_REFRESH_TTL   = 5 * 60 * 1000  // 5 minutes — after this, stored prices are stale
 
 const isStalePrice = (b) => {
   const sources = b.signalSources || []
-  const onlyPumpFun = sources.every(s => s === 'pumpfun')
-  const zeroPriceChange = parseFloat(b.priceChange24h) === 0
-  const bondingMcap = (b.marketCap || 0) <= 80_000
-  // Stale if: only came from pumpfun AND (no h24 change data OR stuck near bonding)
-  return onlyPumpFun || (zeroPriceChange && bondingMcap)
+  const onlyPumpFun      = sources.every(s => s === 'pumpfun')
+  const zeroPriceChange  = parseFloat(b.priceChange24h) === 0
+  const bondingMcap      = (b.marketCap || 0) <= 80_000
+
+  // Time-based staleness — any stored beta not refreshed in last 5 min
+  // gets a live price check. This is the main fix for frozen stored prices
+  // like $Claw showing $73K while DEXScreener shows $18K.
+  const lastRefresh      = b.priceRefreshedAt || b.storedAt || 0
+  const priceIsOld       = (Date.now() - lastRefresh) > PRICE_REFRESH_TTL
+
+  return onlyPumpFun || (zeroPriceChange && bondingMcap) || priceIsOld
 }
 
 const refreshBetaPrices = async (betas) => {
@@ -945,27 +952,43 @@ const useBetas = (alpha, parentAlpha = null) => {
   const [loading, setLoading] = useState(false)
   const [error,   setError]   = useState(null)
 
-  // Load stored betas immediately on alpha change so panel is never empty,
-  // then silently refresh their prices in the background
+  // Preload stored betas on alpha change — this fires synchronously before
+  // fetchBetas starts any async work, guaranteeing stored betas are visible
+  // immediately with zero blank-panel delay.
   useEffect(() => {
     if (!alpha?.address) { setBetas([]); return }
     const stored = loadStoredBetas(alpha.address)
     if (stored.length > 0) {
       setBetas(stored)
-      // Silently refresh stale prices in background — don't block the UI
-      refreshBetaPrices(stored).then(refreshed => {
-        setBetas(refreshed)
-        saveStoredBetas(alpha.address, refreshed)
-      }).catch(() => {})
-      console.log(`[BetaStore] Loaded ${stored.length} stored betas for $${alpha.symbol}`)
+      console.log(`[BetaStore] Preloaded ${stored.length} stored betas for $${alpha.symbol}`)
     }
   }, [alpha?.address])
 
   const fetchBetas = useCallback(async () => {
     if (!alpha) { setBetas([]); return }
+
+    // ── Show stored betas instantly before any async work ────────
+    // The preload useEffect fires in the same tick as fetchBetas, but
+    // React may batch renders causing a blank flash. Loading stored betas
+    // here too guarantees they are set before setLoading(true) triggers
+    // the first re-render — zero blank panel on alpha selection.
+    const storedNow = loadStoredBetas(alpha.address)
+    if (storedNow.length > 0) setBetas(storedNow)
+
     setLoading(true)
     setError(null)
-    // Note: don't clear betas here — keep stored visible while fetching
+
+    // Silently refresh stored prices in background while fetch runs
+    if (storedNow.length > 0) {
+      refreshBetaPrices(storedNow).then(refreshed => {
+        saveStoredBetas(alpha.address, refreshed)
+        // Only update UI with refreshed prices if no fresh fetch has landed yet
+        setBetas(prev => {
+          const hasFreshData = prev.some(b => !b.isHistorical)
+          return hasFreshData ? prev : refreshed
+        })
+      }).catch(() => {})
+    }
 
     try {
       // Fetch description keywords first — feeds into multiple signals
