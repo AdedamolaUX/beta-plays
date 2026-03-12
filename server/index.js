@@ -424,11 +424,61 @@ app.post('/api/score-betas', async (req, res) => {
     const { prompt } = req.body
     if (!prompt) return res.status(400).json({ error: 'prompt required' })
 
-    const result = await callGroq(
-      prompt,
-      'You are a crypto analyst. Always respond with valid JSON only — no explanation, no markdown fences.'
-    )
-    res.json(result)
+    const SYSTEM = 'You are a crypto analyst. Always respond with valid JSON only — no explanation, no markdown fences.'
+
+    // Fallback chain: 70b (best quality) → scout-17b (separate quota) → 8b-instant (last resort)
+    // Each model has its own TPD quota so hitting 70b limit doesn't kill Vector 8 entirely.
+    const MODELS = [
+      'llama-3.3-70b-versatile',
+      'meta-llama/llama-4-scout-17b-16e-instruct',
+      'llama-3.1-8b-instant',
+    ]
+
+    let lastErr = null
+    for (const model of MODELS) {
+      try {
+        const messages = []
+        if (SYSTEM) messages.push({ role: 'system', content: SYSTEM })
+        messages.push({ role: 'user', content: prompt })
+
+        const response = await fetch('https://api.groq.com/openai/v1/chat/completions', {
+          method: 'POST',
+          headers: {
+            'Content-Type':  'application/json',
+            'Authorization': `Bearer ${GROQ_KEY}`,
+          },
+          body: JSON.stringify({ model, max_tokens: 1000, temperature: 0.1, messages }),
+        })
+
+        if (!response.ok) {
+          const errText = await response.text()
+          // 429 = quota/rate limit — try next model
+          if (response.status === 429) {
+            console.warn(`[Vector8] ${model} quota hit — trying next model`)
+            lastErr = new Error(`${model} 429: ${errText}`)
+            continue
+          }
+          throw new Error(`Groq error ${response.status}: ${errText}`)
+        }
+
+        const data  = await response.json()
+        const text  = data.choices?.[0]?.message?.content || ''
+        const clean = text.replace(/```json|```/g, '').trim()
+        const result = JSON.parse(clean)
+        if (model !== MODELS[0]) console.log(`[Vector8] Used fallback model: ${model}`)
+        return res.json(result)
+      } catch (modelErr) {
+        if (modelErr.message?.includes('429')) {
+          lastErr = modelErr
+          continue
+        }
+        throw modelErr  // Non-quota error — don't retry
+      }
+    }
+
+    // All models exhausted
+    console.error('[Vector8] All models quota-exhausted:', lastErr?.message)
+    res.status(429).json({ error: 'All models quota exhausted. Try again after midnight UTC.' })
   } catch (err) {
     console.error('Score error:', err.message)
     res.status(500).json({ error: err.message })
