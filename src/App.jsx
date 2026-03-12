@@ -325,6 +325,17 @@ const AlphaCard = ({ alpha, isSelected, onClick, isWatched, onToggleWatch }) => 
   const isPositive = change >= 0
   const derivative = isDerivative(alpha.symbol)
 
+  // Read parent symbol from localStorage map — written by useParentAlpha
+  // when a parent is detected. Allows the card to show "DERIV of $TRUMP"
+  // without needing to fetch parent data at card render time.
+  const parentSymbol = React.useMemo(() => {
+    if (!derivative || !alpha.address) return null
+    try {
+      const map = JSON.parse(localStorage.getItem('betaplays_parent_map') || '{}')
+      return map[alpha.address]?.symbol || null
+    } catch { return null }
+  }, [derivative, alpha.address])
+
   const [showNomMenu, setShowNomMenu] = useState(false)
   const [menuPos,     setMenuPos]     = useState({ x: 0, y: 0 })
 
@@ -382,7 +393,9 @@ const AlphaCard = ({ alpha, isSelected, onClick, isWatched, onToggleWatch }) => 
             <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
               <div className="token-name">${alpha.symbol}</div>
               {derivative && (
-                <span className="badge badge-new" style={{ fontSize: 7, padding: '1px 5px' }}>DERIV</span>
+                <span className="badge badge-new" style={{ fontSize: 7, padding: '1px 5px' }}>
+                  DERIV{parentSymbol ? ` of $${parentSymbol}` : ''}
+                </span>
               )}
               {alpha.isLegend && (
                 <span className="badge badge-verified" style={{ fontSize: 7, padding: '1px 5px' }}>🏆 LEGEND</span>

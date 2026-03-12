@@ -16,6 +16,13 @@ const saveParentToHistory = (parent, derivative) => {
       coolingReason: `Parent of $${derivative.symbol}`,
     }
     localStorage.setItem(STORAGE_KEY, JSON.stringify(existing))
+
+    // Save derivative→parent map so the runner card can show "DERIV of $TRUMP"
+    // without needing to fetch parent data at card render time.
+    const parentMap = JSON.parse(localStorage.getItem('betaplays_parent_map') || '{}')
+    parentMap[derivative.address] = { symbol: parent.symbol, address: parent.address }
+    localStorage.setItem('betaplays_parent_map', JSON.stringify(parentMap))
+
     const change = parseFloat(parent.priceChange24h) || 0
     console.log(
       `[ParentDetected] $${parent.symbol} ${change >= 0 ? '→ Live' : '→ Cooling'} ` +
