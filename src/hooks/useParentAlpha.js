@@ -260,15 +260,40 @@ const useParentAlpha = (alpha) => {
             const cMcap = p.marketCap || p.fdv || 0
             const cLiq  = p.liquidity?.usd || 0
 
-            // Liquidity/mcap ratio guard — the only filter that reliably catches
-            // frozen, rugged, or artificially inflated tokens.
-            // $Dominance: $52M mcap / $19K liq = 0.036% → fails (untradeable)
-            // $TRUMP: $664M mcap / real liq = healthy % → passes
-            // A small legitimate parent ($500K mcap / $30K liq = 6%) also passes.
-            // We do NOT require parent mcap > runner mcap — derivatives regularly
-            // outperform their parents, and degens need to know the parent either way.
-            const liqRatio = cMcap > 0 ? cLiq / cMcap : 0
-            const hasHealthyRatio = liqRatio >= 0.001  // 0.1% minimum
+            // ── Dynamic liquidity health check ────────────────────
+            // A single fixed ratio fails at scale — 0.1% sounds fine but
+            // $6.5M mcap with $20K liq (0.3%) still passes while being
+            // clearly untradeable. Real liquidity requirements scale with mcap:
+            // larger tokens attract more capital so low liq = red flag.
+            //
+            // Tiers (minimum liq/mcap ratio required):
+            //   < $100K mcap  → 1.0% (small token, needs proportional liq)
+            //   $100K–$1M     → 2.0% (mid-small, active trading expected)
+            //   $1M–$10M      → 1.0% (mid cap, at least $10K–$100K liq)
+            //   $10M–$100M    → 0.5% (large, at least $50K–$500K liq)
+            //   > $100M       → 0.2% (mega cap, institutional liquidity norms)
+            //
+            // ALSO: absolute floor of $10K — no token with < $10K liq
+            // is a meaningful parent regardless of its mcap or ratio.
+            const getMinLiqRatio = (mcap) => {
+              if (mcap < 100_000)    return 0.010
+              if (mcap < 1_000_000)  return 0.020
+              if (mcap < 10_000_000) return 0.010
+              if (mcap < 100_000_000) return 0.005
+              return 0.002
+            }
+            const minRatio       = getMinLiqRatio(cMcap)
+            const liqRatio       = cMcap > 0 ? cLiq / cMcap : 0
+            const hasHealthyRatio = cLiq >= 10_000 && liqRatio >= minRatio
+
+            // Log rejections for debugging
+            if (cLiq > 0 && !hasHealthyRatio) {
+              console.log(
+                `[ParentFilter] Rejected $${p.baseToken?.symbol} — ` +
+                `liq $${Math.round(cLiq).toLocaleString()} / mcap $${Math.round(cMcap).toLocaleString()} ` +
+                `= ${(liqRatio * 100).toFixed(2)}% (need ${(minRatio * 100).toFixed(1)}%)`
+              )
+            }
 
             return (
               p.chainId === 'solana' &&
