@@ -249,16 +249,30 @@ const useParentAlpha = (alpha) => {
 
         pairs
           .filter(p => {
-            const cSym = p.baseToken?.symbol?.toUpperCase() || ''
+            const cSym  = p.baseToken?.symbol?.toUpperCase() || ''
+            const cMcap = p.marketCap || p.fdv || 0
+            const cLiq  = p.liquidity?.usd || 0
+
+            // Liquidity/mcap ratio guard — the only filter that reliably catches
+            // frozen, rugged, or artificially inflated tokens.
+            // $Dominance: $52M mcap / $19K liq = 0.036% → fails (untradeable)
+            // $TRUMP: $664M mcap / real liq = healthy % → passes
+            // A small legitimate parent ($500K mcap / $30K liq = 6%) also passes.
+            // We do NOT require parent mcap > runner mcap — derivatives regularly
+            // outperform their parents, and degens need to know the parent either way.
+            const liqRatio = cMcap > 0 ? cLiq / cMcap : 0
+            const hasHealthyRatio = liqRatio >= 0.001  // 0.1% minimum
+
             return (
               p.chainId === 'solana' &&
-              (p.marketCap || p.fdv || 0) > (alpha.marketCap || 0) * 0.5 &&
-              (p.liquidity?.usd || 0) > 5_000 &&
+              cMcap > (alpha.marketCap || 0) * 0.5 &&  // original guard kept
+              cLiq  > 5_000 &&                          // original floor kept
+              hasHealthyRatio &&
               p.baseToken?.address !== alpha.address &&
               cSym !== symbol &&
-              cSym.length >= 3 &&           // reject "00", "X", "AI" etc
-              !/^\d+$/.test(cSym) &&         // reject purely numeric symbols
-              !/^[^A-Z]+$/.test(cSym)        // must contain at least one letter
+              cSym.length >= 3 &&
+              !/^\d+$/.test(cSym) &&
+              !/^[^A-Z]+$/.test(cSym)
             )
           })
           .forEach(p => {
@@ -278,11 +292,11 @@ const useParentAlpha = (alpha) => {
             // Description queries need only 0.30 base sim to qualify
             // Symbol-pattern queries need 0.65 to prevent garbage winning
             const minBase     = boost > 0 ? 0.30 : 0.65
-            // Mcap tiebreaker: among equal-score candidates, prefer the one
-            // with higher market cap. This prevents low-cap impersonators
-            // (e.g. $5K fake GIGACHAD) from beating the real one ($5M+).
+            // Mcap tiebreaker: prefer the highest-mcap parent among equal similarity scores.
+            // Normalized against $1B — so $TRUMP at $664M scores +0.033,
+            // dominating any mid-tier token with similar name similarity.
             // Max boost is +0.05 so it only decides ties, never overrides sim.
-            const mcapBoost   = Math.min((p.marketCap || p.fdv || 0) / 200_000_000, 0.05)
+            const mcapBoost   = Math.min((p.marketCap || p.fdv || 0) / 1_000_000_000, 0.05)
             const totalScore  = baseSim + boost + mcapBoost
 
             if (baseSim >= minBase && totalScore > bestScore) {
