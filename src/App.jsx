@@ -21,9 +21,15 @@ const formatNum = (num) => {
 const formatPrice = (price) => {
   if (!price) return '—'
   const n = parseFloat(price)
-  if (n < 0.0001) return `$${n.toExponential(2)}`
-  if (n < 1)      return `$${n.toFixed(6)}`
-  return `$${n.toFixed(4)}`
+  if (isNaN(n) || n === 0) return '—'
+  if (n >= 1)      return `$${n.toFixed(2)}`
+  if (n >= 0.01)   return `$${n.toFixed(2)}`   // $0.02, $0.57
+  // For small prices: find first significant digit, show just that one digit
+  // e.g. 0.000260 → $0.0002,  0.000705 → $0.0007,  0.00314 → $0.003
+  const str = n.toFixed(20)
+  const match = str.match(/^0\.(0*)([1-9])/)
+  if (match) return `$0.${match[1]}${match[2]}`
+  return `$${n.toExponential(1)}`
 }
 
 const shortAddress = (addr) =>
@@ -73,14 +79,14 @@ const matchesSearch = (alpha, query) => {
 
 // ─── Navbar ─────────────────────────────────────────────────────
 
-const Navbar = ({ onListBeta }) => (
+const Navbar = ({ onListBeta, newRunners }) => (
   <nav className="navbar">
     <div className="navbar-brand">
       <div className="brand-logo">β</div>
       <span className="brand-name">Beta<span>Plays</span></span>
     </div>
-    <div className="navbar-status">
-      <span className="status-dot"></span>
+    <div className={`navbar-status${newRunners ? ' navbar-status--flash' : ''}`}>
+      <span className={`status-dot${newRunners ? ' status-dot--flash' : ''}`}></span>
       LIVE · SOLANA
     </div>
     <div className="navbar-actions">
@@ -683,7 +689,7 @@ const AdminNominationPanel = ({ onClose }) => {
   )
 }
 
-const AlphaBoard = ({ selectedAlpha, onSelect }) => {
+const AlphaBoard = ({ selectedAlpha, onSelect, onNewRunners }) => {
   const [activeTab,        setActiveTab]        = useState('live')
   const [searchQuery,      setSearchQuery]      = useState('')
   const [showAdminPanel,   setShowAdminPanel]   = useState(false)
@@ -717,8 +723,11 @@ const AlphaBoard = ({ selectedAlpha, onSelect }) => {
   )
 
   // Restore selected alpha from sessionStorage when alphas first load
-  const restoredRef  = useRef(false)
-  const alphaListRef = useRef(null)
+  const restoredRef    = useRef(false)
+  const alphaListRef   = useRef(null)
+  const prevAddrsRef   = useRef(null)   // addresses from last render — detects new runners
+  const frozenListRef  = useRef(null)   // frozen order during background refresh
+  const scrollSaveRef  = useRef(0)      // saved scroll position before refresh
   // Ctrl+Shift+A → open admin nomination review panel
   useEffect(() => {
     const handler = (e) => {
@@ -748,8 +757,51 @@ const AlphaBoard = ({ selectedAlpha, onSelect }) => {
     }
   }, [liveAlphas])
 
+  // ── Scroll lock + order freeze + new runner detection ──────────
+  useEffect(() => {
+    if (!isRefreshing) return
+    // Save scroll position before refresh paints
+    scrollSaveRef.current = alphaListRef.current?.scrollTop || 0
+  }, [isRefreshing])
+
+  useEffect(() => {
+    if (isRefreshing || liveAlphas.length === 0) return
+
+    // Detect new runners vs previous render
+    const prevAddrs = prevAddrsRef.current
+    if (prevAddrs && prevAddrs.size > 0) {
+      const hasNew = liveAlphas.some(a => !prevAddrs.has(a.address))
+      if (hasNew && onNewRunners) {
+        onNewRunners()
+      }
+    }
+    prevAddrsRef.current = new Set(liveAlphas.map(a => a.address))
+
+    // Restore scroll position after re-render
+    if (scrollSaveRef.current > 0 && alphaListRef.current) {
+      alphaListRef.current.scrollTop = scrollSaveRef.current
+      scrollSaveRef.current = 0
+    }
+
+    // Freeze the list order — reorder only when not scrolled deep
+    const scrolled = alphaListRef.current?.scrollTop || 0
+    if (scrolled > 100) {
+      // User is mid-scroll — freeze current order, merge new tokens at bottom
+      if (frozenListRef.current) {
+        const frozenAddrs = new Set(frozenListRef.current.map(a => a.address))
+        const newTokens   = liveAlphas.filter(a => !frozenAddrs.has(a.address))
+        frozenListRef.current = [...frozenListRef.current, ...newTokens]
+      } else {
+        frozenListRef.current = liveAlphas
+      }
+    } else {
+      // User is near top — allow normal reorder
+      frozenListRef.current = null
+    }
+  }, [liveAlphas, isRefreshing])
+
   const rawList =
-    activeTab === 'live'        ? liveAlphas         :
+    activeTab === 'live'        ? (frozenListRef.current || liveAlphas) :
     activeTab === 'cooling'     ? filteredCooling     :
     activeTab === 'positioning' ? positioningAlphas   :
     activeTab === 'watch'       ? watchlist           :
@@ -2182,6 +2234,7 @@ export default function App() {
   const [selectedAlpha, setSelectedAlpha] = useState(null)
   const [showListModal, setShowListModal]  = useState(false)
   const [drawerToken,   setDrawerToken]    = useState(null)
+  const [newRunners,    setNewRunners]     = useState(false)
   const isSzn = selectedAlpha?.isSzn === true
 
   const handleSelectAlpha = (alpha) => {
@@ -2189,11 +2242,16 @@ export default function App() {
     if (alpha?.address) sessionStorage.setItem('betaplays_selected', alpha.address)
   }
 
+  const handleNewRunners = useCallback(() => {
+    setNewRunners(true)
+    setTimeout(() => setNewRunners(false), 2000)
+  }, [])
+
   return (
     <div className="app-wrapper">
-      <Navbar onListBeta={() => setShowListModal(true)} />
+      <Navbar onListBeta={() => setShowListModal(true)} newRunners={newRunners} />
       <div className="main-layout">
-        <AlphaBoard selectedAlpha={selectedAlpha} onSelect={handleSelectAlpha} />
+        <AlphaBoard selectedAlpha={selectedAlpha} onSelect={handleSelectAlpha} onNewRunners={handleNewRunners} />
         {isSzn
           ? <SznPanel  szn={selectedAlpha}   onListBeta={() => setShowListModal(true)} onOpenDrawer={setDrawerToken} />
           : <BetaPanel alpha={selectedAlpha} onListBeta={() => setShowListModal(true)} onOpenDrawer={setDrawerToken} />
