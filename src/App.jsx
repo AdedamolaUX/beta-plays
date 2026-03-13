@@ -481,6 +481,10 @@ const AlphaCard = ({ alpha, isSelected, onClick, isWatched, onToggleWatch }) => 
           <span className="metric-label">Vol 24h</span>
           <span className="metric-value">{formatNum(alpha.volume24h)}</span>
         </div>
+        <div className="metric">
+          <span className="metric-label">Liq</span>
+          <span className="metric-value">{formatNum(alpha.liquidity)}</span>
+        </div>
       </div>
     </div>
   )
