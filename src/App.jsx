@@ -146,12 +146,9 @@ const SznCard = ({ szn, isSelected, onClick }) => {
 
       {/* Momentum bar */}
       <div style={{ marginBottom: 7 }}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 3 }}>
+        <div style={{ marginBottom: 3 }}>
           <span style={{ fontFamily: 'var(--font-mono)', fontSize: 8, color: 'var(--text-muted)' }}>
             momentum
-          </span>
-          <span style={{ fontFamily: 'var(--font-mono)', fontSize: 8, color: momentum >= 60 ? 'var(--neon-green)' : 'var(--text-muted)' }}>
-            {momentum}% green
           </span>
         </div>
         <div style={{ height: 3, background: 'rgba(255,255,255,0.06)', borderRadius: 2, overflow: 'hidden' }}>
