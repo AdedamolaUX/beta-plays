@@ -31,8 +31,8 @@ const saveToHistory = (alphas) => {
       // mcap > 80K) and incoming data looks like a bonding-curve snapshot (mcap ≤ 80K,
       // priceChange24h = 0), keep the good data. PumpFun's API actively corrupts prices
       // on every feed cycle for graduated tokens whose pool lookup returned no mcap.
-      const incomingLooksStale = (alpha.marketCap || 0) <= 80_000 && safePriceChange === 0
-      const haveGoodPrice = prev?.priceRefreshedAt && (prev.marketCap || 0) > 80_000
+      const incomingLooksStale = (alpha.marketCap || 0) <= 50_000 && safePriceChange === 0
+      const haveGoodPrice = prev?.priceRefreshedAt && (prev.marketCap || 0) > 50_000
       if (incomingLooksStale && haveGoodPrice) {
         // Only update lastSeen — keep all price fields from the verified refresh
         existing[alpha.address] = {
@@ -131,39 +131,17 @@ const loadHistoricalByPriceAction = (currentAddresses) => {
       }
 
       // ── Sticky live rule ─────────────────────────────────────────
-      // A token that genuinely ran (peaked above bonding curve) should
-      // stay in the live list until it DUMPS (75%+ from peak), not just
-      // because its 24h% dipped slightly or the data went stale.
-      // Without this, a runner at +800% gets dropped the moment it ticks
-      // to -0.1% 24h on the next refresh cycle.
-      const wasGenuineRunner = (a.peakMarketCap || 0) > 80_000
-
-      if (wasGenuineRunner) {
-        // Genuine runner, not dumped — keep in live regardless of current 24h%
-        historicalLive.push({
-          ...a,
-          priceChange24h: cappedChange,
-          isHistorical:   true,
-          coolingLabel:   null,
-        })
-      } else if (!isStale && cappedChange > LIVE_MIN_CHANGE && volume >= LIVE_MIN_VOLUME) {
-        // Fresh small token with positive action — include in live
-        historicalLive.push({
-          ...a,
-          priceChange24h: cappedChange,
-          isHistorical:   true,
-          coolingLabel:   null,
-        })
-      } else {
-        // Small token retracing, or data too old — move to Cooling
-        historicalCooling.push({
-          ...a,
-          priceChange24h: cappedChange,
-          isCooling:      true,
-          isHistorical:   true,
-          coolingLabel:   isStale ? `Last seen ${ageLabel}` : 'Watching for reversal',
-        })
-      }
+      // A token stays in live until isDumped() — full stop.
+      // We do not evict based on age, 24h%, or volume. Those are
+      // noisy signals that cause tokens to disappear and reappear
+      // across refresh cycles. refreshHistoricalPrices keeps the
+      // price data fresh regardless of whether the token is here.
+      historicalLive.push({
+        ...a,
+        priceChange24h: cappedChange,
+        isHistorical:   true,
+        coolingLabel:   null,
+      })
     })
 
     return { historicalLive, historicalCooling }
@@ -730,7 +708,7 @@ const refreshHistoricalPrices = async () => {
       if (!a.address) return false
       const age = now - (a.lastSeen || 0)
       const isHistorical = age > 2 * 60 * 1000 && age < HISTORY_MAX_AGE_MS
-      const isStuckAtBonding = (a.marketCap || 0) <= 80_000 &&
+      const isStuckAtBonding = (a.marketCap || 0) <= 50_000 &&
         a.source !== 'pumpfun_pre'  // pre-grad tokens legitimately have no real price
       return isHistorical || isStuckAtBonding
     })
@@ -922,7 +900,7 @@ const useAlphas = () => {
       // $Sugarswaps that showed 691% from PumpFun's API while still stuck at
       // the $35K graduation snapshot.
       const freshBonded = freshRaw.filter(a =>
-        (a.marketCap || 0) <= 80_000 &&
+        (a.marketCap || 0) <= 50_000 &&
         a.source !== 'pumpfun_pre'
       )
       if (freshBonded.length > 0) {
@@ -990,9 +968,9 @@ const useAlphas = () => {
 
         setLiveAlphas(prev => {
           const patched = prev.map(a => {
-            const isStuck = (a.marketCap || 0) <= 80_000 && parseFloat(a.priceChange24h || 0) === 0
+            const isStuck = (a.marketCap || 0) <= 50_000 && parseFloat(a.priceChange24h || 0) === 0
             const stored  = freshStored[a.address]
-            const hasGood = stored?.priceRefreshedAt && (stored.marketCap || 0) > 80_000
+            const hasGood = stored?.priceRefreshedAt && (stored.marketCap || 0) > 50_000
             if (isStuck && hasGood) {
               console.log(`[AlphaRefresh] ✅ $${a.symbol}: $${(a.marketCap||0).toLocaleString()} → $${(stored.marketCap||0).toLocaleString()} | 24h: ${stored.priceChange24h}%`)
               return { ...a, ...stored, momentumScore: getMomentumScore({ ...a, ...stored }) }
@@ -1043,8 +1021,8 @@ const useAlphas = () => {
       const storedAlphas = JSON.parse(localStorage.getItem(STORAGE_KEY) || '{}')
       const patchedLive = allLive.map(a => {
         const stored = storedAlphas[a.address]
-        const isStuck = (a.marketCap || 0) <= 80_000 && parseFloat(a.priceChange24h || 0) === 0
-        const hasGoodStored = stored?.priceRefreshedAt && (stored.marketCap || 0) > 80_000
+        const isStuck = (a.marketCap || 0) <= 50_000 && parseFloat(a.priceChange24h || 0) === 0
+        const hasGoodStored = stored?.priceRefreshedAt && (stored.marketCap || 0) > 50_000
         if (isStuck && hasGoodStored) {
           console.log(`[AlphaRefresh] Patching $${a.symbol}: $${a.marketCap?.toLocaleString()} → $${stored.marketCap?.toLocaleString()}`)
           return { ...a, ...stored, momentumScore: undefined }
