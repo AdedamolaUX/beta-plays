@@ -1037,11 +1037,12 @@ const useBetas = (alpha, parentAlpha = null) => {
   // when RE-selecting the same alpha (e.g. clicking it again after navigating away).
   useEffect(() => {
     if (!alpha?.address) { setBetas([]); lastAlphaRef.current = null; return }
-    const isSameAlpha = lastAlphaRef.current === alpha.address
-    if (!isSameAlpha) {
-      // New alpha — clear immediately so no stale betas flash on screen
+    // Clear immediately when switching to a new alpha so stale betas never
+    // flash on screen. We do NOT update lastAlphaRef here — fetchBetas owns
+    // that ref. If this effect set it, fetchBetas would always see isSameAlpha=true
+    // and incorrectly preload stored betas for brand-new alphas.
+    if (lastAlphaRef.current !== alpha.address) {
       setBetas([])
-      lastAlphaRef.current = alpha.address
     }
   }, [alpha?.address])
 
@@ -1067,9 +1068,13 @@ const useBetas = (alpha, parentAlpha = null) => {
     setLoading(true)
     setError(null)
 
-    // Silently refresh stored prices in background while fresh fetch runs
+    // Silently refresh stored prices in background while fresh fetch runs.
+    // Capture myFetchId so if the user switches alpha before this resolves,
+    // we discard the result instead of overwriting the new alpha's betas.
     if (storedNow.length > 0) {
+      const bgFetchId = myFetchId
       refreshBetaPrices(storedNow).then(refreshed => {
+        if (fetchIdRef.current !== bgFetchId) return  // user switched alpha — discard
         saveStoredBetas(alpha.address, refreshed)
         setBetas(prev => {
           const hasFreshData = prev.some(b => !b.isHistorical)

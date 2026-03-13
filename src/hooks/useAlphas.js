@@ -706,15 +706,15 @@ const refreshHistoricalPrices = async () => {
 
     // Refresh two categories:
     // 1. Historical tokens (not seen in 2+ min) — standard refresh
-    // 2. ANY token stuck at bonding-curve mcap (≤80K + priceChange24h=0)
-    //    regardless of lastSeen — these are actively corrupted every cycle
-    //    by fetchPumpFunBonded writing stale PumpFun API data on every fetch
+    // 2. ANY token stuck at bonding-curve mcap (≤80K), regardless of priceChange24h.
+    //    Previously gated on priceChange24h===0 but tokens like $Sugarswaps arrive
+    //    with 691% change while still showing the $35K graduation snapshot.
+    //    Any non-pre-grad token at ≤$80K needs a live price, full stop.
     const toRefresh = Object.values(existing).filter(a => {
       if (!a.address) return false
       const age = now - (a.lastSeen || 0)
       const isHistorical = age > 2 * 60 * 1000 && age < HISTORY_MAX_AGE_MS
       const isStuckAtBonding = (a.marketCap || 0) <= 80_000 &&
-        parseFloat(a.priceChange24h || 0) === 0 &&
         a.source !== 'pumpfun_pre'  // pre-grad tokens legitimately have no real price
       return isHistorical || isStuckAtBonding
     })
@@ -900,9 +900,13 @@ const useAlphas = () => {
       // because they're not in localStorage yet. patchedLive can't help because
       // priceRefreshedAt isn't stamped yet. We fix them HERE, before saveToHistory,
       // so they enter the system with the correct post-migration price from the start.
+      // Any non-pre-grad token sitting at bonding mcap (≤$80K) needs a live
+      // DEXScreener price regardless of its reported priceChange24h.
+      // Previously we gated on priceChange24h===0, which excluded tokens like
+      // $Sugarswaps that showed 691% from PumpFun's API while still stuck at
+      // the $35K graduation snapshot.
       const freshBonded = freshRaw.filter(a =>
         (a.marketCap || 0) <= 80_000 &&
-        parseFloat(a.priceChange24h || 0) === 0 &&
         a.source !== 'pumpfun_pre'
       )
       if (freshBonded.length > 0) {
