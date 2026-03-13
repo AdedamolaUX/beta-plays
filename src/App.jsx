@@ -726,8 +726,6 @@ const AlphaBoard = ({ selectedAlpha, onSelect, onNewRunners }) => {
   const restoredRef    = useRef(false)
   const alphaListRef   = useRef(null)
   const prevAddrsRef   = useRef(null)   // addresses from last render — detects new runners
-  const frozenListRef  = useRef(null)   // frozen order during background refresh
-  const scrollSaveRef  = useRef(0)      // saved scroll position before refresh
   // Ctrl+Shift+A → open admin nomination review panel
   useEffect(() => {
     const handler = (e) => {
@@ -757,51 +755,37 @@ const AlphaBoard = ({ selectedAlpha, onSelect, onNewRunners }) => {
     }
   }, [liveAlphas])
 
-  // ── Scroll lock + order freeze + new runner detection ──────────
-  useEffect(() => {
-    if (!isRefreshing) return
-    // Save scroll position before refresh paints
-    scrollSaveRef.current = alphaListRef.current?.scrollTop || 0
-  }, [isRefreshing])
-
+  // ── Post-refresh: keep selected alpha in view ───────────────────
+  // After every refresh cycle, if the user has a selected alpha,
+  // scroll its card back into view. This is the primary fix for the
+  // "selected token disappears after refresh" problem. We don't try
+  // to save/restore pixel scroll position — the list reorders and
+  // pixel positions become meaningless. The card itself is the anchor.
   useEffect(() => {
     if (isRefreshing || liveAlphas.length === 0) return
 
-    // Detect new runners vs previous render
+    // Detect new runners vs previous render — fire LIVE badge flash
     const prevAddrs = prevAddrsRef.current
     if (prevAddrs && prevAddrs.size > 0) {
       const hasNew = liveAlphas.some(a => !prevAddrs.has(a.address))
-      if (hasNew && onNewRunners) {
-        onNewRunners()
-      }
+      if (hasNew && onNewRunners) onNewRunners()
     }
     prevAddrsRef.current = new Set(liveAlphas.map(a => a.address))
 
-    // Restore scroll position after re-render
-    if (scrollSaveRef.current > 0 && alphaListRef.current) {
-      alphaListRef.current.scrollTop = scrollSaveRef.current
-      scrollSaveRef.current = 0
+    // If user has a selected alpha, scroll it into view after the
+    // list re-renders. Small timeout lets React finish painting first.
+    if (selectedAlpha?.address) {
+      setTimeout(() => {
+        const el = alphaListRef.current?.querySelector(
+          `[data-address="${selectedAlpha.address}"]`
+        )
+        if (el) el.scrollIntoView({ block: 'nearest', behavior: 'smooth' })
+      }, 100)
     }
-
-    // Freeze the list order — reorder only when not scrolled deep
-    const scrolled = alphaListRef.current?.scrollTop || 0
-    if (scrolled > 100) {
-      // User is mid-scroll — freeze current order, merge new tokens at bottom
-      if (frozenListRef.current) {
-        const frozenAddrs = new Set(frozenListRef.current.map(a => a.address))
-        const newTokens   = liveAlphas.filter(a => !frozenAddrs.has(a.address))
-        frozenListRef.current = [...frozenListRef.current, ...newTokens]
-      } else {
-        frozenListRef.current = liveAlphas
-      }
-    } else {
-      // User is near top — allow normal reorder
-      frozenListRef.current = null
-    }
-  }, [liveAlphas, isRefreshing])
+  }, [liveAlphas, isRefreshing, selectedAlpha])
 
   const rawList =
-    activeTab === 'live'        ? (frozenListRef.current || liveAlphas) :
+    activeTab === 'live'        ? liveAlphas         :
     activeTab === 'cooling'     ? filteredCooling     :
     activeTab === 'positioning' ? positioningAlphas   :
     activeTab === 'watch'       ? watchlist           :
