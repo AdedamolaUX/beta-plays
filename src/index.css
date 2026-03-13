@@ -370,7 +370,8 @@ body {
 .alpha-card-metrics {
   display: grid;
   grid-template-columns: repeat(4, 1fr);
-  gap: 6px 8px;
+  gap: 6px 0;
+  width: 100%;
 }
 
 .metric {
