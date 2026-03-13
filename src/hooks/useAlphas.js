@@ -130,16 +130,32 @@ const loadHistoricalByPriceAction = (currentAddresses) => {
         return
       }
 
-      if (cappedChange > LIVE_MIN_CHANGE && volume >= LIVE_MIN_VOLUME && !isStale) {
-        // Was pumping and data is still fresh enough to trust
+      // ── Sticky live rule ─────────────────────────────────────────
+      // A token that genuinely ran (peaked above bonding curve) should
+      // stay in the live list until it DUMPS (75%+ from peak), not just
+      // because its 24h% dipped slightly or the data went stale.
+      // Without this, a runner at +800% gets dropped the moment it ticks
+      // to -0.1% 24h on the next refresh cycle.
+      const wasGenuineRunner = (a.peakMarketCap || 0) > 80_000
+
+      if (wasGenuineRunner) {
+        // Genuine runner, not dumped — keep in live regardless of current 24h%
         historicalLive.push({
           ...a,
           priceChange24h: cappedChange,
           isHistorical:   true,
           coolingLabel:   null,
         })
-      } else if (cappedChange < 0 || isStale) {
-        // Retracing, OR data too old to show as live — move to Cooling
+      } else if (!isStale && cappedChange > LIVE_MIN_CHANGE && volume >= LIVE_MIN_VOLUME) {
+        // Fresh small token with positive action — include in live
+        historicalLive.push({
+          ...a,
+          priceChange24h: cappedChange,
+          isHistorical:   true,
+          coolingLabel:   null,
+        })
+      } else {
+        // Small token retracing, or data too old — move to Cooling
         historicalCooling.push({
           ...a,
           priceChange24h: cappedChange,

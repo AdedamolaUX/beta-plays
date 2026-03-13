@@ -1419,18 +1419,22 @@ const useBetas = (alpha, parentAlpha = null) => {
       }
 
       // ── Persist betas to localStorage ───────────────────────────
-      // Always use myAddress (captured at fetch start) — not alpha?.address
-      // which could have changed if the user switched tokens during this fetch.
-      // Persisting is always safe even if stale; only the setBetas is guarded.
-      const stored   = loadStoredBetas(myAddress)
-      const fullList = mergeBetas(betas, stored)
-      saveStoredBetas(myAddress, fullList)
+      // IMPORTANT: never use the `betas` closure variable here — it is a
+      // snapshot from when fetchBetas was created and can hold another alpha's
+      // data after repeated clicks. Always read current state via `prev` inside
+      // the functional update, then save from that.
+      const stored = loadStoredBetas(myAddress)
       if (!isStale()) {
         setBetas(prev => {
           const merged2 = mergeBetas(prev, stored)
-          if (merged2.length === 0) setError('No beta plays detected yet. Trenches might be cooked.')
-          return merged2.length > 0 ? merged2 : prev
+          const toSave  = merged2.length > 0 ? merged2 : prev
+          saveStoredBetas(myAddress, toSave)  // save actual current state, not stale closure
+          if (toSave.length === 0) setError('No beta plays detected yet. Trenches might be cooked.')
+          return toSave
         })
+      } else {
+        // Stale fetch — still persist the stored data (no closure contamination)
+        saveStoredBetas(myAddress, stored)
       }
     } catch (err) {
       console.error('Beta detection failed:', err)
