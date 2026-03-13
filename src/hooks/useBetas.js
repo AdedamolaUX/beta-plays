@@ -1027,55 +1027,59 @@ const useBetas = (alpha, parentAlpha = null) => {
   const [loading, setLoading] = useState(false)
   const [error,   setError]   = useState(null)
   // Race condition guard — each fetch gets a unique ID.
-  // If alpha changes mid-fetch, the old fetch sees its ID is stale and
-  // discards its results instead of overwriting the new alpha's betas.
-  const fetchIdRef    = useRef(0)
-  const lastAlphaRef  = useRef(null)  // tracks which alpha is currently displayed
+  // ── Alpha address signature system ───────────────────────────────
+  // Every fetchBetas call is "signed" with the alpha address it was
+  // started for (myAddress). Every setBetas call checks two things:
+  //   1. fetchId — no newer fetch has started
+  //   2. activeAlphaRef — the UI alpha hasn't changed since we started
+  // If either check fails, the result is discarded silently.
+  // This prevents Token A's betas from ever appearing in Token B's panel,
+  // regardless of network speed, re-renders, or React batching order.
+  const fetchIdRef     = useRef(0)
+  const activeAlphaRef = useRef(null)  // ground truth: what alpha the UI is showing RIGHT NOW
 
-  // Clear betas immediately when switching to a NEW alpha — never show
-  // Token A's betas while Token B is loading. Only preload stored betas
-  // when RE-selecting the same alpha (e.g. clicking it again after navigating away).
+  // useEffect is the SOLE owner of activeAlphaRef.
+  // It updates immediately on alpha change and clears the beta panel.
   useEffect(() => {
-    if (!alpha?.address) { setBetas([]); lastAlphaRef.current = null; return }
-    // Clear immediately when switching to a new alpha so stale betas never
-    // flash on screen. We do NOT update lastAlphaRef here — fetchBetas owns
-    // that ref. If this effect set it, fetchBetas would always see isSameAlpha=true
-    // and incorrectly preload stored betas for brand-new alphas.
-    if (lastAlphaRef.current !== alpha.address) {
+    const newAddress = alpha?.address || null
+    if (activeAlphaRef.current !== newAddress) {
+      activeAlphaRef.current = newAddress
       setBetas([])
+      console.log(`[BetaPanel] Switched → ${newAddress ? `$${alpha.symbol}` : 'none'} — cleared`)
     }
   }, [alpha?.address])
 
   const fetchBetas = useCallback(async () => {
-    if (!alpha) { setBetas([]); return }
+    if (!alpha?.address) { setBetas([]); return }
 
-    // ── Race condition guard ──────────────────────────────────────
     const myFetchId = ++fetchIdRef.current
-    const isStale = () => fetchIdRef.current !== myFetchId
+    const myAddress = alpha.address  // this fetch's address signature
 
-    // ── Preload stored betas only for re-selection of same alpha ──
-    // For a new alpha we start blank (cleared by the effect above).
-    // For a re-selected alpha, show stored betas instantly so the panel
-    // isn't empty while the fresh fetch runs.
-    const isSameAlpha = lastAlphaRef.current === alpha.address
-    const storedNow   = isSameAlpha ? loadStoredBetas(alpha.address) : []
-    if (storedNow.length > 0) {
+    // Dual guard — stale if: newer fetch started OR active alpha changed
+    const isStale = () =>
+      fetchIdRef.current !== myFetchId ||
+      activeAlphaRef.current !== myAddress
+
+    // ── Preload stored betas for this address ─────────────────────
+    // loadStoredBetas is keyed by address — always safe to call.
+    // First visit: no stored data, nothing shows (panel stays blank).
+    // Re-selection: stored betas appear instantly while fresh fetch runs.
+    const storedNow = loadStoredBetas(myAddress)
+    if (storedNow.length > 0 && !isStale()) {
       setBetas(storedNow)
-      console.log(`[BetaStore] Re-selected $${alpha.symbol} — showing ${storedNow.length} stored betas`)
+      console.log(`[BetaStore] Loaded ${storedNow.length} stored betas for $${alpha.symbol}`)
     }
-    lastAlphaRef.current = alpha.address
 
     setLoading(true)
     setError(null)
 
     // Silently refresh stored prices in background while fresh fetch runs.
-    // Capture myFetchId so if the user switches alpha before this resolves,
-    // we discard the result instead of overwriting the new alpha's betas.
+    // Both guards (fetchId + address) must pass before writing to screen.
     if (storedNow.length > 0) {
       const bgFetchId = myFetchId
       refreshBetaPrices(storedNow).then(refreshed => {
-        if (fetchIdRef.current !== bgFetchId) return  // user switched alpha — discard
-        saveStoredBetas(alpha.address, refreshed)
+        if (fetchIdRef.current !== bgFetchId || activeAlphaRef.current !== myAddress) return
+        saveStoredBetas(myAddress, refreshed)
         setBetas(prev => {
           const hasFreshData = prev.some(b => !b.isHistorical)
           return hasFreshData ? prev : refreshed
@@ -1377,6 +1381,8 @@ const useBetas = (alpha, parentAlpha = null) => {
         const currentBetas = await new Promise(resolve => {
           setBetas(prev => { resolve(prev); return prev })
         })
+        if (isStale()) return  // alpha changed while reading state — stop here
+
         const weakTextCandidates = currentBetas.filter(b =>
           shouldRunVision(b, (b.signalSources?.length || 0) * 0.25)
         )
@@ -1385,7 +1391,7 @@ const useBetas = (alpha, parentAlpha = null) => {
           console.log(`[Vision] Comparing ${weakTextCandidates.length} candidate logos for $${enrichedAlpha.symbol}`)
           const visualMatches = await compareLogos(enrichedAlpha, weakTextCandidates)
 
-          if (visualMatches.length > 0) {
+          if (visualMatches.length > 0 && !isStale()) {
             const visualAddresses = new Map(visualMatches.map(b => [b.address, b]))
             setBetas(prev => {
               const enriched = prev.map(b =>
@@ -1413,23 +1419,18 @@ const useBetas = (alpha, parentAlpha = null) => {
       }
 
       // ── Persist betas to localStorage ───────────────────────────
-      // Read CURRENT betas state (post-AI, post-vision) via functional
-      // update — this preserves AI scoring and visual matches.
-      // Merge with any stored historical betas and save back.
-      if (alpha?.address) {
-        // Save to localStorage regardless of stale — persisting data is always safe
-        const stored   = loadStoredBetas(alpha.address)
-        const fullList = mergeBetas(betas, stored)
-        saveStoredBetas(alpha.address, fullList)
-        if (!isStale()) {
-          setBetas(prev => {
-            const merged2 = mergeBetas(prev, stored)
-            if (merged2.length === 0) setError('No beta plays detected yet. Trenches might be cooked.')
-            return merged2.length > 0 ? merged2 : prev
-          })
-        }
-      } else {
-        if (!isStale() && merged.length === 0) setError('No beta plays detected yet. Trenches might be cooked.')
+      // Always use myAddress (captured at fetch start) — not alpha?.address
+      // which could have changed if the user switched tokens during this fetch.
+      // Persisting is always safe even if stale; only the setBetas is guarded.
+      const stored   = loadStoredBetas(myAddress)
+      const fullList = mergeBetas(betas, stored)
+      saveStoredBetas(myAddress, fullList)
+      if (!isStale()) {
+        setBetas(prev => {
+          const merged2 = mergeBetas(prev, stored)
+          if (merged2.length === 0) setError('No beta plays detected yet. Trenches might be cooked.')
+          return merged2.length > 0 ? merged2 : prev
+        })
       }
     } catch (err) {
       console.error('Beta detection failed:', err)
