@@ -723,9 +723,11 @@ const AlphaBoard = ({ selectedAlpha, onSelect, onNewRunners }) => {
   )
 
   // Restore selected alpha from sessionStorage when alphas first load
-  const restoredRef    = useRef(false)
-  const alphaListRef   = useRef(null)
-  const prevAddrsRef   = useRef(null)   // addresses from last render — detects new runners
+  const restoredRef       = useRef(false)
+  const alphaListRef      = useRef(null)
+  const prevAddrsRef      = useRef(null)   // addresses from last render — detects new runners
+  const userIsScrolling   = useRef(false)  // true while user is actively browsing the list
+  const scrollIdleTimer   = useRef(null)   // resets userIsScrolling after idle period
   // Ctrl+Shift+A → open admin nomination review panel
   useEffect(() => {
     const handler = (e) => {
@@ -736,6 +738,28 @@ const AlphaBoard = ({ selectedAlpha, onSelect, onNewRunners }) => {
     }
     window.addEventListener('keydown', handler)
     return () => window.removeEventListener('keydown', handler)
+  }, [])
+
+  // ── Scroll intent detection ───────────────────────────────────
+  // When user scrolls the runner list, mark them as actively browsing.
+  // After 3s of no scrolling, reset — next refresh will snap back
+  // to their selected alpha. This prevents interrupting mid-browse
+  // while still anchoring the view when they're reading betas.
+  useEffect(() => {
+    const list = alphaListRef.current
+    if (!list) return
+    const onScroll = () => {
+      userIsScrolling.current = true
+      clearTimeout(scrollIdleTimer.current)
+      scrollIdleTimer.current = setTimeout(() => {
+        userIsScrolling.current = false
+      }, 3000)
+    }
+    list.addEventListener('scroll', onScroll, { passive: true })
+    return () => {
+      list.removeEventListener('scroll', onScroll)
+      clearTimeout(scrollIdleTimer.current)
+    }
   }, [])
 
   useEffect(() => {
@@ -772,9 +796,10 @@ const AlphaBoard = ({ selectedAlpha, onSelect, onNewRunners }) => {
     }
     prevAddrsRef.current = new Set(liveAlphas.map(a => a.address))
 
-    // If user has a selected alpha, scroll it into view after the
-    // list re-renders. Small timeout lets React finish painting first.
-    if (selectedAlpha?.address) {
+    // Only snap back to selected alpha if user is NOT actively scrolling.
+    // If they're browsing the list, leave them alone. Once they go idle
+    // for 3s, the next refresh will snap back automatically.
+    if (selectedAlpha?.address && !userIsScrolling.current) {
       setTimeout(() => {
         const el = alphaListRef.current?.querySelector(
           `[data-address="${selectedAlpha.address}"]`
