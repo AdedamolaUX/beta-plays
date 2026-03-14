@@ -689,7 +689,7 @@ const AdminNominationPanel = ({ onClose }) => {
   )
 }
 
-const AlphaBoard = ({ selectedAlpha, onSelect, onNewRunners }) => {
+const AlphaBoard = ({ selectedAlpha, onSelect, onNewRunners, alphaListRef }) => {
   const [activeTab,        setActiveTab]        = useState('live')
   const [searchQuery,      setSearchQuery]      = useState('')
   const [showAdminPanel,   setShowAdminPanel]   = useState(false)
@@ -724,7 +724,6 @@ const AlphaBoard = ({ selectedAlpha, onSelect, onNewRunners }) => {
 
   // Restore selected alpha from sessionStorage when alphas first load
   const restoredRef       = useRef(false)
-  const alphaListRef      = useRef(null)
   const prevAddrsRef      = useRef(null)   // addresses from last render — detects new runners
   const userIsScrolling   = useRef(false)  // true while user is actively browsing the list
   const scrollIdleTimer   = useRef(null)   // resets userIsScrolling after idle period
@@ -1635,7 +1634,7 @@ const SznPanel = ({ szn, onListBeta, onOpenDrawer }) => {
 
 // ─── Beta Panel ──────────────────────────────────────────────────
 
-const BetaPanel = ({ alpha, onListBeta, onOpenDrawer }) => {
+const BetaPanel = ({ alpha, onListBeta, onOpenDrawer, onScrollToAlpha }) => {
   const { parent, loading: parentLoading }               = useParentAlpha(alpha)
   const { betas, loading: betasLoading, error, refresh } = useBetas(alpha, parent)
   const { birdeye }                                       = useBirdeye(alpha?.address)
@@ -1685,7 +1684,12 @@ const BetaPanel = ({ alpha, onListBeta, onOpenDrawer }) => {
     <section className="beta-panel">
       <div className="beta-panel-header">
         <div className="beta-panel-title-group">
-          <h1 className="beta-panel-title">
+          <h1
+            className="beta-panel-title"
+            onClick={alpha && onScrollToAlpha ? onScrollToAlpha : undefined}
+            style={alpha && onScrollToAlpha ? { cursor: 'pointer', userSelect: 'none' } : {}}
+            title={alpha ? `Scroll to $${alpha.symbol} in runner list` : undefined}
+          >
             {alpha ? `Beta Plays for $${alpha.symbol}` : 'Select a Runner'}
           </h1>
           {!alpha && (
@@ -2244,6 +2248,7 @@ export default function App() {
   const [showListModal, setShowListModal]  = useState(false)
   const [drawerToken,   setDrawerToken]    = useState(null)
   const [newRunners,    setNewRunners]     = useState(false)
+  const alphaListRef = useRef(null)
   const isSzn = selectedAlpha?.isSzn === true
 
   const handleSelectAlpha = (alpha) => {
@@ -2256,14 +2261,20 @@ export default function App() {
     setTimeout(() => setNewRunners(false), 2000)
   }, [])
 
+  const handleScrollToAlpha = useCallback(() => {
+    if (!selectedAlpha?.address || !alphaListRef.current) return
+    const el = alphaListRef.current.querySelector(`[data-address="${selectedAlpha.address}"]`)
+    if (el) el.scrollIntoView({ block: 'nearest', behavior: 'smooth' })
+  }, [selectedAlpha])
+
   return (
     <div className="app-wrapper">
       <Navbar onListBeta={() => setShowListModal(true)} newRunners={newRunners} />
       <div className="main-layout">
-        <AlphaBoard selectedAlpha={selectedAlpha} onSelect={handleSelectAlpha} onNewRunners={handleNewRunners} />
+        <AlphaBoard selectedAlpha={selectedAlpha} onSelect={handleSelectAlpha} onNewRunners={handleNewRunners} alphaListRef={alphaListRef} />
         {isSzn
           ? <SznPanel  szn={selectedAlpha}   onListBeta={() => setShowListModal(true)} onOpenDrawer={setDrawerToken} />
-          : <BetaPanel alpha={selectedAlpha} onListBeta={() => setShowListModal(true)} onOpenDrawer={setDrawerToken} />
+          : <BetaPanel alpha={selectedAlpha} onListBeta={() => setShowListModal(true)} onOpenDrawer={setDrawerToken} onScrollToAlpha={handleScrollToAlpha} />
         }
       </div>
 
