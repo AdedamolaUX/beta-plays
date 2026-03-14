@@ -1,9 +1,11 @@
 // ─── BetaPlays Backend ────────────────────────────────────────────
 // Endpoints:
-//   POST /api/score-betas      — Vector 8 AI scoring via Groq (Llama 3.3 70B)
-//                                Fallback chain: 70b → scout-17b → 8b → OpenRouter
-//   POST /api/categorize-szn   — Narrative categorization via Groq
-//   POST /api/analyze-vision   — Logo analysis via Gemini Flash
+//   POST /api/score-betas      — Vector 8 AI scoring
+//                                Chain: Groq 70b → Groq Scout → OR Llama 70b → OR DeepSeek R1
+//                                → Kimi K2.5 → OR Qwen 72b → Hunter Alpha → Gemini Flash
+//                                → OR Gemini Flash → Kimi K2 Thinking → Groq 8b (last resort)
+//   POST /api/categorize-szn   — Narrative categorization (same chain)
+//   POST /api/analyze-vision   — Logo analysis: Gemini Flash → Groq vision → Healer Alpha
 //   GET  /api/birdeye          — Birdeye data proxy
 //   GET  /api/pumpfun          — PumpFun CORS proxy
 //   GET  /health               — uptime check
@@ -136,6 +138,85 @@ const callGemini = async (parts) => {
     console.error('[Gemini] JSON parse failed. Raw:', clean.slice(0, 300))
     throw new Error(`Gemini response was not valid JSON: ${parseErr.message}`)
   }
+}
+
+// ─── Healer Alpha vision fallback ────────────────────────────────
+// Omni-modal model on OpenRouter — supports vision, free tier.
+// Used when both Gemini and Groq vision are quota-exhausted.
+const callHealerVision = async (parts, prompt) => {
+  const OR_KEY = process.env.OPENROUTER_API_KEY
+  if (!OR_KEY) throw new Error('OPENROUTER_API_KEY not configured')
+
+  // Healer Alpha uses OpenAI-compatible vision format
+  const content = []
+  parts.forEach(p => {
+    if (p.text) {
+      content.push({ type: 'text', text: p.text })
+    } else if (p.inline_data) {
+      content.push({
+        type: 'image_url',
+        image_url: { url: `data:${p.inline_data.mime_type};base64,${p.inline_data.data}` }
+      })
+    }
+  })
+
+  const response = await fetch('https://openrouter.ai/api/v1/chat/completions', {
+    method: 'POST',
+    headers: {
+      'Content-Type':  'application/json',
+      'Authorization': `Bearer ${OR_KEY}`,
+      'HTTP-Referer':  'https://betaplays.app',
+      'X-Title':       'BetaPlays',
+    },
+    body: JSON.stringify({
+      model: 'openrouter/healer-alpha',
+      max_tokens: 1000,
+      temperature: 0.1,
+      messages: [
+        { role: 'system', content: 'You are a crypto analyst. Always respond with valid JSON only.' },
+        { role: 'user', content },
+      ],
+    }),
+  })
+
+  if (!response.ok) {
+    const err = await response.text()
+    throw new Error(`Healer Alpha error ${response.status}: ${err}`)
+  }
+
+  const data  = await response.json()
+  const text  = data.choices?.[0]?.message?.content || ''
+  return JSON.parse(text.replace(/```json|```/g, '').trim())
+}
+
+// ─── Gemini text scoring helper ──────────────────────────────────
+// Uses the same Gemini key as vision but for pure text tasks.
+// Gemini Flash has a generous free quota (15 req/min, 1500/day).
+const callGeminiText = async (systemPrompt, userPrompt) => {
+  const GEMINI_KEY = process.env.GEMINI_API_KEY
+  if (!GEMINI_KEY) throw new Error('GEMINI_API_KEY not configured')
+
+  const body = {
+    systemInstruction: { parts: [{ text: systemPrompt }] },
+    contents: [{ role: 'user', parts: [{ text: userPrompt }] }],
+    generationConfig: { temperature: 0.1, maxOutputTokens: 1000 },
+  }
+
+  const response = await fetch(
+    `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${GEMINI_KEY}`,
+    { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) }
+  )
+
+  if (!response.ok) {
+    const err = await response.text()
+    throw new Error(`Gemini text error ${response.status}: ${err}`)
+  }
+
+  const data  = await response.json()
+  const text  = data.candidates?.[0]?.content?.parts?.[0]?.text || ''
+  const clean = text.replace(/```json|```/g, '').trim()
+  if (!clean) throw new Error('Gemini text returned empty response')
+  return JSON.parse(clean)
 }
 
 // ─── Groq Vision fallback helper ─────────────────────────────────
@@ -429,94 +510,154 @@ app.post('/api/score-betas', async (req, res) => {
 
     const SYSTEM = 'You are a crypto analyst. Always respond with valid JSON only — no explanation, no markdown fences.'
 
-    // ── Groq fallback chain (separate TPD quota per model) ────────
+    // ── Unified fallback chain ────────────────────────────────────
+    // Order: strongest/most-available first, weakest last.
+    // 8b-instant moved to LAST — it's too weak for relationship scoring.
+    // Gemini Flash added mid-chain — uses existing key, 1500 req/day free.
     const GROQ_KEY = process.env.GROQ_API_KEY
-    const GROQ_MODELS = [
-      'llama-3.3-70b-versatile',               // 100K TPD — best quality
-      'meta-llama/llama-4-scout-17b-16e-instruct', // separate quota
-      'llama-3.1-8b-instant',                  // 500K TPD — last Groq resort
-    ]
+    const OR_KEY   = process.env.OPENROUTER_API_KEY
+    const OR_HEADERS = { 'HTTP-Referer': 'https://betaplays.app', 'X-Title': 'BetaPlays' }
 
     const messages = [
       { role: 'system', content: SYSTEM },
       { role: 'user',   content: prompt },
     ]
 
-    // Try each Groq model in order
-    for (const model of GROQ_MODELS) {
-      try {
-        const response = await fetch('https://api.groq.com/openai/v1/chat/completions', {
-          method: 'POST',
-          headers: {
-            'Content-Type':  'application/json',
-            'Authorization': `Bearer ${GROQ_KEY}`,
-          },
-          body: JSON.stringify({ model, max_tokens: 1000, temperature: 0.1, messages }),
-        })
-        if (!response.ok) {
-          const errText = await response.text()
-          if (response.status === 429) {
-            console.warn(`[Vector8] ${model} quota hit — trying next`)
-            continue
-          }
-          throw new Error(`Groq error ${response.status}: ${errText}`)
-        }
-        const data   = await response.json()
-        const text   = data.choices?.[0]?.message?.content || ''
-        const clean  = text.replace(/```json|```/g, '').trim()
-        const result = JSON.parse(clean)
-        if (model !== GROQ_MODELS[0]) console.log(`[Vector8] Groq fallback used: ${model}`)
-        return res.json(result)
-      } catch (err) {
-        if (err.message?.includes('429')) { continue }
-        throw err
+    // Helper: call any OpenAI-compatible endpoint
+    const tryOpenAI = async (url, key, model, extraHeaders = {}) => {
+      const response = await fetch(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${key}`, ...extraHeaders },
+        body: JSON.stringify({ model, max_tokens: 1000, temperature: 0.1, messages }),
+      })
+      if (!response.ok) {
+        const errText = await response.text()
+        if (response.status === 429) throw new Error('429')
+        throw new Error(`${response.status}: ${errText}`)
       }
+      const data  = await response.json()
+      const text  = data.choices?.[0]?.message?.content || ''
+      return JSON.parse(text.replace(/```json|```/g, '').trim())
     }
 
-    // ── OpenRouter fallback (free tier, 200 req/day, 27 free models) ─
-    // Uses same OpenAI-compatible format — no code changes needed.
-    // Free models rotate automatically if one is overloaded.
-    // Get key free at openrouter.ai — add OPENROUTER_KEY to server/.env
-    const OR_KEY = process.env.OPENROUTER_API_KEY
+    // ── Fallback chain — ordered by quality for relationship scoring ──
+    // 1.  Groq 70b           — fast, reliable, 100K TPD
+    // 2.  Groq Scout 17b     — separate Groq quota
+    // 3.  OR Llama 3.3 70b   — same quality as Groq 70b, free
+    // 4.  OR DeepSeek R1     — strong reasoning, consistent JSON
+    // 5.  Kimi K2.5          — 1T params, strong reasoning+general, free
+    // 6.  OR Qwen 2.5 72b    — solid alternative, free
+    // 7.  Hunter Alpha        — 1T params, large context, free (benchmarks "okay")
+    // 8.  Gemini Flash        — existing key, 1500 req/day
+    // 9.  OR Gemini Flash exp — free tier backup
+    // 10. Kimi K2 Thinking   — best reasoning but slow + needs temp=1.0
+    // 11. Groq 8b-instant    — last resort, too weak for nuanced scoring
+
+    // 1. Groq 70b — 100K TPD, best Groq quality
+    if (GROQ_KEY) {
+      try {
+        const result = await tryOpenAI('https://api.groq.com/openai/v1/chat/completions', GROQ_KEY, 'llama-3.3-70b-versatile')
+        return res.json(result)
+      } catch (e) { if (e.message !== '429') throw e; console.warn('[Vector8] llama-3.3-70b-versatile quota hit') }
+    }
+
+    // 2. Groq Scout 17b — separate quota
+    if (GROQ_KEY) {
+      try {
+        const result = await tryOpenAI('https://api.groq.com/openai/v1/chat/completions', GROQ_KEY, 'meta-llama/llama-4-scout-17b-16e-instruct')
+        console.log('[Vector8] Groq fallback: llama-4-scout-17b')
+        return res.json(result)
+      } catch (e) { if (e.message !== '429') throw e; console.warn('[Vector8] llama-4-scout-17b quota hit') }
+    }
+
+    // 3. OR Llama 3.3 70b — same quality as Groq 70b
     if (OR_KEY) {
-      const OR_MODELS = [
-        'meta-llama/llama-3.3-70b-instruct:free',  // same quality as Groq 70b
-        'deepseek/deepseek-r1:free',                // strong reasoning
-        'google/gemini-2.0-flash-exp:free',         // Google's model, generous quota
-      ]
-      for (const model of OR_MODELS) {
-        try {
-          const response = await fetch('https://openrouter.ai/api/v1/chat/completions', {
-            method: 'POST',
-            headers: {
-              'Content-Type':  'application/json',
-              'Authorization': `Bearer ${OR_KEY}`,
-              'HTTP-Referer':  'https://betaplays.app',  // required by OpenRouter
-              'X-Title':       'BetaPlays',
-            },
-            body: JSON.stringify({ model, max_tokens: 1000, temperature: 0.1, messages }),
-          })
-          if (!response.ok) {
-            const errText = await response.text()
-            if (response.status === 429) {
-              console.warn(`[Vector8] OpenRouter ${model} quota hit — trying next`)
-              continue
-            }
-            throw new Error(`OpenRouter error ${response.status}: ${errText}`)
-          }
-          const data   = await response.json()
-          const text   = data.choices?.[0]?.message?.content || ''
-          const clean  = text.replace(/```json|```/g, '').trim()
-          const result = JSON.parse(clean)
-          console.log(`[Vector8] OpenRouter fallback used: ${model}`)
-          return res.json(result)
-        } catch (err) {
-          if (err.message?.includes('429')) { continue }
-          throw err
-        }
-      }
-    } else {
-      console.warn('[Vector8] OPENROUTER_API_KEY not set — skipping OpenRouter fallback')
+      try {
+        const result = await tryOpenAI('https://openrouter.ai/api/v1/chat/completions', OR_KEY, 'meta-llama/llama-3.3-70b-instruct:free', OR_HEADERS)
+        console.log('[Vector8] OR fallback: llama-3.3-70b-instruct:free')
+        return res.json(result)
+      } catch (e) { if (e.message !== '429') throw e; console.warn('[Vector8] OR llama-3.3-70b quota hit') }
+    }
+
+    // 4. OR DeepSeek R1 — strong reasoning
+    if (OR_KEY) {
+      try {
+        const result = await tryOpenAI('https://openrouter.ai/api/v1/chat/completions', OR_KEY, 'deepseek/deepseek-r1:free', OR_HEADERS)
+        console.log('[Vector8] OR fallback: deepseek-r1:free')
+        return res.json(result)
+      } catch (e) { if (e.message !== '429') throw e; console.warn('[Vector8] OR deepseek-r1 quota hit') }
+    }
+
+    // 5. Kimi K2.5 — 1T params, strong reasoning, free on OpenRouter
+    if (OR_KEY) {
+      try {
+        const result = await tryOpenAI('https://openrouter.ai/api/v1/chat/completions', OR_KEY, 'moonshotai/kimi-k2.5', OR_HEADERS)
+        console.log('[Vector8] OR fallback: kimi-k2.5')
+        return res.json(result)
+      } catch (e) { if (e.message !== '429') throw e; console.warn('[Vector8] Kimi K2.5 quota hit') }
+    }
+
+    // 6. OR Qwen 2.5 72b — solid alternative
+    if (OR_KEY) {
+      try {
+        const result = await tryOpenAI('https://openrouter.ai/api/v1/chat/completions', OR_KEY, 'qwen/qwen-2.5-72b-instruct:free', OR_HEADERS)
+        console.log('[Vector8] OR fallback: qwen-2.5-72b:free')
+        return res.json(result)
+      } catch (e) { if (e.message !== '429') throw e; console.warn('[Vector8] OR qwen-2.5-72b quota hit') }
+    }
+
+    // 7. Hunter Alpha — 1T params, 1M context, free (reasoning benchmarks moderate)
+    if (OR_KEY) {
+      try {
+        const result = await tryOpenAI('https://openrouter.ai/api/v1/chat/completions', OR_KEY, 'openrouter/hunter-alpha', OR_HEADERS)
+        console.log('[Vector8] OR fallback: hunter-alpha')
+        return res.json(result)
+      } catch (e) { if (e.message !== '429') throw e; console.warn('[Vector8] Hunter Alpha quota hit') }
+    }
+
+    // 8. Gemini Flash — existing key, 1500 req/day
+    try {
+      const result = await callGeminiText(SYSTEM, prompt)
+      console.log('[Vector8] Gemini Flash fallback used')
+      return res.json(result)
+    } catch (e) {
+      if (!isGeminiQuotaError(e)) throw e
+      console.warn('[Vector8] Gemini Flash quota hit')
+    }
+
+    // 9. OR Gemini Flash exp — free tier backup
+    if (OR_KEY) {
+      try {
+        const result = await tryOpenAI('https://openrouter.ai/api/v1/chat/completions', OR_KEY, 'google/gemini-2.0-flash-exp:free', OR_HEADERS)
+        console.log('[Vector8] OR fallback: gemini-2.0-flash-exp:free')
+        return res.json(result)
+      } catch (e) { if (e.message !== '429') throw e; console.warn('[Vector8] OR gemini-flash quota hit') }
+    }
+
+    // 10. Kimi K2 Thinking — best reasoning but slow, needs temp=1.0 for reliability
+    if (OR_KEY) {
+      try {
+        const response = await fetch('https://openrouter.ai/api/v1/chat/completions', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${OR_KEY}`, ...OR_HEADERS },
+          body: JSON.stringify({ model: 'moonshotai/kimi-k2-thinking', max_tokens: 1000, temperature: 1.0, messages }),
+        })
+        if (!response.ok) { const t = await response.text(); if (response.status === 429) throw new Error('429'); throw new Error(t) }
+        const data = await response.json()
+        const text = data.choices?.[0]?.message?.content || ''
+        const result = JSON.parse(text.replace(/```json|```/g, '').trim())
+        console.log('[Vector8] OR fallback: kimi-k2-thinking')
+        return res.json(result)
+      } catch (e) { if (e.message !== '429') throw e; console.warn('[Vector8] Kimi K2 Thinking quota hit') }
+    }
+
+    // 11. Groq 8b-instant — LAST RESORT only (too weak for nuanced scoring)
+    if (GROQ_KEY) {
+      try {
+        const result = await tryOpenAI('https://api.groq.com/openai/v1/chat/completions', GROQ_KEY, 'llama-3.1-8b-instant')
+        console.warn('[Vector8] ⚠️  8b-instant last resort — scoring quality degraded')
+        return res.json(result)
+      } catch (e) { if (e.message !== '429') throw e; console.warn('[Vector8] 8b-instant quota hit') }
     }
 
     // All models exhausted
@@ -675,17 +816,8 @@ Respond ONLY with a JSON array. No explanation, no markdown. Example:
       { role: 'user',   content: prompt },
     ]
 
-    // Same fallback chain as score-betas
-    const GROQ_MODELS = [
-      'llama-3.3-70b-versatile',
-      'meta-llama/llama-4-scout-17b-16e-instruct',
-      'llama-3.1-8b-instant',
-    ]
-    const OR_MODELS = [
-      'meta-llama/llama-3.3-70b-instruct:free',
-      'deepseek/deepseek-r1:free',
-      'google/gemini-2.0-flash-exp:free',
-    ]
+    // Same ordered chain as score-betas — 8b-instant last
+    const OR_HEADERS = { 'HTTP-Referer': 'https://betaplays.app', 'X-Title': 'BetaPlays' }
 
     const tryModel = async (url, key, model, extraHeaders = {}) => {
       const response = await fetch(url, {
@@ -695,36 +827,60 @@ Respond ONLY with a JSON array. No explanation, no markdown. Example:
       })
       if (!response.ok) {
         const errText = await response.text()
+        if (response.status === 429) throw new Error('429')
         throw new Error(`${response.status}:${errText}`)
       }
       const data  = await response.json()
       const text  = data.choices?.[0]?.message?.content || ''
-      const clean = text.replace(/```json|```/g, '').trim()
-      return JSON.parse(clean)
+      return JSON.parse(text.replace(/```json|```/g, '').trim())
     }
 
-    for (const model of GROQ_MODELS) {
+    const CHAIN = [
+      { url: 'https://api.groq.com/openai/v1/chat/completions',   key: GROQ_KEY, model: 'llama-3.3-70b-versatile',                      headers: {},         tag: 'Groq 70b'           },
+      { url: 'https://api.groq.com/openai/v1/chat/completions',   key: GROQ_KEY, model: 'meta-llama/llama-4-scout-17b-16e-instruct',     headers: {},         tag: 'Groq Scout'         },
+      { url: 'https://openrouter.ai/api/v1/chat/completions',     key: OR_KEY,   model: 'meta-llama/llama-3.3-70b-instruct:free',        headers: OR_HEADERS, tag: 'OR llama-70b'       },
+      { url: 'https://openrouter.ai/api/v1/chat/completions',     key: OR_KEY,   model: 'deepseek/deepseek-r1:free',                     headers: OR_HEADERS, tag: 'OR deepseek-r1'     },
+      { url: 'https://openrouter.ai/api/v1/chat/completions',     key: OR_KEY,   model: 'moonshotai/kimi-k2.5',                          headers: OR_HEADERS, tag: 'Kimi K2.5'          },
+      { url: 'https://openrouter.ai/api/v1/chat/completions',     key: OR_KEY,   model: 'qwen/qwen-2.5-72b-instruct:free',               headers: OR_HEADERS, tag: 'OR qwen-72b'        },
+      { url: 'https://openrouter.ai/api/v1/chat/completions',     key: OR_KEY,   model: 'openrouter/hunter-alpha',                       headers: OR_HEADERS, tag: 'Hunter Alpha'       },
+      { url: 'https://openrouter.ai/api/v1/chat/completions',     key: OR_KEY,   model: 'google/gemini-2.0-flash-exp:free',              headers: OR_HEADERS, tag: 'OR gemini-flash'    },
+      { url: 'https://api.groq.com/openai/v1/chat/completions',   key: GROQ_KEY, model: 'llama-3.1-8b-instant',                         headers: {},         tag: 'Groq 8b (last resort)' },
+    ]
+
+    for (const { url, key, model, headers, tag } of CHAIN) {
+      if (!key) continue
       try {
-        const result = await tryModel('https://api.groq.com/openai/v1/chat/completions', GROQ_KEY, model)
+        const result = await tryModel(url, key, model, headers)
+        if (tag !== 'Groq 70b') console.log(`[SznAI] Fallback used: ${tag}`)
         return res.json(result)
       } catch (err) {
-        if (err.message?.startsWith('429')) { console.warn(`[SznAI] ${model} quota hit`); continue }
+        if (err.message === '429') { console.warn(`[SznAI] ${tag} quota hit`); continue }
         throw err
       }
     }
 
+    // Gemini Flash — separate call format, 1500 req/day
+    try {
+      const result = await callGeminiText(SYSTEM, prompt)
+      console.log('[SznAI] Gemini Flash fallback used')
+      return res.json(result)
+    } catch (e) { console.warn('[SznAI] Gemini Flash failed:', e.message) }
+
+    // Kimi K2 Thinking — best reasoning, slower, temp=1.0
     if (OR_KEY) {
-      const OR_HEADERS = { 'HTTP-Referer': 'https://betaplays.app', 'X-Title': 'BetaPlays' }
-      for (const model of OR_MODELS) {
-        try {
-          const result = await tryModel('https://openrouter.ai/api/v1/chat/completions', OR_KEY, model, OR_HEADERS)
-          console.log(`[SznAI] OpenRouter fallback used: ${model}`)
-          return res.json(result)
-        } catch (err) {
-          if (err.message?.startsWith('429')) { console.warn(`[SznAI] OpenRouter ${model} quota hit`); continue }
-          throw err
-        }
-      }
+      try {
+        const response = await fetch('https://openrouter.ai/api/v1/chat/completions', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${OR_KEY}`, ...OR_HEADERS },
+          body: JSON.stringify({ model: 'moonshotai/kimi-k2-thinking', max_tokens: 1000, temperature: 1.0, messages }),
+        })
+        if (!response.ok) { const t = await response.text(); if (response.status === 429) throw new Error('429'); throw new Error(t) }
+        const data = await response.json()
+        const text = data.choices?.[0]?.message?.content || ''
+        const result = JSON.parse(text.replace(/```json|```/g, '').trim())
+        console.log('[SznAI] Kimi K2 Thinking fallback used')
+        return res.json(result)
+      } catch (e) { console.warn('[SznAI] Kimi K2 Thinking failed:', e.message) }
     }
 
     res.status(429).json({ error: 'All AI models quota exhausted. Resets at midnight UTC.' })
@@ -779,13 +935,17 @@ Respond ONLY with a JSON array. No markdown. Example:
         result = await callGemini(parts)
         console.log('[Vision] Gemini classify OK')
       } catch (geminiErr) {
-        if (isGeminiQuotaError(geminiErr)) {
-          console.warn('[Vision] Gemini quota exhausted — falling back to Groq vision')
+        if (!isGeminiQuotaError(geminiErr)) throw geminiErr
+        console.warn('[Vision] Gemini quota exhausted — trying Groq vision')
+        try {
           const groqCompatible = filterForGroq(withImages)
           if (groqCompatible.length === 0) { res.json([]); return }
           result = await callGroqVision('classify', groqCompatible)
-        } else {
-          throw geminiErr
+          console.log('[Vision] Groq vision classify OK')
+        } catch (groqErr) {
+          console.warn('[Vision] Groq vision failed — trying Healer Alpha')
+          result = await callHealerVision(parts, 'classify')
+          console.log('[Vision] Healer Alpha classify OK')
         }
       }
       const enriched = result.map(r => ({
@@ -843,16 +1003,19 @@ Respond ONLY with a JSON array. No markdown. Example:
         result = await callGemini(parts)
         console.log('[Vision] Gemini compare OK')
       } catch (geminiErr) {
-        if (isGeminiQuotaError(geminiErr)) {
-          console.warn('[Vision] Gemini quota exhausted — falling back to Groq vision')
+        if (!isGeminiQuotaError(geminiErr)) throw geminiErr
+        console.warn('[Vision] Gemini quota exhausted — trying Groq vision')
+        try {
           const alphaWithImg = { ...alpha, img: alphaImg }
-          // Skip if alpha itself is a GIF — can't compare without a valid reference image
           if (!GROQ_SUPPORTED_TYPES.includes(alphaImg.mimeType)) { res.json([]); return }
           const groqCompatible = filterForGroq(withImages)
           if (groqCompatible.length === 0) { res.json([]); return }
           result = await callGroqVision('compare', groqCompatible, alphaWithImg)
-        } else {
-          throw geminiErr
+          console.log('[Vision] Groq vision compare OK')
+        } catch (groqErr) {
+          console.warn('[Vision] Groq vision failed — trying Healer Alpha')
+          result = await callHealerVision(parts, 'compare')
+          console.log('[Vision] Healer Alpha compare OK')
         }
       }
       const enriched = result.map(r => ({
