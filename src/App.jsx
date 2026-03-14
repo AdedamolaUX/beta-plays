@@ -1137,7 +1137,7 @@ const SignalBadge = ({ beta }) => {
   const classMap = {
     CABAL:    'badge-cabal',
     TRENDING: 'badge-strong',
-    STRONG:   'badge-strong',
+    KEYWORD:  'badge-strong',
     LORE:     'badge-weak',
     WEAK:     'badge-weak',
     LP_PAIR:  'badge-cabal',
@@ -1167,7 +1167,8 @@ const SignalBadge = ({ beta }) => {
         {signal.label === 'CABAL'    ? '🕵️ CABAL'   :
          signal.label === 'TRENDING' ? '🔥 TRENDING' :
          signal.label === 'LP_PAIR'  ? '🔗 LP PAIR'  :
-         signal.label === 'AI'       ? '🤖 AI MATCH' : signal.label}
+         signal.label === 'AI'       ? '🤖 AI MATCH' :
+         signal.label === 'KEYWORD'  ? '🔍 KEYWORD'  : signal.label}
       </span>
     </div>
   )

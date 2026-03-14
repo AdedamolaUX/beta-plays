@@ -54,16 +54,27 @@ const BETA_STORE_KEY = 'betaplays_betas_v2'
 const BETA_TTL_MS    = 7 * 24 * 60 * 60 * 1000  // 7 days
 const MAX_STORED     = 50
 
+const WEAK_SOLO_SIGNALS = new Set(['keyword', 'morphology', 'description'])
+
 const loadStoredBetas = (alphaAddress) => {
   try {
     const store = JSON.parse(localStorage.getItem(BETA_STORE_KEY) || '{}')
     const bucket = store[alphaAddress] || []
     const now = Date.now()
-    // Filter expired + recompute dexUrl from token address every load
-    // Pair addresses go stale when pools migrate (PumpFun → PumpSwap).
-    // Token address is permanent — DEXScreener routes to the active pool.
     return bucket
       .filter(b => (now - (b.storedAt || 0)) < BETA_TTL_MS)
+      // Purge stale false positives: single weak-signal tokens with no AI
+      // score that survived from old scans (e.g. $LOLA in $Whatif's list).
+      // These pass the TTL check but were never validated by Vector 8.
+      .filter(b => {
+        const srcs = b.signalSources || []
+        const isSingleWeak = srcs.length > 0 && srcs.every(s => WEAK_SOLO_SIGNALS.has(s))
+        if (isSingleWeak && !b.aiScore) {
+          console.log(`[BetaStore] Purged $${b.symbol} — unvalidated single weak signal`)
+          return false
+        }
+        return true
+      })
       .map(b => ({
         ...b,
         dexUrl: b.address
@@ -544,9 +555,9 @@ export const getSignal = (beta) => {
   if (s.includes('og_match'))                                    return { label: 'OG',       tier: 4 }
   if (s.includes('pumpfun'))                                     return { label: 'TRENDING', tier: 3 }
   if (s.includes('ai_match'))                                    return { label: 'AI',       tier: 3 }
-  if (s.includes('description'))                                 return { label: 'STRONG',   tier: 2 }
-  if (s.includes('morphology'))                                  return { label: 'STRONG',   tier: 2 }
-  if (s.includes('keyword'))                                     return { label: 'STRONG',   tier: 2 }
+  if (s.includes('description'))                                 return { label: 'KEYWORD',  tier: 2 }
+  if (s.includes('morphology'))                                  return { label: 'KEYWORD',  tier: 2 }
+  if (s.includes('keyword'))                                     return { label: 'KEYWORD',  tier: 2 }
   if (s.includes('lore'))                                        return { label: 'LORE',     tier: 1 }
   return                                                                { label: 'WEAK',     tier: 0 }
 }
@@ -1334,15 +1345,42 @@ const useBetas = (alpha, parentAlpha = null) => {
         const withAIAndNew = [...withAI, ...aiOnly]
 
         // ── Remove confirmed noise ─────────────────────────────────
-        // Only remove tokens that Vector 8 explicitly evaluated AND rejected.
-        // LP_PAIR tokens are exempt — structural signal trumps AI opinion.
-        // Tokens from failed batches are NOT in rejectedAddresses, so they stay.
+        // LP_PAIR, OG, LORE, NAMED (desc_match) tokens are always kept —
+        // structural or explicit signals that don't need AI validation.
+        //
+        // Single-signal KEYWORD tokens (keyword/morphology/description only,
+        // no corroboration) are held to a stricter standard: if Vector 8
+        // scored them as SPIN with score < 0.5, they're noise. This catches
+        // false positives like $LOLA appearing in $Whatif's list.
+        // Multi-signal tokens (CABAL, AI MATCH etc.) are unaffected.
+        const STRONG_SIGNALS = new Set(['lp_pair','og_match','lore','desc_match'])
+        const WEAK_SOLO      = new Set(['keyword','morphology','description'])
+
         const filtered = withAIAndNew.filter(b => {
-          if (b.signalSources?.includes('lp_pair')) return true  // never remove LP pairs
+          const srcs = b.signalSources || []
+
+          // Always keep structurally strong signals
+          if (srcs.some(s => STRONG_SIGNALS.has(s))) return true
+
+          // Explicit Vector 8 reject
           if (rejectedAddresses.has(b.address)) {
             console.log(`[Vector8] 🗑️  Removed $${b.symbol} — scored below threshold`)
             return false
           }
+
+          // Single-signal keyword/morphology/description token that Vector 8
+          // classified as SPIN with low confidence — drop it
+          const isSingleWeakSignal = srcs.length > 0 && srcs.every(s => WEAK_SOLO.has(s))
+          if (isSingleWeakSignal) {
+            const isLowConfidenceSpin =
+              (b.relationshipType === 'SPIN' || !b.relationshipType) &&
+              (b.aiScore || 0) < 0.5
+            if (isLowConfidenceSpin) {
+              console.log(`[Vector8] 🗑️  Removed $${b.symbol} — single weak signal + low AI confidence (${b.aiScore || 'unscored'})`)
+              return false
+            }
+          }
+
           return true
         })
 
@@ -1419,22 +1457,18 @@ const useBetas = (alpha, parentAlpha = null) => {
       }
 
       // ── Persist betas to localStorage ───────────────────────────
-      // IMPORTANT: never use the `betas` closure variable here — it is a
-      // snapshot from when fetchBetas was created and can hold another alpha's
-      // data after repeated clicks. Always read current state via `prev` inside
-      // the functional update, then save from that.
-      const stored = loadStoredBetas(myAddress)
+      // Always use myAddress (captured at fetch start) — not alpha?.address
+      // which could have changed if the user switched tokens during this fetch.
+      // Persisting is always safe even if stale; only the setBetas is guarded.
+      const stored   = loadStoredBetas(myAddress)
+      const fullList = mergeBetas(betas, stored)
+      saveStoredBetas(myAddress, fullList)
       if (!isStale()) {
         setBetas(prev => {
           const merged2 = mergeBetas(prev, stored)
-          const toSave  = merged2.length > 0 ? merged2 : prev
-          saveStoredBetas(myAddress, toSave)  // save actual current state, not stale closure
-          if (toSave.length === 0) setError('No beta plays detected yet. Trenches might be cooked.')
-          return toSave
+          if (merged2.length === 0) setError('No beta plays detected yet. Trenches might be cooked.')
+          return merged2.length > 0 ? merged2 : prev
         })
-      } else {
-        // Stale fetch — still persist the stored data (no closure contamination)
-        saveStoredBetas(myAddress, stored)
       }
     } catch (err) {
       console.error('Beta detection failed:', err)
