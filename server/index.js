@@ -23,6 +23,42 @@ const app = express()
 app.use(cors())
 app.use(express.json({ limit: '10mb' }))  // 10mb for base64 image payloads
 
+// ─── Groq 70b daily limit tracker ─────────────────────────────────
+// Groq's free tier caps llama-3.3-70b at ~100K tokens/day (resets UTC midnight).
+// Instead of attempting it on every request and always failing + falling back,
+// we track the first 429 with a daily-limit signature and skip it until reset.
+// Per-minute TPM limits are NOT tracked here — those resolve in seconds.
+let groq70bDailyLimitHit  = false
+let groq70bLimitResetTime = 0
+
+function isGroq70bAvailable () {
+  if (!groq70bDailyLimitHit) return true
+  if (Date.now() > groq70bLimitResetTime) {
+    groq70bDailyLimitHit  = false
+    groq70bLimitResetTime = 0
+    console.log('[Groq70b] Daily limit reset — re-enabling')
+    return true
+  }
+  return false
+}
+
+function markGroq70bDailyLimitHit () {
+  groq70bDailyLimitHit = true
+  // Next UTC midnight
+  const now = new Date()
+  groq70bLimitResetTime = Date.UTC(
+    now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate() + 1
+  )
+  console.warn(`[Groq70b] Daily limit hit — skipping until ${new Date(groq70bLimitResetTime).toISOString()}`)
+}
+
+// ─── PumpFun / PumpPortal cache (10-minute TTL) ────────────────────
+// PumpFun CDN has chronic 530 outages. We cache the last good response
+// so a CDN blip doesn't wipe out all Vector 4 results mid-session.
+// PumpPortal is used as a live fallback when PumpFun is unavailable.
+const pumpFunCache = new Map()  // key: query string → { data, ts }
+const PUMPFUN_CACHE_TTL = 10 * 60 * 1000  // 10 minutes
+
 // Rate limiting — split limits so vision batches don't eat the shared quota
 const limiter = rateLimit({
   windowMs: 60 * 1000,
@@ -532,7 +568,12 @@ app.post('/api/score-betas', async (req, res) => {
       })
       if (!response.ok) {
         const errText = await response.text()
-        if (response.status === 429) throw new Error('429')
+        if (response.status === 429) {
+          const err = new Error('429')
+          // Tag as daily limit if error body mentions per-day quota
+          err.dailyLimit = errText.toLowerCase().includes('day') || errText.toLowerCase().includes('tpd')
+          throw err
+        }
         throw new Error(`${response.status}: ${errText}`)
       }
       const data  = await response.json()
@@ -554,11 +595,18 @@ app.post('/api/score-betas', async (req, res) => {
     // 11. Groq 8b-instant    — last resort, too weak for nuanced scoring
 
     // 1. Groq 70b — 100K TPD, best Groq quality
-    if (GROQ_KEY) {
+    if (GROQ_KEY && isGroq70bAvailable()) {
       try {
         const result = await tryOpenAI('https://api.groq.com/openai/v1/chat/completions', GROQ_KEY, 'llama-3.3-70b-versatile')
         return res.json(result)
-      } catch (e) { if (e.message !== '429') throw e; console.warn('[Vector8] llama-3.3-70b-versatile quota hit') }
+      } catch (e) {
+        if (e.message !== '429') throw e
+        // Distinguish TPM (per-minute) vs daily — daily errors mention 'day' in body
+        if (e.dailyLimit) markGroq70bDailyLimitHit()
+        else console.warn('[Vector8] llama-3.3-70b-versatile TPM hit — falling back')
+      }
+    } else if (groq70bDailyLimitHit) {
+      console.warn('[Vector8] Groq 70b daily limit active — skipping to Scout')
     }
 
     // 2. Groq Scout 17b — separate quota
@@ -1082,41 +1130,85 @@ app.get('/api/pumpfun', async (req, res) => {
   const allowed = ['coins']
   if (!allowed.includes(apiPath)) return res.status(400).json({ error: 'unknown path' })
 
-  const qs  = new URLSearchParams(params).toString()
-  const url = `https://frontend-api.pump.fun/${apiPath}${qs ? '?' + qs : ''}`
+  const qs       = new URLSearchParams(params).toString()
+  const cacheKey = `${apiPath}?${qs}`
 
+  // ── Serve from cache if fresh ──────────────────────────────────
+  const cached = pumpFunCache.get(cacheKey)
+  if (cached && Date.now() - cached.ts < PUMPFUN_CACHE_TTL) {
+    console.log(`[PumpFun] Cache hit for ${cacheKey}`)
+    return res.json(cached.data)
+  }
+
+  // ── Try PumpFun first ──────────────────────────────────────────
+  const pumpFunUrl = `https://frontend-api.pump.fun/${apiPath}${qs ? '?' + qs : ''}`
   try {
-    // 530 = Cloudflare CDN outage — no point retrying, fail fast
-    const response = await fetch(url, {
+    const response = await fetch(pumpFunUrl, {
       headers: { 'User-Agent': 'Mozilla/5.0', 'Accept': 'application/json' },
+      signal: AbortSignal.timeout(8000),
     })
+
     if (response.status === 530) {
-      console.warn('[PumpFun] CDN outage (530) — skipping retries')
-      return res.status(503).json({ error: 'PumpFun CDN unavailable (530)' })
+      console.warn('[PumpFun] CDN outage (530) — trying PumpPortal fallback')
+      throw new Error('CDN_OUTAGE')
     }
     if (response.status === 429 || response.status >= 500) {
-      // Only retry on rate limits and server errors — not CDN outages
-      const retried = await fetchWithRetry(url, {
+      const retried = await fetchWithRetry(pumpFunUrl, {
         headers: { 'User-Agent': 'Mozilla/5.0', 'Accept': 'application/json' },
       })
       if (!retried.ok) throw new Error(`PumpFun ${retried.status}`)
-
       const contentType = retried.headers.get('content-type') || ''
-      if (!contentType.includes('application/json')) {
-        return res.status(502).json({ error: 'PumpFun returned non-JSON response' })
-      }
-      return res.json(await retried.json())
+      if (!contentType.includes('application/json')) throw new Error('NON_JSON')
+      const data = await retried.json()
+      pumpFunCache.set(cacheKey, { data, ts: Date.now() })
+      return res.json(data)
     }
     if (!response.ok) throw new Error(`PumpFun ${response.status}`)
 
     const contentType = response.headers.get('content-type') || ''
-    if (!contentType.includes('application/json')) {
-      return res.status(502).json({ error: 'PumpFun returned non-JSON response' })
+    if (!contentType.includes('application/json')) throw new Error('NON_JSON')
+
+    const data = await response.json()
+    pumpFunCache.set(cacheKey, { data, ts: Date.now() })
+    return res.json(data)
+
+  } catch (pumpErr) {
+    console.warn(`[PumpFun] Failed (${pumpErr.message}) — trying PumpPortal`)
+
+    // ── PumpPortal fallback ──────────────────────────────────────
+    // Maps PumpFun query params to PumpPortal's equivalent endpoint.
+    // Returns same coin shape — symbol, name, mint, usd_market_cap.
+    try {
+      const sort  = params.sort  || 'last_trade_timestamp'
+      const order = params.order || 'DESC'
+      const limit = params.limit || 100
+      // PumpPortal: /api/data/coins?orderby=last_trade_timestamp&order=DESC&limit=100
+      const ppUrl = `https://pumpportal.fun/api/data/coins?orderby=${sort}&order=${order}&limit=${limit}&includeNsfw=false`
+      const ppRes = await fetch(ppUrl, {
+        headers: { 'User-Agent': 'Mozilla/5.0', 'Accept': 'application/json' },
+        signal: AbortSignal.timeout(8000),
+      })
+      if (!ppRes.ok) throw new Error(`PumpPortal ${ppRes.status}`)
+      const ppContentType = ppRes.headers.get('content-type') || ''
+      if (!ppContentType.includes('application/json')) throw new Error('PumpPortal non-JSON')
+
+      const ppData = await ppRes.json()
+      console.log(`[PumpPortal] Fallback success — ${ppData.length || 0} coins`)
+      // Cache the fallback result too
+      pumpFunCache.set(cacheKey, { data: ppData, ts: Date.now() })
+      return res.json(ppData)
+    } catch (ppErr) {
+      console.error(`[PumpPortal] Fallback also failed: ${ppErr.message}`)
+
+      // ── Last resort: serve stale cache rather than empty ──────
+      if (cached) {
+        const ageMin = Math.round((Date.now() - cached.ts) / 60000)
+        console.warn(`[PumpFun] Serving stale cache (${ageMin}m old)`)
+        return res.json(cached.data)
+      }
+
+      return res.status(503).json({ error: 'PumpFun and PumpPortal both unavailable' })
     }
-    res.json(await response.json())
-  } catch (err) {
-    console.error('PumpFun proxy error:', err.message)
-    res.status(502).json({ error: err.message })
   }
 })
 

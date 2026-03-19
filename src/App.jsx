@@ -328,15 +328,28 @@ const AlphaCard = ({ alpha, isSelected, onClick, isWatched, onToggleWatch }) => 
   const isPositive = change >= 0
   const derivative = isDerivative(alpha.symbol)
 
-  // Read parent symbol from localStorage map — written by useParentAlpha
-  // when a parent is detected. Allows the card to show "DERIV of $TRUMP"
-  // without needing to fetch parent data at card render time.
-  const parentSymbol = useMemo(() => {
+  // Read parent symbol from localStorage map — written by useParentAlpha.
+  // Uses useState+useEffect (not useMemo) so the card re-renders when the
+  // map is populated after initial render — fixes "DERIV" showing without parent name.
+  const [parentSymbol, setParentSymbol] = useState(() => {
     if (!derivative || !alpha.address) return null
     try {
       const map = JSON.parse(localStorage.getItem('betaplays_parent_map') || '{}')
       return map[alpha.address]?.symbol || null
     } catch { return null }
+  })
+  useEffect(() => {
+    if (!derivative || !alpha.address) return
+    const read = () => {
+      try {
+        const map = JSON.parse(localStorage.getItem('betaplays_parent_map') || '{}')
+        setParentSymbol(map[alpha.address]?.symbol || null)
+      } catch {}
+    }
+    read()
+    // Re-read whenever localStorage changes (useParentAlpha writes the map)
+    window.addEventListener('storage', read)
+    return () => window.removeEventListener('storage', read)
   }, [derivative, alpha.address])
 
   const [showNomMenu, setShowNomMenu] = useState(false)
@@ -1168,7 +1181,7 @@ const SignalBadge = ({ beta }) => {
          signal.label === 'TRENDING' ? '🔥 TRENDING' :
          signal.label === 'LP_PAIR'  ? '🔗 LP PAIR'  :
          signal.label === 'AI'       ? '🤖 AI MATCH' :
-         signal.label === 'KEYWORD'  ? '🔍 KEYWORD'  : signal.label}
+         signal.label === 'KEYWORD'  ? '🔍 KEYWORD MATCH'  : signal.label}
       </span>
     </div>
   )

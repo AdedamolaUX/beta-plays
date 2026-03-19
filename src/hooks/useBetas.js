@@ -7,6 +7,73 @@ import { compareLogos, shouldRunVision } from './useImageAnalysis'
 const DEXSCREENER_BASE = 'https://api.dexscreener.com'
 const BACKEND_URL      = import.meta.env.VITE_BACKEND_URL || 'http://localhost:3001'
 
+// ─── DEX Request Queue ─────────────────────────────────────────────
+// Limits concurrent DEXScreener calls to max 4 inflight at once.
+// All vectors share this queue — they fire simultaneously but the queue
+// gates how many actually hit the API at the same time.
+// Also deduplicates: identical URLs share one in-flight request.
+// Cache TTL: 5 minutes — long enough to cover a full scan cycle.
+const DEX_QUEUE = (() => {
+  let running   = 0
+  const MAX     = 4
+  const waiting = []
+  const cache   = new Map()   // url → Promise<response>
+  const DELAY   = 250         // ms between requests leaving the queue
+
+  const next = () => {
+    if (waiting.length > 0 && running < MAX) waiting.shift()()
+  }
+
+  const get = async (url, options = {}) => {
+    // Return cached promise if already in-flight or recently completed
+    if (cache.has(url)) return cache.get(url)
+
+    const req = (async () => {
+      // Gate: wait if at capacity
+      if (running >= MAX) {
+        await new Promise(resolve => waiting.push(resolve))
+      }
+      running++
+      try {
+        const res = await axios.get(url, { ...options, timeout: options.timeout || 8000 })
+        return res
+      } finally {
+        running--
+        await new Promise(r => setTimeout(r, DELAY))
+        next()
+      }
+    })()
+
+    cache.set(url, req)
+    // Auto-expire cache entry after 5 minutes
+    req.then(() => setTimeout(() => cache.delete(url), 5 * 60 * 1000))
+        .catch(() => cache.delete(url))  // Don't cache failures
+
+    return req
+  }
+
+  return { get }
+})()
+
+// ─── Search term validator ─────────────────────────────────────────
+// Prevents garbage queries that waste DEXScreener quota and trigger 400s.
+// Rules:
+//   - Must be at least 3 characters (DEX rejects shorter queries)
+//   - Must not contain relationship operators (= < > : from lore map strings)
+//   - Must not be a raw Solana address (44-char base58)
+//   - Must not be a generic stop word that produces noise
+const DEX_STOP_WORDS = new Set(['the', 'and', 'for', 'not', 'you', 'are', 'its', 'has'])
+
+const isValidSearchTerm = (term) => {
+  if (!term || typeof term !== 'string') return false
+  const t = term.trim()
+  if (t.length < 3) return false                  // Too short — DEX rejects
+  if (/[=<>:]/.test(t)) return false              // Lore relationship string leaked
+  if (/^[1-9A-HJ-NP-Za-km-z]{40,}$/.test(t)) return false  // Raw address
+  if (DEX_STOP_WORDS.has(t.toLowerCase())) return false
+  return true
+}
+
 // ─── Vector 0: Fetch AI concept expansion from server ────────────
 // Server caches per alpha address — shared across all users.
 // Client detects re-entry via mcap growth and sends forceRefresh.
@@ -54,7 +121,10 @@ const BETA_STORE_KEY = 'betaplays_betas_v2'
 const BETA_TTL_MS    = 7 * 24 * 60 * 60 * 1000  // 7 days
 const MAX_STORED     = 50
 
-const WEAK_SOLO_SIGNALS = new Set(['keyword', 'morphology', 'description'])
+// Signals that are weak on their own and need AI corroboration to survive storage.
+// 'lore' is included because lore alone (without AI) is easily triggered by
+// common narrative words and produces false positives like $LOLA in $Whatif.
+const WEAK_SOLO_SIGNALS = new Set(['keyword', 'morphology', 'description', 'lore'])
 
 const loadStoredBetas = (alphaAddress) => {
   try {
@@ -169,9 +239,8 @@ const refreshBetaPrices = async (betas) => {
     const batch   = stale.slice(i, i + PRICE_REFRESH_BATCH)
     const addrs   = batch.map(b => b.address).join(',')
     try {
-      const res   = await axios.get(
-        `${DEXSCREENER_BASE}/latest/dex/tokens/${addrs}`,
-        { timeout: 8000 }
+      const res   = await DEX_QUEUE.get(
+        `${DEXSCREENER_BASE}/latest/dex/tokens/${addrs}`
       )
       const pairs = res.data?.pairs || []
 
@@ -430,9 +499,8 @@ const fetchDescriptionKeywords = async (alpha) => {
     }
 
     // Otherwise fetch from DEXScreener
-    const res = await axios.get(
-      `${DEXSCREENER_BASE}/latest/dex/tokens/${alpha.address}`,
-      { timeout: 6000 }
+    const res = await DEX_QUEUE.get(
+      `${DEXSCREENER_BASE}/latest/dex/tokens/${alpha.address}`
     )
     const pairs = res.data?.pairs || []
     if (pairs.length === 0) return { keywords: [], description: '' }
@@ -462,9 +530,8 @@ const fetchLPPairBetas = async (alpha) => {
 
   try {
     // Search for tokens that have a pair with the alpha's address
-    const res = await axios.get(
-      `${DEXSCREENER_BASE}/latest/dex/search?q=${alpha.address}`,
-      { timeout: 8000 }
+    const res = await DEX_QUEUE.get(
+      `${DEXSCREENER_BASE}/latest/dex/search?q=${alpha.address}`
     )
 
     const pairs = res.data?.pairs || []
@@ -737,12 +804,12 @@ const fetchKeywordBetas = async (alphaSymbol, alphaName = '', extraTerms = []) =
   const nameTerms  = getNameTerms(alphaSymbol, alphaName)
   const terms      = getSearchTerms(alphaSymbol)
   const decomposed = decomposeSymbol(alphaSymbol)
-  // Name terms first, then Vector 0 AI terms, then morphology
   const allTerms   = [...new Set([...nameTerms, ...extraTerms, ...terms, ...decomposed])]
+    .filter(isValidSearchTerm)  // Drop short/garbage terms before hitting DEX
   const results    = []
   for (const term of allTerms) {
     try {
-      const res = await axios.get(`${DEXSCREENER_BASE}/latest/dex/search?q=${encodeURIComponent(term)}`)
+      const res = await DEX_QUEUE.get(`${DEXSCREENER_BASE}/latest/dex/search?q=${encodeURIComponent(term)}`)
       ;(res.data?.pairs || [])
         .filter(p =>
           p.chainId === 'solana' &&
@@ -757,12 +824,15 @@ const fetchKeywordBetas = async (alphaSymbol, alphaName = '', extraTerms = []) =
 
 // ─── Signal 1b: Description-driven search (Vector 1 complete) ────
 const fetchDescriptionBetas = async (alpha, descKeywords, extraTerms = []) => {
+// ─── Signal 1b: Description-driven search (Vector 1 complete) ────
+const fetchDescriptionBetas = async (alpha, descKeywords, extraTerms = []) => {
   const allKeywords = [...new Set([...(descKeywords || []), ...extraTerms])]
+    .filter(isValidSearchTerm)
   if (!allKeywords.length) return []
   const results = []
   for (const keyword of allKeywords.slice(0, 6)) {
     try {
-      const res = await axios.get(`${DEXSCREENER_BASE}/latest/dex/search?q=${keyword}`)
+      const res = await DEX_QUEUE.get(`${DEXSCREENER_BASE}/latest/dex/search?q=${encodeURIComponent(keyword)}`)
       ;(res.data?.pairs || [])
         .filter(p =>
           p.chainId === 'solana' &&
@@ -778,20 +848,17 @@ const fetchDescriptionBetas = async (alpha, descKeywords, extraTerms = []) => {
 
 // ─── Signal 2: Lore matching ─────────────────────────────────────
 const fetchLoreBetas = async (alphaSymbol, alphaName = '', extraTerms = []) => {
-  // Get concepts from both symbol AND name — critical for tokens where the
-  // cultural reference lives in the name (e.g. symbol=MOYU, name=摸鱼)
   const symbolConcepts = getConcepts(alphaSymbol)
   const nameConcepts   = alphaName && alphaName.toLowerCase() !== alphaSymbol.toLowerCase()
     ? getConcepts(alphaName)
     : []
-  // Also treat the raw name itself as a search term if it has a lore entry
   const nameTerms = getNameTerms(alphaSymbol, alphaName)
-  // Vector 0 AI terms — these are the conceptual expansions (shelter for house, etc.)
   const concepts  = [...new Set([...symbolConcepts, ...nameConcepts, ...nameTerms, ...extraTerms])]
+    .filter(isValidSearchTerm)  // Catches "sell = gay" style lore relationship strings
   const results   = []
   for (const concept of concepts) {
     try {
-      const res = await axios.get(`${DEXSCREENER_BASE}/latest/dex/search?q=${encodeURIComponent(concept)}`)
+      const res = await DEX_QUEUE.get(`${DEXSCREENER_BASE}/latest/dex/search?q=${encodeURIComponent(concept)}`)
       ;(res.data?.pairs || [])
         .filter(p =>
           p.chainId === 'solana' &&
@@ -807,23 +874,23 @@ const fetchLoreBetas = async (alphaSymbol, alphaName = '', extraTerms = []) => {
 // ─── Signal 3: Morphology engine ────────────────────────────────
 const fetchMorphologyBetas = async (alphaSymbol) => {
   const variants = generateTickerVariants(alphaSymbol)
+    .filter(isValidSearchTerm)  // Drops any sub-3-char ticker variants
   const results  = []
-  const batches  = []
-  for (let i = 0; i < Math.min(variants.length, 25); i += 5) batches.push(variants.slice(i, i + 5))
-  for (const batch of batches) {
-    await Promise.allSettled(batch.map(async (variant) => {
-      try {
-        const res = await axios.get(`${DEXSCREENER_BASE}/latest/dex/search?q=${variant}`)
-        ;(res.data?.pairs || [])
-          .filter(p =>
-            p.chainId === 'solana' &&
-            (p.liquidity?.usd || 0) >= MIN_LIQUIDITY &&
-            p.baseToken?.symbol?.toUpperCase() === variant.toUpperCase() &&
-            !['SOL','USDC','USDT'].includes(p.baseToken?.symbol)
-          )
-          .forEach(p => results.push({ pair: p, sources: ['morphology'] }))
-      } catch { /* silent */ }
-    }))
+  // Instead of batched Promise.allSettled (which fires everything at once),
+  // send variants through the shared DEX queue one at a time — the queue
+  // controls concurrency globally across all vectors.
+  for (const variant of variants.slice(0, 25)) {
+    try {
+      const res = await DEX_QUEUE.get(`${DEXSCREENER_BASE}/latest/dex/search?q=${encodeURIComponent(variant)}`)
+      ;(res.data?.pairs || [])
+        .filter(p =>
+          p.chainId === 'solana' &&
+          (p.liquidity?.usd || 0) >= MIN_LIQUIDITY &&
+          p.baseToken?.symbol?.toUpperCase() === variant.toUpperCase() &&
+          !['SOL','USDC','USDT'].includes(p.baseToken?.symbol)
+        )
+        .forEach(p => results.push({ pair: p, sources: ['morphology'] }))
+    } catch { /* silent */ }
   }
   return results
 }
@@ -858,41 +925,33 @@ const fetchExactMatchOGs = async (alphaSymbol, alphaAddress) => {
   }
 
   // ── Pass 1: standard search ──────────────────────────────────
-  // Returns ~30 results ranked by recent activity. When a narrative
-  // goes viral, new tokens flood these slots and push OGs off the list.
-  try {
-    const res = await axios.get(
-      `${DEXSCREENER_BASE}/latest/dex/search?q=${encodeURIComponent(alphaSymbol)}`,
-      { timeout: 8000 }
-    )
-    ;(res.data?.pairs || [])
-      .filter(p => p.chainId === 'solana')
-      .forEach(p => addResult(p))
-  } catch (err) {
-    console.warn('[OGScan] Pass 1 failed:', err.message)
+  if (isValidSearchTerm(alphaSymbol)) {
+    try {
+      const res = await DEX_QUEUE.get(
+        `${DEXSCREENER_BASE}/latest/dex/search?q=${encodeURIComponent(alphaSymbol)}`
+      )
+      ;(res.data?.pairs || [])
+        .filter(p => p.chainId === 'solana')
+        .forEach(p => addResult(p))
+    } catch (err) {
+      console.warn('[OGScan] Pass 1 failed:', err.message)
+    }
   }
 
   // ── Pass 2: name-based search ────────────────────────────────
-  // DEXScreener indexes token name separately from symbol. Searching
-  // by name often returns a different result set — catches OGs whose
-  // name matches even when symbol search is overwhelmed by new tokens.
-  // Only run if pass 1 didn't already saturate with OG candidates.
-  try {
-    const res = await axios.get(
-      `${DEXSCREENER_BASE}/latest/dex/search?q=${encodeURIComponent(alphaSymbol.toLowerCase())}`,
-      { timeout: 8000 }
-    )
-    ;(res.data?.pairs || [])
-      .filter(p => p.chainId === 'solana')
-      .forEach(p => addResult(p))
-  } catch { /* silent */ }
+  const lcSymbol = alphaSymbol.toLowerCase()
+  if (isValidSearchTerm(lcSymbol)) {
+    try {
+      const res = await DEX_QUEUE.get(
+        `${DEXSCREENER_BASE}/latest/dex/search?q=${encodeURIComponent(lcSymbol)}`
+      )
+      ;(res.data?.pairs || [])
+        .filter(p => p.chainId === 'solana')
+        .forEach(p => addResult(p))
+    } catch { /* silent */ }
+  }
 
   // ── Pass 3: recover known OG addresses from localStorage ─────
-  // If this alpha's betas were previously scanned and stored, check
-  // those stored betas for og_match tokens — their addresses persist
-  // even if they've since fallen off search results entirely.
-  // This is the definitive fix for "OG pushed off 30-result window":
-  // once found, the OG address is preserved in localStorage forever.
   try {
     const store  = JSON.parse(localStorage.getItem(BETA_STORE_KEY) || '{}')
     const stored = store[alphaAddress] || []
@@ -906,9 +965,8 @@ const fetchExactMatchOGs = async (alphaSymbol, alphaAddress) => {
 
     if (ogAddresses.length > 0) {
       const addrs = ogAddresses.join(',')
-      const res = await axios.get(
-        `${DEXSCREENER_BASE}/latest/dex/tokens/${addrs}`,
-        { timeout: 8000 }
+      const res = await DEX_QUEUE.get(
+        `${DEXSCREENER_BASE}/latest/dex/tokens/${addrs}`
       )
       ;(res.data?.pairs || [])
         .filter(p => p.chainId === 'solana')
@@ -1354,7 +1412,7 @@ const useBetas = (alpha, parentAlpha = null) => {
         // false positives like $LOLA appearing in $Whatif's list.
         // Multi-signal tokens (CABAL, AI MATCH etc.) are unaffected.
         const STRONG_SIGNALS = new Set(['lp_pair','og_match','lore','desc_match'])
-        const WEAK_SOLO      = new Set(['keyword','morphology','description'])
+        const WEAK_SOLO      = new Set(['keyword','morphology','description','lore'])
 
         const filtered = withAIAndNew.filter(b => {
           const srcs = b.signalSources || []
