@@ -258,13 +258,16 @@ export const compareLogos = async (alpha, candidates) => {
 }
 
 // ─── Trigger guard ────────────────────────────────────────────────
-// Only run vision on tokens where text gave weak signal.
-// Prevents burning API budget on tokens we already understand.
+// Used by useNarrativeSzn for the Szn classify pipeline.
+// In useBetas, vision now runs on all logo-bearing candidates before
+// Vector 8 — the textConfidence check is not used there anymore.
 //
 // Returns true if vision analysis is worth running for this token.
 export const shouldRunVision = (token, textConfidence = 0) => {
   if (!token?.logoUrl) return false
-  if (textConfidence >= MIN_TEXT_CONFIDENCE) return false  // Text already confident
+  // Only skip if text is already very confident AND ai_match confirmed it
+  const hasAIConfirmation = (token.signalSources || []).includes('ai_match')
+  if (hasAIConfirmation && textConfidence >= MIN_TEXT_CONFIDENCE) return false
   return true
 }
 

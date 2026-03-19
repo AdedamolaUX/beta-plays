@@ -386,12 +386,18 @@ Think about these relationship types:
 - UNIVERSE: named characters/places from same fictional world ($NARUTO → sasuke, kakashi, itachi)
 - EVIL_TWIN: dark variant keywords (dark, evil, cursed, corrupt + the core subject)
 
+COMPOUND NAME RULE — critical for discovery:
+If the symbol appears to combine two distinct concepts (e.g. GROKHOUSE = GROK + HOUSE,
+BABYPEPE = BABY + PEPE, DOGWIF = DOG + WIF), generate search terms for BOTH components
+separately. The AI component and the housing component of GROKHOUSE each have their own
+narrative universe of derivative tokens.
+
 STRICT RULES — violating these wastes quota:
 - NO generic words: chain, coin, token, green, blue, red, crypto, solana, degen, moon, pump, based
 - NO body parts, colors, or emotions unless they are THE defining feature of this specific token
 - NO words already in the token's symbol or name
 - ONLY terms specific enough that a token creator would use them as a ticker
-- Return 5-8 terms maximum — precision over volume
+- Return 6-10 terms maximum when compound — precision over volume
 
 BAD example for $DOGCHAIN: ["dog","chain","crypto","token","coin"] — all generic, useless
 GOOD example for $DOGCHAIN: ["leash","collar","kennel","breed","dogcatcher"] — specific to dog+chain narrative

@@ -565,6 +565,12 @@ body {
   color: var(--red);
 }
 
+.badge-visual {
+  background: rgba(180, 100, 255, 0.12);
+  border: 1px solid rgba(180, 100, 255, 0.7);
+  color: #b464ff;
+}
+
 /* ── Buttons ── */
 .btn {
   display: inline-flex;

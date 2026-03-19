@@ -1151,6 +1151,7 @@ const SignalBadge = ({ beta }) => {
     CABAL:    'badge-cabal',
     TRENDING: 'badge-strong',
     KEYWORD:  'badge-strong',
+    VISUAL:   'badge-visual',
     LORE:     'badge-weak',
     WEAK:     'badge-weak',
     LP_PAIR:  'badge-cabal',
@@ -1181,7 +1182,8 @@ const SignalBadge = ({ beta }) => {
          signal.label === 'TRENDING' ? '🔥 TRENDING' :
          signal.label === 'LP_PAIR'  ? '🔗 LP PAIR'  :
          signal.label === 'AI'       ? '🤖 AI MATCH' :
-         signal.label === 'KEYWORD'  ? '🔍 KEYWORD MATCH'  : signal.label}
+         signal.label === 'KEYWORD'  ? '🔍 KEYWORD MATCH'  :
+         signal.label === 'VISUAL'    ? '👁️ VISUAL'         : signal.label}
       </span>
     </div>
   )
@@ -1824,6 +1826,8 @@ const BetaPanel = ({ alpha, onListBeta, onOpenDrawer, onScrollToAlpha }) => {
             <span className="mono text-muted" style={{ fontSize: 10 }}>=direct pair</span>
             <span className="badge badge-verified"  style={{ fontSize: 8, padding: '2px 6px', marginLeft: 6 }}>🤖 AI MATCH</span>
             <span className="mono text-muted" style={{ fontSize: 10 }}>=semantic match</span>
+            <span className="badge badge-visual"    style={{ fontSize: 8, padding: '2px 6px', marginLeft: 6 }}>👁️ VISUAL</span>
+            <span className="mono text-muted" style={{ fontSize: 10 }}>=logo match</span>
           </div>
 
           {/* Wave timing legend */}

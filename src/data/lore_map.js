@@ -110,7 +110,7 @@ const LORE_MAP = {
   MEW:    { terms: ['babymew','mewwif','mew','cat'], concepts: ['cat','mew','solana'], category: 'cats', universe: 'solana-cats' },
 
   // ── Frog narrative ──
-  PEPE:   { terms: ['pepe','frog','rare','feels','pepewif','peepo'], concepts: ['pepe','frog','meme'], category: 'frogs', universe: 'pepe' },
+  PEPE:   { terms: ['pepe','frog','pepewif','peepo','kermit','pepesolana'], concepts: ['pepe','frog','kek'], category: 'frogs', universe: 'pepe' },
 
   // ── Political narrative ──
   TRUMP:   { terms: ['maga','america','usa','biden','melania','barron','ivanka'], concepts: ['trump','maga','political','usa'], category: 'political', universe: 'trump-family' },
@@ -159,6 +159,16 @@ const LORE_MAP = {
   WOJAK:  { terms: ['wojak','pepe','chad','npc','meme'], concepts: ['wojak','meme','feels'], category: 'memes', universe: 'wojak' },
   CHAD:   { terms: ['chad','virgin','gigachad','sigma','alpha'], concepts: ['chad','meme','sigma'], category: 'memes', universe: 'chad' },
   NPC:    { terms: ['npc','wojak','bot','sheep','normie'], concepts: ['npc','meme','social'], category: 'memes', universe: 'wojak' },
+
+  // ── Internet humor / emotion ─────────────────────────────────────
+  LOL:    { terms: ['lol','lmao','rofl','haha','funny','laugh','giggle','kek','humor','joke','meme','lulz'], concepts: ['lol','laugh','humor','funny','internet'], category: 'humor', universe: 'internet-humor' },
+  LMAO:   { terms: ['lmao','lol','rofl','laugh','haha','kek','funny'], concepts: ['lmao','laugh','humor'], category: 'humor', universe: 'internet-humor' },
+  HAHA:   { terms: ['haha','lol','lmao','laugh','giggle','funny'], concepts: ['haha','laugh','humor'], category: 'humor', universe: 'internet-humor' },
+  COPE:   { terms: ['cope','seethe','mald','cringe','ratio','skill','issue'], concepts: ['cope','internet','slang'], category: 'memes', universe: 'internet-slang' },
+  SEETHE: { terms: ['seethe','cope','mald','cringe','rent','free'], concepts: ['seethe','cope','internet'], category: 'memes', universe: 'internet-slang' },
+  GG:     { terms: ['gg','wp','ez','noob','rekt','frag','gg2ez'], concepts: ['gg','gaming','internet'], category: 'gaming', universe: 'gaming-slang' },
+  WAGMI:  { terms: ['wagmi','ngmi','gm','gn','wen','ser','fren','anon','degen'], concepts: ['wagmi','crypto','slang'], category: 'crypto', universe: 'crypto-slang' },
+  NGMI:   { terms: ['ngmi','wagmi','rekt','rug','dump','cope'], concepts: ['ngmi','crypto','slang'], category: 'crypto', universe: 'crypto-slang' },
 
   // ── Chinese cultural narrative ───────────────────────────────────
   // 摸鱼 (Moyu) = Chinese internet slang for "slacking off at work" — massive meme

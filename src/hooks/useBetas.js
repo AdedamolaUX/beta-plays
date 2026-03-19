@@ -62,15 +62,22 @@ const DEX_QUEUE = (() => {
 //   - Must not contain relationship operators (= < > : from lore map strings)
 //   - Must not be a raw Solana address (44-char base58)
 //   - Must not be a generic stop word that produces noise
-const DEX_STOP_WORDS = new Set(['the', 'and', 'for', 'not', 'you', 'are', 'its', 'has'])
-
+// ─── Search term validator ────────────────────────────────────────
+// Applied to ALL search terms before hitting DEX.
+// Blocks structurally invalid inputs only — short terms, raw addresses,
+// relationship operator strings. Does NOT block "coin", "digital", "green"
+// etc. because those ARE valid token tickers.
+//
+// Visual attributes from Vector 0 (logo analysis) are handled separately —
+// they go to the vision pipeline (compareLogos), NOT to DEX text search.
+// That separation happens at the source (v0SearchTerms vs v0VisualTerms).
 const isValidSearchTerm = (term) => {
   if (!term || typeof term !== 'string') return false
   const t = term.trim()
-  if (t.length < 3) return false                  // Too short — DEX rejects
-  if (/[=<>:]/.test(t)) return false              // Lore relationship string leaked
-  if (/^[1-9A-HJ-NP-Za-km-z]{40,}$/.test(t)) return false  // Raw address
-  if (DEX_STOP_WORDS.has(t.toLowerCase())) return false
+  if (t.length < 3) return false                             // Too short for DEX
+  if (/[=<>:\s]/.test(t)) return false                      // Relationship string or multi-word
+  if (/^[1-9A-HJ-NP-Za-km-z]{40,}$/.test(t)) return false  // Raw Solana address
+  if (/^\d+$/.test(t)) return false                         // Pure number
   return true
 }
 
@@ -133,14 +140,19 @@ const loadStoredBetas = (alphaAddress) => {
     const now = Date.now()
     return bucket
       .filter(b => (now - (b.storedAt || 0)) < BETA_TTL_MS)
-      // Purge stale false positives: single weak-signal tokens with no AI
-      // score that survived from old scans (e.g. $LOLA in $Whatif's list).
-      // These pass the TTL check but were never validated by Vector 8.
+      // HARD FILTER on load: only return betas that were AI-confirmed or
+      // structurally verified (lp_pair / og_match). This kills contaminated
+      // data written by old scans before the lore/filter fixes were applied.
+      // A stored beta with only weak signals and no AI score has no business
+      // reappearing — it was a false positive that survived by luck.
       .filter(b => {
         const srcs = b.signalSources || []
-        const isSingleWeak = srcs.length > 0 && srcs.every(s => WEAK_SOLO_SIGNALS.has(s))
-        if (isSingleWeak && !b.aiScore) {
-          console.log(`[BetaStore] Purged $${b.symbol} — unvalidated single weak signal`)
+        const isConfirmed =
+          srcs.includes('ai_match') ||
+          srcs.includes('lp_pair')  ||
+          srcs.includes('og_match')
+        if (!isConfirmed) {
+          console.log(`[BetaStore] Dropped on load $${b.symbol} — no AI/structural confirmation | signals:[${srcs.join(',')}]`)
           return false
         }
         return true
@@ -316,6 +328,35 @@ const DECOMP_PREFIXES = [
   'BAD', 'MAD', 'WILD', 'HOLY', 'DEGEN', 'PURE',
 ]
 
+// ─── Dictionary for compound ticker splitting ───────────────────
+// When a ticker is two real words joined (GROKHOUSE, BABYPEPE, DOGWIF),
+// we want to search for BOTH components. This dict contains high-value
+// roots — terms specific enough to find narrative betas on DEX.
+// Adding a word here doesn't remove anything — it's purely additive.
+const COMPOUND_ROOTS = new Set([
+  // Animals
+  'DOG','CAT','FROG','BEAR','BULL','APE','BIRD','FISH','WOLF','FOX',
+  'LION','TIGER','SNAKE','HORSE','PIG','COW','RAT','BAT','DUCK','OWL',
+  'SHIBA','DOGE','PEPE','BONK','POPCAT',
+  // AI / tech
+  'GROK','GPT','AI','BOT','ROBOT','AGENT','MODEL','NEURAL','CHIP',
+  'CLAUDE','CURSOR','DEVIN','VIBE',
+  // Housing / shelter
+  'HOUSE','HOME','CRIB','LODGE','CABIN','SHELTER','MANOR','FLAT',
+  // People / roles
+  'BOY','GIRL','MAN','WOMAN','KING','QUEEN','LORD','BABY','CHAD',
+  'DEGEN','APE','CHAD','SIR','LAD','BRO','KID',
+  // Places / worlds
+  'WORLD','LAND','ZONE','CITY','TOWN','ISLAND','PLANET','MARS','MOON',
+  // Concepts
+  'DARK','LIGHT','GOOD','EVIL','WILD','FIRE','ICE','GOLD','STAR',
+  'POWER','FORCE','MAGIC','LIFE','TIME','CHAOS','ORDER','WAR','PEACE',
+  // Internet/culture
+  'LOL','MEME','COPE','SEETHE','BASED','VIBES','PUNK','DEGEN',
+  // Famous names commonly combined
+  'TRUMP','ELON','MUSK','MARIO','SONIC','JOKER','BATMAN','PEPE','WOJAK',
+])
+
 const decomposeSymbol = (symbol) => {
   const s = symbol.toUpperCase()
   const parts = new Set()
@@ -367,6 +408,25 @@ const decomposeSymbol = (symbol) => {
     .trim().split(/\s+/)
     .filter(p => p.length >= 3)
   camelParts.forEach(p => parts.add(p.toUpperCase()))
+
+  // ── Dictionary-based compound split ──────────────────────────
+  // For all-caps tickers like GROKHOUSE, BABYPEPE, DOGWIF:
+  // try every cut point and check if either half is a known root.
+  // This is purely additive — existing decomposition runs first.
+  if (s.length >= 6) {
+    for (let i = 3; i <= s.length - 3; i++) {
+      const left  = s.slice(0, i)
+      const right = s.slice(i)
+      if (
+        (COMPOUND_ROOTS.has(left)  && right.length >= 3) ||
+        (COMPOUND_ROOTS.has(right) && left.length  >= 3)
+      ) {
+        if (left.length  >= 3) parts.add(left.toLowerCase())
+        if (right.length >= 3) parts.add(right.toLowerCase())
+        console.log(`[Decompose] $${symbol} → "${left}" + "${right}"`)
+      }
+    }
+  }
 
   // Fallback stem: if nothing found yet, strip 2-4 chars from end
   // This catches affixes not in our list (IFY, RIO, etc.)
@@ -608,10 +668,14 @@ export const getSignal = (beta) => {
   const s = beta.signalSources || []
   // LP pair is the strongest possible signal — direct pairing
   if (s.includes('lp_pair'))                                     return { label: 'CABAL',    tier: 6 }
+  // AI + visual = highest text-based tier — two independent systems agree
+  if (s.includes('ai_match')   && s.includes('visual_match'))    return { label: 'CABAL',    tier: 5 }
   // AI + any other signal = CABAL tier
   if (s.includes('ai_match')   && s.includes('keyword'))         return { label: 'CABAL',    tier: 5 }
   if (s.includes('ai_match')   && s.includes('morphology'))      return { label: 'CABAL',    tier: 5 }
   if (s.includes('ai_match')   && s.includes('og_match'))        return { label: 'CABAL',    tier: 5 }
+  // Visual match alone = STRONG (image comparison, not just text)
+  if (s.includes('visual_match'))                                 return { label: 'VISUAL',   tier: 3 }
   if (s.includes('pumpfun')    && s.includes('keyword'))         return { label: 'CABAL',    tier: 4 }
   if (s.includes('morphology') && s.includes('keyword'))         return { label: 'CABAL',    tier: 4 }
   if (s.includes('desc_match') && s.includes('keyword'))          return { label: 'CABAL',    tier: 5 }
@@ -804,19 +868,26 @@ const fetchKeywordBetas = async (alphaSymbol, alphaName = '', extraTerms = []) =
   const nameTerms  = getNameTerms(alphaSymbol, alphaName)
   const terms      = getSearchTerms(alphaSymbol)
   const decomposed = decomposeSymbol(alphaSymbol)
-  const allTerms   = [...new Set([...nameTerms, ...extraTerms, ...terms, ...decomposed])]
-    .filter(isValidSearchTerm)  // Drop short/garbage terms before hitting DEX
+
+  const allTerms = [...new Set([...nameTerms, ...extraTerms, ...terms, ...decomposed])]
+    .filter(isValidSearchTerm)
+
+  console.log(`[Vector1] $${alphaSymbol} searching ${allTerms.length} keyword terms: [${allTerms.slice(0,10).join(', ')}${allTerms.length > 10 ? '...' : ''}]`)
+
   const results    = []
   for (const term of allTerms) {
     try {
       const res = await DEX_QUEUE.get(`${DEXSCREENER_BASE}/latest/dex/search?q=${encodeURIComponent(term)}`)
-      ;(res.data?.pairs || [])
+      const hits = (res.data?.pairs || [])
         .filter(p =>
           p.chainId === 'solana' &&
           (p.liquidity?.usd || 0) >= MIN_LIQUIDITY &&
           !['SOL','USDC','USDT'].includes(p.baseToken?.symbol)
         )
-        .forEach(p => results.push({ pair: p, sources: ['keyword'] }))
+      if (hits.length > 0) {
+        console.log(`  [V1] "${term}" → ${hits.length} hits: [${hits.slice(0,5).map(p => '$'+p.baseToken?.symbol).join(', ')}${hits.length > 5 ? '...' : ''}]`)
+      }
+      hits.forEach(p => results.push({ pair: p, sources: ['keyword'] }))
     } catch { /* silent */ }
   }
   return results
@@ -824,23 +895,27 @@ const fetchKeywordBetas = async (alphaSymbol, alphaName = '', extraTerms = []) =
 
 // ─── Signal 1b: Description-driven search (Vector 1 complete) ────
 const fetchDescriptionBetas = async (alpha, descKeywords, extraTerms = []) => {
-// ─── Signal 1b: Description-driven search (Vector 1 complete) ────
-const fetchDescriptionBetas = async (alpha, descKeywords, extraTerms = []) => {
   const allKeywords = [...new Set([...(descKeywords || []), ...extraTerms])]
     .filter(isValidSearchTerm)
   if (!allKeywords.length) return []
+
+  console.log(`[Vector1b/Desc] $${alpha.symbol} description keywords: [${allKeywords.join(', ')}]`)
+
   const results = []
   for (const keyword of allKeywords.slice(0, 6)) {
     try {
       const res = await DEX_QUEUE.get(`${DEXSCREENER_BASE}/latest/dex/search?q=${encodeURIComponent(keyword)}`)
-      ;(res.data?.pairs || [])
+      const hits = (res.data?.pairs || [])
         .filter(p =>
           p.chainId === 'solana' &&
           (p.liquidity?.usd || 0) >= MIN_LIQUIDITY &&
           p.baseToken?.address !== alpha.address &&
           !['SOL','USDC','USDT'].includes(p.baseToken?.symbol)
         )
-        .forEach(p => results.push({ pair: p, sources: ['description'] }))
+      if (hits.length > 0) {
+        console.log(`  [V1b] "${keyword}" → ${hits.length} hits: [${hits.slice(0,5).map(p => '$'+p.baseToken?.symbol).join(', ')}${hits.length > 5 ? '...' : ''}]`)
+      }
+      hits.forEach(p => results.push({ pair: p, sources: ['description'] }))
     } catch { /* silent */ }
   }
   return results
@@ -853,19 +928,26 @@ const fetchLoreBetas = async (alphaSymbol, alphaName = '', extraTerms = []) => {
     ? getConcepts(alphaName)
     : []
   const nameTerms = getNameTerms(alphaSymbol, alphaName)
-  const concepts  = [...new Set([...symbolConcepts, ...nameConcepts, ...nameTerms, ...extraTerms])]
-    .filter(isValidSearchTerm)  // Catches "sell = gay" style lore relationship strings
+
+  const concepts = [...new Set([...symbolConcepts, ...nameConcepts, ...nameTerms, ...extraTerms])]
+    .filter(isValidSearchTerm)
+
+  console.log(`[Vector2/Lore] $${alphaSymbol} lore concepts: [${concepts.join(', ')}]`)
+
   const results   = []
   for (const concept of concepts) {
     try {
       const res = await DEX_QUEUE.get(`${DEXSCREENER_BASE}/latest/dex/search?q=${encodeURIComponent(concept)}`)
-      ;(res.data?.pairs || [])
+      const hits = (res.data?.pairs || [])
         .filter(p =>
           p.chainId === 'solana' &&
           (p.liquidity?.usd || 0) >= MIN_LIQUIDITY &&
           !['SOL','USDC','USDT'].includes(p.baseToken?.symbol)
         )
-        .forEach(p => results.push({ pair: p, sources: ['lore'] }))
+      if (hits.length > 0) {
+        console.log(`  [V2] "${concept}" → ${hits.length} hits: [${hits.slice(0,5).map(p => '$'+p.baseToken?.symbol).join(', ')}${hits.length > 5 ? '...' : ''}]`)
+      }
+      hits.forEach(p => results.push({ pair: p, sources: ['lore'] }))
     } catch { /* silent */ }
   }
   return results
@@ -1169,25 +1251,42 @@ const useBetas = (alpha, parentAlpha = null) => {
       // ── Vector 0: AI concept expansion ───────────────────────────
       // Runs first — generates semantically targeted search terms.
       // Server caches per alpha, shared across all users.
-      let v0Terms          = []
+      //
+      // TWO separate outputs — used differently:
+      //   searchTerms → DEX text search (narrative concepts: "pepe", "frog", "maga")
+      //   visualTerms → vision logo comparison ONLY (image attributes: "green", "tuxedo")
+      //
+      // visualTerms must NEVER go to DEX text search — "green" or "cartoon"
+      // returns thousands of unrelated tokens. They belong in the vision pipeline
+      // where logos are compared image-to-image, not text-to-text.
+      let v0SearchTerms    = []   // → DEX search vectors (1, 1b, 2, 4)
+      let v0VisualTerms    = []   // → vision comparison only (compareLogos)
       let relationshipHints = {}
       try {
-        const expansion = await fetchAlphaExpansion(enrichedAlpha)
-        v0Terms           = [...(expansion.searchTerms || []), ...(expansion.visualTerms || [])]
-        relationshipHints = expansion.relationshipHints || {}
-        console.log(`[Vector0] $${enrichedAlpha.symbol} → ${v0Terms.length} expansion terms${expansion.fromCache ? ' (cached)' : ''}`)
+        const expansion   = await fetchAlphaExpansion(enrichedAlpha)
+        v0SearchTerms      = expansion.searchTerms   || []
+        v0VisualTerms      = expansion.visualTerms   || []
+        relationshipHints  = expansion.relationshipHints || {}
+        console.log(
+          `[Vector0] $${enrichedAlpha.symbol} → ${v0SearchTerms.length} search terms, ` +
+          `${v0VisualTerms.length} visual terms (vision only)` +
+          `${expansion.fromCache ? ' (cached)' : ''}`
+        )
+        if (v0SearchTerms.length) console.log(`  [V0] search: [${v0SearchTerms.join(', ')}]`)
+        if (v0VisualTerms.length) console.log(`  [V0] visual (vision only): [${v0VisualTerms.join(', ')}]`)
       } catch (v0Err) {
         console.warn('[Vector0] Expansion failed (non-fatal — continuing without):', v0Err.message)
       }
 
-      // Run all signals in parallel, seeded with Vector 0 terms
+      // Run all signals in parallel — seeded with v0SearchTerms ONLY.
+      // v0VisualTerms are reserved for the vision pipeline below.
       const [keywordRes, descRes, loreRes, morphRes, pumpRes, lpRes, ogRes] =
         await Promise.allSettled([
-          fetchKeywordBetas(enrichedAlpha.symbol, enrichedAlpha.name, v0Terms),
-          fetchDescriptionBetas(enrichedAlpha, descKeywords, v0Terms),
-          fetchLoreBetas(enrichedAlpha.symbol, enrichedAlpha.name, v0Terms),
+          fetchKeywordBetas(enrichedAlpha.symbol, enrichedAlpha.name, v0SearchTerms),
+          fetchDescriptionBetas(enrichedAlpha, descKeywords, v0SearchTerms),
+          fetchLoreBetas(enrichedAlpha.symbol, enrichedAlpha.name, v0SearchTerms),
           fetchMorphologyBetas(enrichedAlpha.symbol),
-          fetchPumpFunBetas(enrichedAlpha.symbol, descKeywords, enrichedAlpha.name, v0Terms),
+          fetchPumpFunBetas(enrichedAlpha.symbol, descKeywords, enrichedAlpha.name, v0SearchTerms),
           fetchLPPairBetas(enrichedAlpha),
           fetchExactMatchOGs(enrichedAlpha.symbol, enrichedAlpha.address),
         ])
@@ -1223,25 +1322,112 @@ const useBetas = (alpha, parentAlpha = null) => {
       }
 
       // ── Sibling scan: find narrative siblings via parent ─────────
-      // If this token has a known parent alpha ($PIPPIKO → parent: $PIPPIN),
-      // run keyword + lore signals against the PARENT's symbol too.
-      // Results that aren't already in merged = siblings → tagged RIVAL.
-      // This means $PIPPIKO's beta list will surface $MEANPIPPIN as a RIVAL
-      // and vice versa — giving traders the full family picture.
       let siblingResults = []
       if (parentAlpha) {
+
+        // ── Step A: Load KNOWN siblings from localStorage ──────────
+        // Three sources of already-confirmed sibling addresses:
+        //
+        //   1. betaplays_parent_map — every token whose parent was confirmed
+        //      by useParentAlpha is written here. Reverse-lookup: find all
+        //      tokens whose parent address matches our parent.
+        //
+        //   2. betaplays_betas_v2 — the parent's own stored beta scan.
+        //      The parent's betas ARE the sibling universe — any token in
+        //      the parent's beta list is a co-derivative by definition.
+        //
+        //   3. betaplays_seen_alphas — live feed history. Any runner that
+        //      shares the same confirmed parent is a sibling even if it
+        //      never appeared in a scan.
+        //
+        // These are address-based, not search-based, so they surface
+        // dormant siblings that have fallen off DEX search rankings.
+        const knownSiblingAddresses = new Set()
         try {
-          const [sibKeyword, sibLore, sibMorph, sibPump] = await Promise.allSettled([
+          // Source 1: reverse-read the parent map
+          const parentMap = JSON.parse(localStorage.getItem('betaplays_parent_map') || '{}')
+          Object.entries(parentMap).forEach(([addr, entry]) => {
+            if (entry?.address === parentAlpha.address && addr !== enrichedAlpha.address) {
+              knownSiblingAddresses.add(addr)
+            }
+          })
+
+          // Source 2: parent's own stored beta scan
+          const betaStore = JSON.parse(localStorage.getItem(BETA_STORE_KEY) || '{}')
+          const parentBetas = betaStore[parentAlpha.address] || []
+          parentBetas.forEach(b => {
+            if (b.address && b.address !== enrichedAlpha.address) {
+              knownSiblingAddresses.add(b.address)
+            }
+          })
+
+          // Source 3: seen alphas with same parent
+          const seenAlphas = JSON.parse(localStorage.getItem('betaplays_seen_alphas') || '{}')
+          Object.entries(seenAlphas).forEach(([addr, token]) => {
+            const confirmedParent = parentMap[addr]
+            if (confirmedParent?.address === parentAlpha.address && addr !== enrichedAlpha.address) {
+              knownSiblingAddresses.add(addr)
+            }
+          })
+
+          console.log(`[Siblings] Found ${knownSiblingAddresses.size} known sibling addresses from localStorage`)
+        } catch (storageErr) {
+          console.warn('[Siblings] localStorage read failed (non-fatal):', storageErr.message)
+        }
+
+        // Fetch live prices for all known siblings in one DEX batch call.
+        // This surfaces dormant siblings regardless of search ranking.
+        let storedSiblingResults = []
+        if (knownSiblingAddresses.size > 0) {
+          try {
+            const addrBatches = []
+            const addrArr = [...knownSiblingAddresses]
+            for (let i = 0; i < addrArr.length; i += 30) addrBatches.push(addrArr.slice(i, i + 30))
+
+            for (const batch of addrBatches) {
+              const res = await DEX_QUEUE.get(
+                `${DEXSCREENER_BASE}/latest/dex/tokens/${batch.join(',')}`
+              )
+              ;(res.data?.pairs || [])
+                .filter(p =>
+                  p.chainId === 'solana' &&
+                  (p.liquidity?.usd || 0) >= MIN_LIQUIDITY
+                )
+                .forEach(p => {
+                  storedSiblingResults.push({ pair: p, sources: ['sibling_stored'] })
+                })
+            }
+            console.log(`[Siblings] Fetched live prices for ${storedSiblingResults.length} stored siblings`)
+          } catch (fetchErr) {
+            console.warn('[Siblings] Stored sibling price fetch failed (non-fatal):', fetchErr.message)
+          }
+        }
+
+        // ── Step B: DEX search vectors against parent ─────────────
+        // Runs in parallel with Step A. Finds siblings that aren't
+        // in localStorage yet (new tokens just launched).
+        try {
+          // Run all vectors against the parent, PLUS LP pair scraping and OG scan
+          // against the parent address. These are address-based so they find dormant
+          // siblings that fell off search results — not just trending tokens.
+          const [sibKeyword, sibLore, sibMorph, sibPump, sibLP, sibOG] = await Promise.allSettled([
             fetchKeywordBetas(parentAlpha.symbol, parentAlpha.name),
             fetchLoreBetas(parentAlpha.symbol, parentAlpha.name),
             fetchMorphologyBetas(parentAlpha.symbol),
             fetchPumpFunBetas(parentAlpha.symbol, [], parentAlpha.name),
+            fetchLPPairBetas(parentAlpha),           // finds tokens paired against parent LP
+            fetchExactMatchOGs(parentAlpha.symbol, parentAlpha.address),  // finds dormant OGs
           ])
           const sibRaw = [
+            // Step A: known siblings from localStorage (address-based, not search-rank dependent)
+            ...storedSiblingResults,
+            // Step B: DEX search results (finds newly launched siblings)
             ...(sibKeyword.status === 'fulfilled' ? sibKeyword.value : []),
             ...(sibLore.status    === 'fulfilled' ? sibLore.value    : []),
             ...(sibMorph.status   === 'fulfilled' ? sibMorph.value   : []),
             ...(sibPump.status    === 'fulfilled' ? sibPump.value    : []),
+            ...(sibLP.status      === 'fulfilled' ? sibLP.value      : []),
+            ...(sibOG.status      === 'fulfilled' ? sibOG.value      : []),
           ]
           const sibMerged    = mergeAndScore(sibRaw, parentAlpha.symbol, parentAlpha.marketCap)
           const mergedAddrs  = new Set(merged.map(b => b.address))
@@ -1251,7 +1437,7 @@ const useBetas = (alpha, parentAlpha = null) => {
           // exclude tokens that are themselves live alphas (independent runners
           // should never appear as siblings — $mogging/$joy/$distorted case),
           // and exclude tokens with NO corroborating signal beyond 'sibling'.
-          const SIBLING_CORROBORATION = new Set(['keyword','morphology','og_match','lore','description','desc_match','pumpfun','lp_pair'])
+          const SIBLING_CORROBORATION = new Set(['keyword','morphology','og_match','lore','description','desc_match','pumpfun','lp_pair','sibling_stored'])
 
           // Read known alpha addresses from localStorage — alphas are independent
           // runners and must never be classified as siblings of each other.
@@ -1300,9 +1486,13 @@ const useBetas = (alpha, parentAlpha = null) => {
                 console.log(`[Siblings] Filtered $${b.symbol} — different parent ($${candidateParent.symbol} vs $${parentAlpha.symbol})`)
                 return false
               }
-              // If candidate has no parent map entry at all, it is unconfirmed —
-              // only allow through if it has strong corroboration (not just proximity)
+              // sibling_stored = came from localStorage (parent's betas / parent_map confirmed).
+              // These are pre-validated — no additional corroboration needed.
               const sources = b.signalSources || []
+              if (sources.includes('sibling_stored')) return true
+
+              // For search-discovered siblings with no parent_map entry,
+              // require at least one corroborating signal to avoid noise.
               const hasCorroboration = sources.some(s => SIBLING_CORROBORATION.has(s))
               if (!hasCorroboration) {
                 console.log(`[Siblings] Filtered noise $${b.symbol} — sibling-only, no corroborating signal`)
@@ -1371,23 +1561,70 @@ const useBetas = (alpha, parentAlpha = null) => {
         console.log(`[Vector9] ${descMatches.length} desc_match hits for $${enrichedAlpha.symbol}`)
       }
 
-      // ── Signal 6: Vector 8 AI scoring ───────────────────────────
-      // Runs LAST despite being "Vector 8" — numbers are identities not order.
-      // Receives candidates already enriched by Vector 9 (desc_match).
-      // enrichedAlpha.description is now populated — Claude gets full
-      // narrative context, not just symbol + name. Candidates also carry
-      // .description where available (PumpFun devs often name their alpha
-      // directly in the description, e.g. "the dog version of $PIPPIN").
-      if (!isStale()) setBetas(mergedWithDesc)
+      // ── Signal 7: Vision — logo comparison (runs BEFORE Vector 8) ──────
+      // Runs on all candidates that have a logoUrl — not just weak-signal ones.
+      // By running before Vector 8, visual_match becomes a signal that AI
+      // can use as corroboration. Previously it ran after AI, so it could
+      // only enrich tokens that already survived — missing the point entirely.
+      //
+      // Trigger: alpha has a logo AND at least one candidate has a logo.
+      // Skip: lp_pair and og_match candidates — already structurally confirmed.
+      // Cap: top 20 by logo availability to manage Gemini quota.
+      let mergedWithVision = mergedWithDesc
+      if (enrichedAlpha.logoUrl) {
+        try {
+          const visionCandidates = mergedWithDesc
+            .filter(b =>
+              b.logoUrl &&
+              !b.signalSources?.includes('lp_pair') &&
+              !b.signalSources?.includes('og_match')
+            )
+            .slice(0, 20)
 
+          if (visionCandidates.length > 0) {
+            console.log(`[Vision] Comparing ${visionCandidates.length} logos against $${enrichedAlpha.symbol}...`)
+            const visualMatches = await compareLogos(enrichedAlpha, visionCandidates)
+
+            if (visualMatches.length > 0) {
+              const visualMap = new Map(visualMatches.map(b => [b.address, b]))
+              mergedWithVision = mergedWithDesc.map(b =>
+                visualMap.has(b.address)
+                  ? {
+                      ...b,
+                      ...visualMap.get(b.address),
+                      signalSources: [...new Set([...(b.signalSources || []), 'visual_match'])],
+                    }
+                  : b
+              )
+              console.log(`[Vision] ${visualMatches.length} visual matches found — passing to Vector 8`)
+            } else {
+              console.log(`[Vision] No visual matches above threshold`)
+            }
+          }
+        } catch (visionErr) {
+          console.warn('[Vision] Logo comparison failed (non-fatal):', visionErr.message)
+        }
+      }
+
+      // Show candidates to UI while Vector 8 runs (now vision-enriched)
+      if (!isStale()) setBetas(mergedWithVision)
+
+      // ── Signal 6: Vector 8 AI scoring ───────────────────────────
+      // Runs after Vision — candidates carry visual_match signal so AI
+      // can use it as corroboration when classifying ambiguous tokens.
+      //
+      // finalList is declared HERE (outer scope) so the persistence block
+      // below can always reference it, even if Vector 8 throws or is skipped.
+      // Falls back to mergedWithVision (pre-AI candidates) if AI fails entirely.
+      let finalList = mergedWithVision  // fallback: use pre-AI list if V8 fails
       try {
         const { results: aiScored, rejectedAddresses } =
-          await classifyRelationships(enrichedAlpha, mergedWithDesc, relationshipHints)
+          await classifyRelationships(enrichedAlpha, mergedWithVision, relationshipHints)
 
         // ── Merge AI classifications into list ─────────────────────
         const aiAddresses = new Map(aiScored.map(b => [b.address, b]))
 
-        const withAI = mergedWithDesc.map(b => {
+        const withAI = mergedWithVision.map(b => {
           if (!aiAddresses.has(b.address)) return b
           const aiData = aiAddresses.get(b.address)
           return {
@@ -1398,43 +1635,52 @@ const useBetas = (alpha, parentAlpha = null) => {
         })
 
         // Add any new betas found only by AI (rare but possible)
-        const existingAddresses = new Set(mergedWithDesc.map(b => b.address))
+        const existingAddresses = new Set(mergedWithVision.map(b => b.address))
         const aiOnly = aiScored.filter(b => !existingAddresses.has(b.address))
         const withAIAndNew = [...withAI, ...aiOnly]
 
         // ── Remove confirmed noise ─────────────────────────────────
-        // LP_PAIR, OG, LORE, NAMED (desc_match) tokens are always kept —
-        // structural or explicit signals that don't need AI validation.
+        // STRONG = on-chain facts that can't be argued with.
+        //   lp_pair  — token has a direct liquidity pool with the alpha
+        //   og_match — exact same ticker, found by address, not just search ranking
         //
-        // Single-signal KEYWORD tokens (keyword/morphology/description only,
-        // no corroboration) are held to a stricter standard: if Vector 8
-        // scored them as SPIN with score < 0.5, they're noise. This catches
-        // false positives like $LOLA appearing in $Whatif's list.
-        // Multi-signal tokens (CABAL, AI MATCH etc.) are unaffected.
-        const STRONG_SIGNALS = new Set(['lp_pair','og_match','lore','desc_match'])
-        const WEAK_SOLO      = new Set(['keyword','morphology','description','lore'])
+        // NOTE: 'lore' and 'desc_match' are NOT strong signals — they fire too
+        // broadly and produce false positives ($TPH in $pepe's list via "rare").
+        // They must go through AI gating like everything else.
+        //
+        // Rejection priority:
+        //   1. Always drop if in rejectedAddresses (Vector 8 explicit reject)
+        //      UNLESS it's lp_pair or og_match — on-chain facts override AI.
+        //   2. Drop single-weak-signal tokens with low AI confidence.
+        //   3. Keep everything else.
+        const UNCHALLENGEABLE = new Set(['lp_pair','og_match'])  // on-chain facts
+        // visual_match is now a corroborating signal — if AI also confirms it,
+        // it becomes CABAL tier. But visual_match alone is still subject to AI gating
+        // (a high visualScore means likely related, but AI makes the final call).
+        const WEAK_SOLO       = new Set(['keyword','morphology','description','lore','desc_match'])
 
         const filtered = withAIAndNew.filter(b => {
           const srcs = b.signalSources || []
 
-          // Always keep structurally strong signals
-          if (srcs.some(s => STRONG_SIGNALS.has(s))) return true
+          // On-chain signals can't be argued with — keep regardless of AI
+          if (srcs.some(s => UNCHALLENGEABLE.has(s))) return true
 
-          // Explicit Vector 8 reject
+          // Vector 8 explicitly rejected this token
           if (rejectedAddresses.has(b.address)) {
-            console.log(`[Vector8] 🗑️  Removed $${b.symbol} — scored below threshold`)
+            console.log(`[Vector8] 🗑️  Removed $${b.symbol} — AI rejected (score below threshold) | signals:[${srcs.join(',')}]`)
             return false
           }
 
-          // Single-signal keyword/morphology/description token that Vector 8
-          // classified as SPIN with low confidence — drop it
+          // Single-signal token that Vector 8 classified as low-confidence —
+          // drop it regardless of which weak signal found it.
+          // This catches: keyword-only, lore-only, description-only false positives.
           const isSingleWeakSignal = srcs.length > 0 && srcs.every(s => WEAK_SOLO.has(s))
           if (isSingleWeakSignal) {
-            const isLowConfidenceSpin =
+            const isLowConfidence =
               (b.relationshipType === 'SPIN' || !b.relationshipType) &&
               (b.aiScore || 0) < 0.5
-            if (isLowConfidenceSpin) {
-              console.log(`[Vector8] 🗑️  Removed $${b.symbol} — single weak signal + low AI confidence (${b.aiScore || 'unscored'})`)
+            if (isLowConfidence) {
+              console.log(`[Vector8] 🗑️  Removed $${b.symbol} — single weak signal + low AI confidence (${b.aiScore || 'unscored'}) | signals:[${srcs.join(',')}]`)
               return false
             }
           }
@@ -1446,7 +1692,7 @@ const useBetas = (alpha, parentAlpha = null) => {
         const reranked = filtered.map(b => ({ ...b, betaRank: computeBetaRank(b) }))
 
         // ── Final sort: LP_PAIR → rank → recency ──────────────────
-        const finalList = reranked
+        finalList = reranked
           .sort((a, b) => {
             const aIsLP = a.signalSources?.includes('lp_pair') ? 1 : 0
             const bIsLP = b.signalSources?.includes('lp_pair') ? 1 : 0
@@ -1465,68 +1711,39 @@ const useBetas = (alpha, parentAlpha = null) => {
         console.warn('[Vector8] AI scoring failed:', aiErr.message)
       }
 
-      // ── Signal 7: Vision — visual logo comparison ────────────────
-      // Only runs if alpha has a logo AND text/AI signals were weak.
-      // Compares alpha logo against candidate logos via Claude Vision.
-      // Catches visual derivatives text analysis is blind to:
-      //   - Same character recolored
-      //   - Alpha mascot wearing something new
-      //   - Direct logo copy with minor edits
-      try {
-        // Get the latest betas state to check text confidence
-        const currentBetas = await new Promise(resolve => {
-          setBetas(prev => { resolve(prev); return prev })
-        })
-        if (isStale()) return  // alpha changed while reading state — stop here
-
-        const weakTextCandidates = currentBetas.filter(b =>
-          shouldRunVision(b, (b.signalSources?.length || 0) * 0.25)
-        )
-
-        if (enrichedAlpha.logoUrl && weakTextCandidates.length > 0) {
-          console.log(`[Vision] Comparing ${weakTextCandidates.length} candidate logos for $${enrichedAlpha.symbol}`)
-          const visualMatches = await compareLogos(enrichedAlpha, weakTextCandidates)
-
-          if (visualMatches.length > 0 && !isStale()) {
-            const visualAddresses = new Map(visualMatches.map(b => [b.address, b]))
-            setBetas(prev => {
-              const enriched = prev.map(b =>
-                visualAddresses.has(b.address)
-                  ? { ...b, ...visualAddresses.get(b.address) }
-                  : b
-              )
-              // Any visual-only matches not already in list
-              const existingAddresses = new Set(prev.map(b => b.address))
-              const visualOnly = visualMatches.filter(b => !existingAddresses.has(b.address))
-              return [...enriched, ...visualOnly]
-                .sort((a, b) => {
-                  const aLP = a.signalSources?.includes('lp_pair') ? 1 : 0
-                  const bLP = b.signalSources?.includes('lp_pair') ? 1 : 0
-                  if (bLP !== aLP) return bLP - aLP
-                  return (parseFloat(b.priceChange24h) || 0) - (parseFloat(a.priceChange24h) || 0)
-                })
-                .slice(0, 35)
-            })
-            console.log(`[Vision] Added ${visualMatches.length} visual matches for $${enrichedAlpha.symbol}`)
-          }
-        }
-      } catch (visionErr) {
-        console.warn('[Vision] Logo comparison failed (non-fatal):', visionErr.message)
-      }
-
       // ── Persist betas to localStorage ───────────────────────────
-      // Always use myAddress (captured at fetch start) — not alpha?.address
-      // which could have changed if the user switched tokens during this fetch.
-      // Persisting is always safe even if stale; only the setBetas is guarded.
-      const stored   = loadStoredBetas(myAddress)
-      const fullList = mergeBetas(betas, stored)
-      saveStoredBetas(myAddress, fullList)
+      // IMPORTANT: use finalList (the just-computed result), NOT the `betas`
+      // state variable. `betas` is a stale closure — it holds the value from
+      // when fetchBetas was created, not after setBetas(finalList) was called.
+      // Using `betas` here would save the old/empty state and then merge the
+      // contaminated old stored data back in — the root cause of beta bleeding.
+      //
+      // We also do NOT re-merge stored betas into the UI here. The fresh scan
+      // IS the truth. Historical betas that are genuinely still relevant will
+      // be re-discovered on the next scan and re-saved. Forcing old stored data
+      // back onto the screen after a clean scan defeats the entire filter pipeline.
+      const stored = loadStoredBetas(myAddress)
+      // Merge fresh results with stored so historical betas aren't lost entirely,
+      // but the merge only keeps stored tokens that have a signal source strong
+      // enough to survive the current filter rules (ai_match or structural signals).
+      // Weak stored tokens (lore-only, keyword-only, no AI score) are dropped.
+      const freshAddresses = new Set((finalList || []).map(b => b.address))
+      const validStored = stored.filter(b => {
+        if (freshAddresses.has(b.address)) return false  // already in fresh list
+        const srcs = b.signalSources || []
+        // Only keep stored betas that were AI-confirmed or structurally strong
+        const isConfirmed = srcs.includes('ai_match') || srcs.includes('lp_pair') || srcs.includes('og_match')
+        if (!isConfirmed) {
+          console.log(`[BetaStore] Dropping unconfirmed stored $${b.symbol} — signals:[${srcs.join(',')}]`)
+          return false
+        }
+        return true
+      })
+      const mergedForStorage = [...(finalList || []), ...validStored].slice(0, 50)
+      saveStoredBetas(myAddress, mergedForStorage)
       if (!isStale()) {
-        setBetas(prev => {
-          const merged2 = mergeBetas(prev, stored)
-          if (merged2.length === 0) setError('No beta plays detected yet. Trenches might be cooked.')
-          return merged2.length > 0 ? merged2 : prev
-        })
+        if (mergedForStorage.length === 0) setError('No beta plays detected yet. Trenches might be cooked.')
+        else setBetas(mergedForStorage)
       }
     } catch (err) {
       console.error('Beta detection failed:', err)

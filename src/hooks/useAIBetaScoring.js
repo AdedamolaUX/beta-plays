@@ -40,58 +40,78 @@ const buildClassificationPrompt = (alpha, candidates, relationshipHints = {}) =>
       }`
     : ''
 
-  const candidateList = candidates.map((c, i) => [
-    `[${i}] ${c.symbol}`,  // No $ prefix
-    c.name        ? `    Name: ${c.name}`               : null,
-    c.description ? `    Description: ${c.description}` : null,
-  ].filter(Boolean).join('\n')).join('\n\n')
+  const candidateList = candidates.map((c, i) => {
+    const lines = [
+      `[${i}] ${c.symbol}`,
+      c.name        ? `    Name: ${c.name}`               : null,
+      c.description ? `    Description: ${c.description}` : null,
+    ]
+    // Show which signals found this candidate — helps AI weight accordingly.
+    // e.g. "found by: keyword, lore" vs "found by: og_match" tells the AI
+    // whether the match is structural/on-chain or just text-similarity-based.
+    if (c.signalSources?.length) {
+      const readable = c.signalSources
+        .filter(s => !['ai_match','visual_match'].includes(s))  // exclude meta signals
+        .join(', ')
+      if (readable) lines.push(`    Found by: ${readable}`)
+    }
+    // Pass visual signal to AI if vision ran on this candidate.
+    if (c.visualScore != null) {
+      const strength = c.visualScore >= 0.7 ? 'STRONG' : 'MODERATE'
+      lines.push(
+        `    🔍 VISUAL SIGNAL (${strength}, score: ${c.visualScore.toFixed(2)}): "${c.visualReason || 'logo visually related to alpha'}"`
+      )
+    }
+    return lines.filter(Boolean).join('\n')
+  }).join('\n\n')
 
-  return `You are analyzing Solana meme tokens to classify narrative relationships.
+  return `You are classifying narrative relationships between Solana meme tokens.
+Your job: identify genuine beta plays — tokens whose concept, character, or narrative
+is meaningfully derived from, opposed to, or part of the same universe as the alpha.
 
-ALPHA TOKEN (the runner):
+ALPHA TOKEN:
 ${alphaContext}${hintsText}
 
-CANDIDATE TOKENS (potential betas):
+CANDIDATE TOKENS:
 ${candidateList}
 
+RELATIONSHIP TYPES — pick the best fit:
+  TWIN      = same concept, synonym, or equivalent — different token, same idea
+              Examples: $PEPE → $PEEPO, $FROG, $KERMIT | $LOL → $LMAO, $HAHA, $GIGGLE
+  COUNTER   = opposite pole of the same narrative — exists BECAUSE the alpha exists
+              Examples: $PEPE → $WOJAK, $CHAD | $BULL → $BEAR | $PUMP → $DUMP
+              Key test: would traders think of this token WHEN the alpha pumps?
+  ECHO      = consequence, child, or continuation of the same narrative
+              Examples: $TRUMP → $MAGA, $MELANIA | $PEPE → $PEPEWIF, $BABYPEPE
+  UNIVERSE  = same fictional world, franchise, or cultural reference
+              Examples: $BATMAN → $JOKER, $ROBIN | $MARIO → $LUIGI, $BOWSER
+  SECTOR    = same thematic category but not directly related
+              Examples: $WIF → $BONK (both dog coins) | $GPT → $CLAUDE (both AI)
+  EVIL_TWIN = explicitly dark/inverted version — description must confirm it
+  SPIN      = loose or weak derivative — include if score ≥ 0.45, exclude below
+
 For each candidate:
-1. Score narrative relatedness (0.0–1.0)
-2. Classify the relationship type:
-   TWIN      = synonym/equivalent concept
-   COUNTER   = opposite side of same narrative
-   ECHO      = narrative consequence or continuation
-   UNIVERSE  = same fictional/cultural world
-   SECTOR    = same industry/space peer
-   EVIL_TWIN = dark, inverted, or evil variant of the alpha — ONLY classify as EVIL_TWIN
-               if the description or branding explicitly shows dark/evil/destructive intent.
-               Never infer EVIL_TWIN from an ambiguous name alone. If the description is
-               neutral or positive, it is NOT an EVIL_TWIN regardless of what the name
-               could theoretically imply. Example: "Seal Club" + "Welcome to the Happy
-               Seal Club" = TWIN or UNIVERSE, NOT EVIL_TWIN. "Dark Shiba" + "the evil
-               version of Shiba" = EVIL_TWIN.
-   SPIN      = general derivative with weaker connection
+1. Read the description carefully — it often reveals the exact narrative intent
+   ("the laughter token" for $LOL confirms TWIN for other emotion/humor tokens)
+2. Score 0.0–1.0:
+   0.8–1.0  Strong — intentional narrative link, clear to any degen
+   0.6–0.79 Moderate — plausible link, same thematic space
+   0.45–0.59 Weak — include with SPIN
+   0.0–0.44 Unrelated — exclude
+   If a VISUAL SIGNAL is present, raise score by +0.2 (STRONG) or +0.1 (MODERATE)
+3. One-sentence reason — be specific about WHY, not just "meme concept alignment"
 
-CRITICAL RULE — Description overrides name inference:
-Always read the token description before classifying. If the description contradicts
-a dark or negative interpretation of the name, the description wins. A friendly or
-neutral description means the token is NOT a COUNTER or EVIL_TWIN, even if the name
-could theoretically imply opposition or harm.
-3. One-sentence reason
+INVALID REASONS (always score 0.1):
+- "Both are cryptocurrencies / meme tokens / Solana tokens"
+- "Both reference the dollar sign / monetary concepts"
+- "Both have similar market structure"
+- "Both relate to finance/currency/wealth" (unless alpha's theme IS explicitly financial)
 
-Scoring guide:
-  0.8–1.0: Strong — clear intentional connection
-  0.6–0.79: Moderate — plausible narrative link
-  0.45–0.59: Weak but possible — include with SPIN
-  0.0–0.44: Unrelated — exclude
+DESCRIPTION RULE: If a description contradicts a negative name interpretation,
+the description wins. "Dark Pepe" + description "wholesome frog art" = UNIVERSE not EVIL_TWIN.
 
-INVALID REASONING — these are NOT connections, always score 0.1 or below:
-- "Both are cryptocurrencies / meme tokens / Solana tokens" — true of everything here, meaningless
-- "Both reference monetary concepts / dollar signs / financial value" — the symbol prefix is a display convention shared by ALL tokens, it carries zero thematic meaning
-- "Both have similar market caps / price action" — market data is not a narrative connection
-- "Both relate to currency/money/wealth" — only valid if the ALPHA's actual theme is explicitly about money
-
-Respond ONLY with a JSON array. No explanation, no markdown:
-[{"index":0,"score":0.92,"relationshipType":"TWIN","reason":"Direct synonym for house/shelter"},{"index":1,"score":0.2,"relationshipType":"SPIN","reason":"Unrelated"}]`
+Respond ONLY with a JSON array, no markdown:
+[{"index":0,"score":0.92,"relationshipType":"TWIN","reason":"LMAO is the direct escalation of LOL — same humor/laughter narrative"},{"index":1,"score":0.2,"relationshipType":"SPIN","reason":"Unrelated financial token"}]`
 }
 
 // ─── Call backend /api/score-betas ───────────────────────────────
