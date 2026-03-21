@@ -8,8 +8,8 @@ const BACKEND_URL      = import.meta.env.VITE_BACKEND_URL || 'http://localhost:3
 // ─── Thresholds ──────────────────────────────────────────────────
 const LIVE_MIN_CHANGE    =  0
 const LIVE_MIN_VOLUME    = 10_000
-const COOLING_MIN_VOLUME =  5_000
-const COOLING_MIN_MCAP   = 10_000
+const COOLING_MIN_VOLUME =  1_000  // Lowered — small tokens that dump still deserve a cooling entry
+const COOLING_MIN_MCAP   =  1_000  // Lowered — catches $1.8K mcap tokens like $KARATECHUCK
 const HISTORY_MAX_AGE_MS = 30 * 24 * 60 * 60 * 1000
 
 // ─── localStorage ────────────────────────────────────────────────
@@ -53,6 +53,7 @@ const saveToHistory = (alphas) => {
         mcapAtFirstSeen: (isFreshBonded && prev?.source === 'pumpfun_pre')
           ? alpha.marketCap || 0   // Reset first-seen mcap when we get real post-bond data
           : (prev?.mcapAtFirstSeen || alpha.marketCap || 0),
+
       }
     })
     Object.keys(existing).forEach((addr) => {
@@ -105,7 +106,12 @@ const loadHistoricalByPriceAction = (currentAddresses) => {
       // Bonding curve tokens especially show wild % that don't reflect
       // current reality. Cap and flag as stale rather than mislead.
       const ageHours    = age / 3600000
-      const isStale     = ageHours > 2
+      // Use priceRefreshedAt when available — refreshHistoricalPrices updates
+      // prices without touching lastSeen (correct behaviour). A token refreshed
+      // 5 minutes ago is NOT stale even if last seen in feed 3 hours ago.
+      const lastRefresh = a.priceRefreshedAt || a.lastSeen
+      const refreshAge  = (now - lastRefresh) / 3600000
+      const isStale     = refreshAge > 2
       // Cap bonding-curve artifacts — legitimate moves don't exceed 5000%
       const cappedChange = Math.min(Math.max(change, -100), 5000)
 
@@ -130,18 +136,24 @@ const loadHistoricalByPriceAction = (currentAddresses) => {
         return
       }
 
-      // ── Sticky live rule ─────────────────────────────────────────
-      // A token stays in live until isDumped() — full stop.
-      // We do not evict based on age, 24h%, or volume. Those are
-      // noisy signals that cause tokens to disappear and reappear
-      // across refresh cycles. refreshHistoricalPrices keeps the
-      // price data fresh regardless of whether the token is here.
-      historicalLive.push({
-        ...a,
-        priceChange24h: cappedChange,
-        isHistorical:   true,
-        coolingLabel:   null,
-      })
+      if (cappedChange > LIVE_MIN_CHANGE && volume >= LIVE_MIN_VOLUME && !isStale) {
+        // Was pumping and data is still fresh enough to trust
+        historicalLive.push({
+          ...a,
+          priceChange24h: cappedChange,
+          isHistorical:   true,
+          coolingLabel:   null,
+        })
+      } else if (cappedChange < 0 || isStale) {
+        // Retracing, OR data too old to show as live — move to Cooling
+        historicalCooling.push({
+          ...a,
+          priceChange24h: cappedChange,
+          isCooling:      true,
+          isHistorical:   true,
+          coolingLabel:   isStale ? `Last seen ${ageLabel}` : 'Watching for reversal',
+        })
+      }
     })
 
     return { historicalLive, historicalCooling }
@@ -501,65 +513,26 @@ const fetchPumpFunBonded = async () => {
 // We filter to pairs with real volume + liquidity to avoid pure junk.
 const fetchNewPairs = async () => {
   try {
+    // DEXScreener new pairs endpoint — genuinely new trading pairs on Solana
+    // Different from token-profiles which fetchProfileAlphas already covers
     const res = await axios.get(
-      `${DEXSCREENER_BASE}/token-profiles/latest/v1`,
+      `${DEXSCREENER_BASE}/latest/dex/pairs/solana/new`,
       { timeout: 8000 }
     )
-    const profiles = res.data || []
-
-    // Fetch actual pair data for the most promising new profiles
-    const solanaProfiles = profiles
-      .filter(p => p.chainId === 'solana' && p.tokenAddress)
+    const pairs = (res.data?.pairs || [])
+      .filter(p =>
+        p.chainId === 'solana' &&
+        (p.volume?.h24 || 0) >= 5_000 &&
+        (p.liquidity?.usd || 0) >= 1_000 &&
+        (p.priceChange?.h24 || 0) > 20  // Must be moving up
+      )
       .slice(0, 20)
 
-    if (solanaProfiles.length === 0) return []
+    if (pairs.length === 0) return []
 
-    const pairFetches = await Promise.allSettled(
-      solanaProfiles.map(p =>
-        axios.get(`${DEXSCREENER_BASE}/latest/dex/tokens/${p.tokenAddress}`, { timeout: 5000 })
-          .then(r => ({ profile: p, pairs: r.data?.pairs || [] }))
-      )
-    )
-
-    const results = []
-    pairFetches.forEach(result => {
-      if (result.status !== 'fulfilled') return
-      const { profile, pairs } = result.value
-
-      const best = pairs
-        .filter(p =>
-          p.chainId === 'solana' &&
-          (p.volume?.h24 || 0) >= 10_000 &&
-          (p.liquidity?.usd || 0) >= 2_000
-        )
-        .sort((a, b) => (b.volume?.h24 || 0) - (a.volume?.h24 || 0))[0]
-
-      if (!best) return
-
-      results.push({
-        id:             best.pairAddress,
-        symbol:         best.baseToken?.symbol || '???',
-        name:           best.baseToken?.name   || 'Unknown',
-        address:        best.baseToken?.address || '',
-        pairAddress:    best.pairAddress || '',
-        priceUsd:       best.priceUsd || '0',
-        priceChange24h: parseFloat(best.priceChange?.h24 || 0),
-        volume24h:      best.volume?.h24    || 0,
-        marketCap:      best.marketCap || best.fdv || 0,
-        liquidity:      best.liquidity?.usd || 0,
-        logoUrl:        best.info?.imageUrl || profile.icon || null,
-        description:    best.info?.description || profile.description || '',
-        pairCreatedAt:  best.pairCreatedAt || null,
-        isHistorical:   false,
-        isLegend:       false,
-        isCooling:      false,
-        coolingLabel:   null,
-        source:         'dex_new',
-        dexUrl:         best.baseToken?.address
-          ? `https://dexscreener.com/solana/${best.baseToken.address}`
-          : (best.url || `https://dexscreener.com/solana/${best.pairAddress}`),
-      })
-    })
+    const results = pairs.map(p => formatAlpha(p, 'dex_new'))
+    console.log(`[NewPairs] ${results.length} new Solana pairs`)
+    return results
 
     console.log(`[NewPairs] ${results.length} new pairs from DEXScreener profiles`)
     return results
@@ -700,10 +673,10 @@ const refreshHistoricalPrices = async () => {
 
     // Refresh two categories:
     // 1. Historical tokens (not seen in 2+ min) — standard refresh
-    // 2. ANY token stuck at bonding-curve mcap (≤80K), regardless of priceChange24h.
+    // 2. ANY token stuck at bonding-curve mcap (≤50K), regardless of priceChange24h.
     //    Previously gated on priceChange24h===0 but tokens like $Sugarswaps arrive
     //    with 691% change while still showing the $35K graduation snapshot.
-    //    Any non-pre-grad token at ≤$80K needs a live price, full stop.
+    //    Any non-pre-grad token at ≤$50K needs a live price, full stop.
     const toRefresh = Object.values(existing).filter(a => {
       if (!a.address) return false
       const age = now - (a.lastSeen || 0)
@@ -744,7 +717,17 @@ const refreshHistoricalPrices = async () => {
         // Update localStorage with fresh price data
         batch.forEach(token => {
           const pair = bestPair[token.address]
-          if (!pair) return  // Token not found on DEX — leave as-is
+
+          // ── Dead token detection ───────────────────────────────
+          // If DEX returns no pairs for this address, the token has been
+          // delisted (rugged, liquidity fully removed, or abandoned).
+          // Mark it dead so the UI removes it from the live feed.
+          // We also catch tokens that technically have a pair but with
+          // effectively zero activity — these are ghost tokens with
+          // fake or frozen mcap (e.g. $MAX with $118M mcap, 2 txns total).
+          // If DEX returns no pair for this token, just skip — don't update price.
+          // Token will naturally age out via the 30-day TTL.
+          if (!pair) return
 
           const safePriceChange = Math.min(
             Math.max(parseFloat(pair.priceChange?.h24 || 0), -100),
@@ -783,6 +766,94 @@ const refreshHistoricalPrices = async () => {
     localStorage.setItem(STORAGE_KEY, JSON.stringify(existing))
   } catch (err) {
     console.warn('[PriceRefresh] Failed:', err.message)
+  }
+}
+
+// ─── Source 5: Birdeye top gainers ───────────────────────────────
+// Finds organic runners NOT in DEXScreener's boost/profile feeds.
+// Uses Birdeye's trending endpoint sorted by 24h % change.
+// This catches tokens like $MOE (+8500%) that never paid for a boost.
+const fetchGainersAlphas = async () => {
+  try {
+    const res = await axios.get(
+      `${BACKEND_URL}/api/birdeye?endpoint=trending`,
+      { timeout: 10000 }
+    )
+    // tokenlist response: { data: { tokens: [...] } }
+    // token_trending response: { data: { items: [...] } }
+    // Handle both formats
+    const items = res.data?.data?.tokens || res.data?.data?.items || res.data?.data || []
+    if (!items.length) {
+      console.warn('[Source5/Birdeye] Empty response — check API key and endpoint')
+      return []
+    }
+
+    console.log(`[Source5/Birdeye] Raw items from API: ${items.length}`)
+
+    // Also fetch top volume tokens — catches runners with huge vol but moderate % change
+    let volumeItems = []
+    try {
+      const volRes = await axios.get(
+        `${BACKEND_URL}/api/birdeye?endpoint=top_volume`,
+        { timeout: 10000 }
+      )
+      volumeItems = volRes.data?.data?.tokens || volRes.data?.data?.items || volRes.data?.data || []
+      console.log(`[Source5/Birdeye] Top volume items: ${volumeItems.length}`)
+    } catch { /* silent */ }
+
+    // Merge and deduplicate by address
+    const seen = new Set()
+    const allItems = [...items, ...volumeItems].filter(t => {
+      if (!t.address || seen.has(t.address)) return false
+      seen.add(t.address)
+      return true
+    })
+
+    // Filter: must have meaningful 24h change OR high volume
+    const solanaItems = allItems
+      .filter(t =>
+        (t.v24hChangePercent || 0) > 5 ||
+        (t.v24hUSD || 0) > 50_000
+      )
+      .slice(0, 50)
+
+    console.log(`[Source5/Birdeye] After merge+filter: ${solanaItems.length} candidates`)
+
+    const pairResults = await Promise.allSettled(
+      solanaItems.map(t =>
+        axios.get(`${DEXSCREENER_BASE}/latest/dex/tokens/${t.address}`, { timeout: 5000 })
+          .then(r => ({ token: t, pairs: r.data?.pairs || [] }))
+      )
+    )
+
+    const results = []
+    pairResults.forEach(result => {
+      if (result.status !== 'fulfilled') return
+      const { token, pairs } = result.value
+
+      const best = pairs
+        .filter(p =>
+          p.chainId === 'solana' &&
+          (p.volume?.h24 || 0) >= 5_000 &&
+          (p.liquidity?.usd || 0) >= 1_000
+        )
+        .sort((a, b) => (b.volume?.h24 || 0) - (a.volume?.h24 || 0))[0]
+
+      if (!best) return
+
+      const alpha = formatAlpha(best, 'birdeye_trending')
+      // Enrich with Birdeye data if DEX description is empty
+      if (!alpha.description && token.name) {
+        alpha.description = token.extensions?.description || ''
+      }
+      results.push(alpha)
+    })
+
+    console.log(`[Source5/Birdeye] Found ${results.length} gainers`)
+    return results
+  } catch (err) {
+    console.warn('[Source5/Birdeye] Trending fetch failed (non-fatal):', err.message)
+    return []
   }
 }
 
@@ -874,11 +945,12 @@ const useAlphas = () => {
     setError(null)
 
     try {
-      const [boosted, profiles, pumpfun, newPairs] = await Promise.allSettled([
+      const [boosted, profiles, pumpfun, newPairs, gainers] = await Promise.allSettled([
         fetchBoostedAlphas(),
         fetchProfileAlphas(),
         fetchPumpFunBonded(),
         fetchNewPairs(),
+        fetchGainersAlphas(),  // Source 5: Birdeye top gainers — organic non-boosted runners
       ])
 
       const freshRaw = deduplicateAlphas([
@@ -886,6 +958,7 @@ const useAlphas = () => {
         ...(profiles.status  === 'fulfilled' ? profiles.value  : []),
         ...(pumpfun.status   === 'fulfilled' ? pumpfun.value   : []),
         ...(newPairs.status  === 'fulfilled' ? newPairs.value  : []),
+        ...(gainers.status   === 'fulfilled' ? gainers.value   : []),
       ])
 
       // ── Immediate bonding-price fix for freshly migrated tokens ──
@@ -1031,6 +1104,7 @@ const useAlphas = () => {
       })
 
       const sortedLive = patchedLive
+
         .map(a => ({ ...a, momentumScore: getMomentumScore(a) }))
         .sort((a, b) => b.momentumScore - a.momentumScore)
         .slice(0, 100)

@@ -23,6 +23,12 @@ export const generateTickerVariants = (symbol) => {
     // English
     'INU', 'WIF', 'HAT', 'CAT', 'DOG', 'AI', 'GPT',
     'DAO', 'FI', 'X', '2', '3', 'PLUS', 'PRO', 'MOON', 'PUMP',
+    // Feminine / diminutive variants — catches GROKETTE, TRUMPETTE etc
+    'ETTE', 'ELLA', 'GIRL', 'LADY', 'QUEEN', 'WIFE',
+    // Dark/evil variants
+    'EVIL', 'DARK', 'BAD', 'MEAN', 'CURSED',
+    // Size variants
+    'BIG', 'TINY', 'GIGA', 'MEGA',
     // Japanese honorifics
     'SAN', 'KUN', 'CHAN', 'SAMA', 'SENSEI',
     // Korean
@@ -145,6 +151,7 @@ const LORE_MAP = {
 
   // ── Anime / Waifu ──
   ANIME:  { terms: ['anime','waifu','otaku','manga','kawaii'], concepts: ['anime','waifu','japan'], category: 'anime', universe: 'anime' },
+  CHIBI:  { terms: ['chibi','kawaii','mini','tiny','cute','sd','superdeformed','chibified','chibiverse','chibi elon','chibielon','chibi pepe','chibipepe','chibi doge','chibidoge'], concepts: ['chibi','kawaii','anime','cute'], category: 'anime', universe: 'chibi' },
 
   // ── Food narrative ──
   BURGER: { terms: ['burger','mcdonalds','bigmac','fries','wendys'], concepts: ['burger','food','fast-food'], category: 'food', universe: 'fast-food' },
@@ -159,6 +166,20 @@ const LORE_MAP = {
   WOJAK:  { terms: ['wojak','pepe','chad','npc','meme'], concepts: ['wojak','meme','feels'], category: 'memes', universe: 'wojak' },
   CHAD:   { terms: ['chad','virgin','gigachad','sigma','alpha'], concepts: ['chad','meme','sigma'], category: 'memes', universe: 'chad' },
   NPC:    { terms: ['npc','wojak','bot','sheep','normie'], concepts: ['npc','meme','social'], category: 'memes', universe: 'wojak' },
+
+  // ── Toilet humor / gas / fart narrative ─────────────────────────
+  // Massive degen category — any gas/fart/poop token triggers this universe
+  FART:      { terms: ['fart','poop','burp','stink','flatulence','toot','methane','gas','toilet','skunk'], concepts: ['fart','gas','humor','toilet'], category: 'humor', universe: 'toilet-humor' },
+  POOP:      { terms: ['poop','fart','burp','stink','toilet','shit','crap','dung','turd','brown'], concepts: ['poop','fart','humor','toilet'], category: 'humor', universe: 'toilet-humor' },
+  METHANE:   { terms: ['fart','cow','poop','burp','stink','beef','barn','flatulence','bovine','oxygen','gas'], concepts: ['methane','fart','cow','gas'], category: 'humor', universe: 'toilet-humor' },
+  GAS:       { terms: ['fart','fuel','petrol','gwei','fee','stink','smell','air','exhaust','nitro'], concepts: ['gas','fart','fuel','crypto'], category: 'humor', universe: 'gas-narrative' },
+  STINK:     { terms: ['stink','fart','smell','skunk','odor','poop','burp','rotten'], concepts: ['stink','fart','smell'], category: 'humor', universe: 'toilet-humor' },
+
+  // ── Farm / livestock narrative ────────────────────────────────────
+  COW:       { terms: ['cow','bull','beef','dairy','milk','barn','farm','cattle','bovine','moo','steak','udder','calf'], concepts: ['cow','farm','animal'], category: 'animals', universe: 'farm' },
+  BULL:      { terms: ['bull','cow','beef','steak','horns','cattle','matador','bear','bison'], concepts: ['bull','farm','animal','finance'], category: 'animals', universe: 'farm' },
+  FARM:      { terms: ['farm','barn','cow','pig','chicken','sheep','horse','goat','rooster','tractor','harvest'], concepts: ['farm','animal','rural'], category: 'animals', universe: 'farm' },
+  PIG:       { terms: ['pig','pork','bacon','oink','ham','piggy','boar','swine','farm'], concepts: ['pig','farm','animal'], category: 'animals', universe: 'farm' },
 
   // ── Internet humor / emotion ─────────────────────────────────────
   LOL:    { terms: ['lol','lmao','rofl','haha','funny','laugh','giggle','kek','humor','joke','meme','lulz'], concepts: ['lol','laugh','humor','funny','internet'], category: 'humor', universe: 'internet-humor' },

@@ -71,15 +71,97 @@ const DEX_QUEUE = (() => {
 // Visual attributes from Vector 0 (logo analysis) are handled separately —
 // they go to the vision pipeline (compareLogos), NOT to DEX text search.
 // That separation happens at the source (v0SearchTerms vs v0VisualTerms).
+// Hard-blocked generic terms the AI occasionally emits despite prompt rules.
+// These return thousands of unrelated tokens on DEX and pollute every beta list.
+// Kept as a Set for O(1) lookup.
+const BANNED_GENERIC_TERMS = new Set([
+  // Chains / infrastructure
+  'solana','sol','ethereum','eth','bitcoin','btc','blockchain','crypto','defi',
+  'web3','nft','dao','dex','cex','swap','bridge','layer','mainnet','testnet',
+  // Generic crypto vocab
+  'token','coin','chain','contract','wallet','hodl','hold','buy','sell',
+  'moon','pump','dump','rug','launch','fair','presale','airdrop','stake',
+  'yield','farm','pool','liquidity','market','price','chart','volume',
+  // Generic adjectives the AI loves
+  'cute','cool','nice','good','bad','big','small','tiny','little','great',
+  'best','first','new','old','real','based','pure','mega','ultra','super',
+  'wild','dark','bright','funny','fun','happy','sad','angry','mad',
+  // Generic nouns that match everything
+  'animal','pet','friend','buddy','pal','mate','guy','dude','bro','sir',
+  'king','queen','lord','master','hero','legend','god','devil','boss',
+  'thing','stuff','item','object','entity','creature','being','life',
+  // Single letters / non-words
+  'the','and','for','with','from','into','onto','upon','over','under',
+])
+
 const isValidSearchTerm = (term) => {
   if (!term || typeof term !== 'string') return false
   const t = term.trim()
   if (t.length < 3) return false                             // Too short for DEX
-  if (/[=<>:\s]/.test(t)) return false                      // Relationship string or multi-word
+  if (/[=<>:]/.test(t)) return false                        // Relationship operator string
+  // Allow spaces for multi-word name searches ("shiba inu", "zero sum", "risk all")
+  // but block more than 3 words — those are sentences, not token names
+  if (/\s/.test(t) && t.split(/\s+/).length > 3) return false
   if (/^[1-9A-HJ-NP-Za-km-z]{40,}$/.test(t)) return false  // Raw Solana address
-  if (/^\d+$/.test(t)) return false                         // Pure number
+  // Pure numbers ARE valid — $420, $69, $11 are real tokens
+  // Only block pure numbers that are also in BANNED_GENERIC_TERMS
+  // Emoji are valid search terms — $🐸, $💀 are real tickers on DEX
+  // Hard-block generic terms regardless of what the AI returns
+  if (BANNED_GENERIC_TERMS.has(t.toLowerCase())) return false
   return true
 }
+
+// Normalise and expand search terms from the AI before sending to DEX.
+//
+// Token names and tickers are different things on DEXScreener:
+//   Token name: "Shiba Inu", "Empty Hand", "Zero Sum"  (can have spaces)
+//   Ticker/symbol: $SHIBA, $EMPTYHAND, $ZEROSUM        (no spaces, all caps)
+// DEX searches BOTH name and symbol, so we need BOTH forms of a compound term
+// to get full coverage.
+//
+// This function takes a single AI-generated term and returns 1 or 2 terms:
+//   "EmptyHand"  → ["emptyhand", "empty hand"]  (ticker form + name form)
+//   "RiskAll"    → ["riskall",   "risk all"]
+//   "zerosum"    → ["zerosum",   "zero sum"]
+//   "raccoon"    → ["raccoon"]                   (single word, no expansion needed)
+//   "FART"       → ["FART"]                      (already a ticker, no expansion)
+const normaliseSearchTerm = (term) => {
+  if (!term || typeof term !== 'string') return [term]
+  const t = term.trim()
+
+  // Detect CamelCase: has lowercase→uppercase transition (EmptyHand, RiskAll)
+  const isCamel = /[a-z][A-Z]/.test(t)
+  // Detect run-together lowercase compound: no spaces, no caps, multiple syllables
+  // heuristic: all-lowercase, no spaces, longer than 7 chars (emptyhand, zerosum)
+  const isLowercaseCompound = /^[a-z]{8,}$/.test(t)
+
+  if (isCamel) {
+    // Split on uppercase boundaries: EmptyHand → ["Empty", "Hand"]
+    const parts = t.replace(/([A-Z])/g, ' $1').trim().split(/\s+/)
+    const spaced = parts.join(' ').toLowerCase()      // "empty hand" — finds by name
+    const joined = parts.join('').toLowerCase()       // "emptyhand"  — finds by ticker
+    return [...new Set([joined, spaced])]
+  }
+
+  if (isLowercaseCompound) {
+    // Already joined lowercase (e.g. "riskall", "zerosum") — return as-is.
+    // The AI prompt instructs it to also output the spaced form separately,
+    // so this form will already have a companion "risk all" / "zero sum" entry.
+    return [t]
+  }
+
+  // Already-spaced phrase ("risk all", "zero sum", "shiba inu") — pass through as-is.
+  // DEX searches token names with spaces, so these are valid and useful.
+  if (/\s/.test(t)) return [t.toLowerCase()]
+
+  // Single word — return as-is
+  return [t]
+}
+
+// Expand a list of AI terms into the full set of DEX search queries
+// (each compound becomes two entries: ticker form + name form)
+const expandSearchTerms = (terms) =>
+  [...new Set(terms.flatMap(normaliseSearchTerm))].filter(isValidSearchTerm)
 
 // ─── Vector 0: Fetch AI concept expansion from server ────────────
 // Server caches per alpha address — shared across all users.
@@ -105,7 +187,23 @@ const fetchAlphaExpansion = async (alpha) => {
     logoUrl:     alpha.logoUrl  || null,
     marketCap:   alpha.marketCap || 0,
     forceRefresh,
-  }, { timeout: 45000 })  // 45s — handles Render cold start (free tier spins down)
+  }, { timeout: 45000 })
+
+  // If server returned a cached result but we suspect the prompt has been updated
+  // (indicated by a PROMPT_VERSION mismatch), force a fresh expansion.
+  // This prevents stale cached expansions from bleeding old terms after prompt fixes.
+  const PROMPT_VERSION = 'v5'  // Bump this whenever the expansion prompt changes
+  const data = res.data || {}
+  if (data.fromCache && data.promptVersion && data.promptVersion !== PROMPT_VERSION) {
+    console.log(`[Vector0] Prompt version mismatch for $${alpha.symbol} — forcing refresh`)
+    const fresh = await axios.post(`${BACKEND_URL}/api/expand-alpha`, {
+      address: alpha.address, symbol: alpha.symbol,
+      name: alpha.name || '', description: alpha.description || '',
+      logoUrl: alpha.logoUrl || null, marketCap: alpha.marketCap || 0,
+      forceRefresh: true,
+    }, { timeout: 45000 })
+    return fresh.data || { searchTerms: [], visualTerms: [], relationshipHints: {} }
+  }
 
   // Track locally for re-entry detection
   try {
@@ -153,6 +251,13 @@ const loadStoredBetas = (alphaAddress) => {
           srcs.includes('og_match')
         if (!isConfirmed) {
           console.log(`[BetaStore] Dropped on load $${b.symbol} — no AI/structural confirmation | signals:[${srcs.join(',')}]`)
+          return false
+        }
+        // Also drop stored betas that passed AI but with a score below the
+        // current threshold — these were borderline passes from older, looser
+        // prompt versions (e.g. $PISSTINA scoring 0.1 in an old scan).
+        if (srcs.includes('ai_match') && b.aiScore != null && b.aiScore < 0.45) {
+          console.log(`[BetaStore] Dropped on load $${b.symbol} — ai_match but score ${b.aiScore} below threshold`)
           return false
         }
         return true
@@ -228,7 +333,7 @@ const isStalePrice = (b) => {
   const sources = b.signalSources || []
   const onlyPumpFun      = sources.every(s => s === 'pumpfun')
   const zeroPriceChange  = parseFloat(b.priceChange24h) === 0
-  const bondingMcap      = (b.marketCap || 0) <= 80_000
+  const bondingMcap      = (b.marketCap || 0) <= 50_000
 
   // Time-based staleness — any stored beta not refreshed in last 5 min
   // gets a live price check. This is the main fix for frozen stored prices
@@ -351,6 +456,12 @@ const COMPOUND_ROOTS = new Set([
   // Concepts
   'DARK','LIGHT','GOOD','EVIL','WILD','FIRE','ICE','GOLD','STAR',
   'POWER','FORCE','MAGIC','LIFE','TIME','CHAOS','ORDER','WAR','PEACE',
+  // Philosophy / duality / abstract
+  'YIN','YANG','ZEN','TAO','KARMA','VOID','SOUL','MIND','FATE','DOOM',
+  'HOPE','FEAR','LOVE','HATE','TRUTH','LIE','REAL','FAKE','PURE','NULL',
+  'ZERO','HERO','NONE','SOME','ALL','ANY','FULL','EMPTY','HALF','WHOLE',
+  // Colors (used in compound tokens like BLACKCAT, WHITEDOG)
+  'BLACK','WHITE','RED','BLUE','PINK','GREY','GRAY',
   // Internet/culture
   'LOL','MEME','COPE','SEETHE','BASED','VIBES','PUNK','DEGEN',
   // Famous names commonly combined
@@ -533,7 +644,21 @@ const extractDescriptionKeywords = (description) => {
       .slice(0, 8)
   }
 
-  // Latin path — unchanged
+  // Latin path — noun-prioritised
+  // Sorting by length alone promotes generic verbs like "discovering" (11 chars)
+  // over specific nouns like "raccoon" (7 chars). We want NOUNS — the subject of
+  // the token — not verbs/adjectives that are useless as DEX search terms.
+  const VERB_ADJ_ENDINGS = [
+    'ing', 'tion', 'ness', 'ment', 'ful', 'less', 'able', 'ible',
+    'ive', 'ous', 'ary', 'ery', 'ory', 'ise', 'ize', 'ify', 'ate',
+    'ent', 'ant', 'est', 'ier',
+  ]
+  const GENERIC_VERBS = new Set([
+    'travel', 'travels', 'discover', 'discovers', 'discovering',
+    'dance', 'dances', 'dancing', 'moves', 'move', 'moving',
+    'world', 'places', 'place', 'friends', 'friend', 'across',
+    'tiny', 'little', 'great', 'best',
+  ])
   const words = description
     .toLowerCase()
     .replace(/[^a-z0-9\s]/g, ' ')
@@ -542,38 +667,139 @@ const extractDescriptionKeywords = (description) => {
       w.length >= 3 &&
       w.length <= 20 &&
       !STOP_WORDS.has(w) &&
+      !GENERIC_VERBS.has(w) &&
       !/^\d+$/.test(w)
     )
-  return [...new Set(words)]
-    .sort((a, b) => b.length - a.length)
+  const scored = [...new Set(words)].map(w => {
+    const isVerbAdj = VERB_ADJ_ENDINGS.some(e => w.endsWith(e))
+    return { w, score: w.length - (isVerbAdj ? 4 : 0) }
+  })
+  return scored
+    .sort((a, b) => b.score - a.score)
+    .map(x => x.w)
     .slice(0, 8)
 }
 
 const fetchDescriptionKeywords = async (alpha) => {
   try {
-    // If description was already saved at fetch time (PumpFun or profile), use it
+    // ── Source 1: already on the alpha object (best case) ────────
+    // Populated by useAlphas via token-profiles endpoint or PumpFun feed.
+    // This is the richest description source — use it if available.
     if (alpha.description && alpha.description.length > 10) {
       const keywords = extractDescriptionKeywords(alpha.description)
-      console.log(`[Vector1] ${alpha.symbol} cached description → ${keywords.length} keywords`)
+      console.log(`[Vector1b] $${alpha.symbol} description (cached): "${alpha.description.slice(0, 60)}..."`)
+      console.log(`[Vector1b] $${alpha.symbol} description keywords:`, keywords)
       return { keywords, description: alpha.description }
     }
 
-    // Otherwise fetch from DEXScreener
+    // ── Source 2: DEX /tokens/{address} ──────────────────────────
+    // Direct token lookup. Works well for Raydium/graduated tokens.
+    // PumpFun tokens often return empty info.description here — that's
+    // why we have Sources 3 and 4 as fallbacks.
     const res = await DEX_QUEUE.get(
       `${DEXSCREENER_BASE}/latest/dex/tokens/${alpha.address}`
     )
     const pairs = res.data?.pairs || []
-    if (pairs.length === 0) return { keywords: [], description: '' }
-
-    const pair = pairs[0]
-    const description =
-      pair.info?.description ||
-      pair.baseToken?.description ||
+    const tokenDesc =
+      pairs[0]?.info?.description ||
+      pairs[0]?.baseToken?.description ||
       ''
 
-    const keywords = extractDescriptionKeywords(description)
-    console.log(`[Vector1] ${alpha.symbol} description keywords:`, keywords)
-    return { keywords, description }
+    if (tokenDesc && tokenDesc.length > 10) {
+      const keywords = extractDescriptionKeywords(tokenDesc)
+      console.log(`[Vector1b] $${alpha.symbol} description (tokens endpoint): "${tokenDesc.slice(0, 60)}..."`)
+      console.log(`[Vector1b] $${alpha.symbol} description keywords:`, keywords)
+      return { keywords, description: tokenDesc }
+    }
+
+    // ── Source 3: DEX /search?q={symbol} ─────────────────────────
+    // Search results carry richer info blocks than the direct token lookup,
+    // especially for PumpFun tokens where profile data is indexed separately.
+    // Different endpoint = different cache key = fresh data.
+    console.log(`[Vector1b] $${alpha.symbol} tokens endpoint empty — trying search fallback`)
+    try {
+      const searchRes = await DEX_QUEUE.get(
+        `${DEXSCREENER_BASE}/latest/dex/search?q=${encodeURIComponent(alpha.symbol)}`
+      )
+      const searchPairs = (searchRes.data?.pairs || [])
+        .filter(p => p.chainId === 'solana' && p.baseToken?.address === alpha.address)
+      const searchDesc =
+        searchPairs[0]?.info?.description ||
+        searchPairs[0]?.baseToken?.description ||
+        ''
+
+      if (searchDesc && searchDesc.length > 10) {
+        const keywords = extractDescriptionKeywords(searchDesc)
+        console.log(`[Vector1b] $${alpha.symbol} description (search endpoint): "${searchDesc.slice(0, 60)}..."`)
+        console.log(`[Vector1b] $${alpha.symbol} description keywords:`, keywords)
+        return { keywords, description: searchDesc }
+      }
+    } catch { /* silent — fall through to source 4 */ }
+
+    // ── Source 4: DEX /search?q={address} ────────────────────────
+    // Searching by contract address sometimes returns richer info than by symbol,
+    // especially when a token's symbol is very short or ambiguous.
+    try {
+      const addrRes = await DEX_QUEUE.get(
+        `${DEXSCREENER_BASE}/latest/dex/search?q=${alpha.address}`
+      )
+      const addrPairs = (addrRes.data?.pairs || [])
+        .filter(p => p.chainId === 'solana')
+      const addrDesc =
+        addrPairs[0]?.info?.description ||
+        addrPairs[0]?.baseToken?.description ||
+        ''
+
+      if (addrDesc && addrDesc.length > 10) {
+        const keywords = extractDescriptionKeywords(addrDesc)
+        console.log(`[Vector1b] $${alpha.symbol} description (address search): "${addrDesc.slice(0, 60)}..."`)
+        console.log(`[Vector1b] $${alpha.symbol} description keywords:`, keywords)
+        return { keywords, description: addrDesc }
+      }
+    } catch { /* silent */ }
+
+    // ── Source 5: search by name (if different from symbol) ─────
+    // Some launchpads (LaunchLab, Bonk.fun, Moonshot) index description
+    // under the token name rather than symbol. Worth one more try.
+    if (alpha.name && alpha.name.toLowerCase() !== alpha.symbol.toLowerCase()) {
+      try {
+        const nameRes = await DEX_QUEUE.get(
+          `${DEXSCREENER_BASE}/latest/dex/search?q=${encodeURIComponent(alpha.name)}`
+        )
+        const namePairs = (nameRes.data?.pairs || [])
+          .filter(p => p.chainId === 'solana' && p.baseToken?.address === alpha.address)
+        const nameDesc =
+          namePairs[0]?.info?.description ||
+          namePairs[0]?.baseToken?.description ||
+          ''
+
+        if (nameDesc && nameDesc.length > 10) {
+          const keywords = extractDescriptionKeywords(nameDesc)
+          console.log(`[Vector1b] $${alpha.symbol} description (name search): "${nameDesc.slice(0, 60)}..."`)
+          console.log(`[Vector1b] $${alpha.symbol} description keywords:`, keywords)
+          return { keywords, description: nameDesc }
+        }
+      } catch { /* silent */ }
+    }
+
+    // ── No description found — fall back to symbol-based inference ──
+    // For very new tokens (just graduated, profile not yet indexed),
+    // we infer a minimal description from the symbol itself so Vector 0
+    // has SOMETHING to work with beyond the bare symbol.
+    // This is better than returning nothing — at minimum it prevents
+    // Vector 0 from hallucinating a completely wrong narrative.
+    const symbolDesc = alpha.name && alpha.name.toLowerCase() !== alpha.symbol.toLowerCase()
+      ? alpha.name   // Use the full name as a fallback description
+      : ''
+    if (symbolDesc) {
+      const keywords = extractDescriptionKeywords(symbolDesc)
+      console.log(`[Vector1b] $${alpha.symbol} — using name as description fallback: "${symbolDesc}"`)
+      return { keywords, description: symbolDesc }
+    }
+
+    console.log(`[Vector1b] $${alpha.symbol} — no description found across all sources`)
+    return { keywords: [], description: '' }
+
   } catch (err) {
     console.warn('Description fetch failed:', err.message)
     return { keywords: [], description: '' }
@@ -600,6 +826,7 @@ const fetchLPPairBetas = async (alpha) => {
       .filter(p => {
         if (p.chainId !== 'solana') return false
         if ((p.liquidity?.usd || 0) < MIN_LIQUIDITY) return false
+        if (!isHealthyBetaLiquidity(p)) return false
 
         // The key check: is the alpha token one of the pair tokens?
         const quoteAddr  = p.quoteToken?.address || ''
@@ -785,12 +1012,71 @@ const formatBeta = (pair, sources = []) => {
     // ── Description: saved so Vector 8 has context ─────────────
     description:    pair.info?.description || pair.baseToken?.description || pair._description || '',
     ageLabel, ageMs,
+    txns24h:        (pair.txns?.h24?.buys || 0) + (pair.txns?.h24?.sells || 0),
     signalSources:  sources,
     tokenClass:     null,
     // Use TOKEN address not pair address — pairs change when pools migrate (PumpFun → PumpSwap etc)
     // Token address is permanent; DEXScreener always routes to the active pool
     dexUrl:         `https://dexscreener.com/solana/${pair.baseToken?.address || pair.pairAddress}`,
   }
+}
+
+// ─── Emoji + Number ticker expansion ─────────────────────────────
+// When an alpha ticker is emoji or numeric, expand to searchable terms.
+// DEX search handles emoji natively but also needs text equivalents.
+const EMOJI_MAP = {
+  '🐸': ['frog','pepe','kermit','toad'],
+  '💀': ['skull','dead','death','rip'],
+  '🚀': ['rocket','moon','launch','pump'],
+  '🍀': ['clover','lucky','shamrock','luck'],
+  '🐶': ['dog','doge','shiba','puppy'],
+  '🐱': ['cat','kitten','meow','neko'],
+  '🐻': ['bear','ursus','grizzly'],
+  '🦊': ['fox','foxy','firefox'],
+  '🐺': ['wolf','wolfpack','howl'],
+  '🦁': ['lion','pride','roar'],
+  '🐲': ['dragon','drago','drake'],
+  '🔥': ['fire','flame','hot','blaze'],
+  '💎': ['diamond','gem','jewel','crystal'],
+  '⚡': ['lightning','thunder','bolt','zap'],
+  '🌙': ['moon','luna','lunar','night'],
+  '☀️': ['sun','solar','dawn','light'],
+  '🌊': ['wave','ocean','sea','surf'],
+  '💩': ['poop','shit','crap','turd'],
+  '🤡': ['clown','joker','circus','honk'],
+  '👽': ['alien','ufo','extraterrestrial'],
+  '🧠': ['brain','mind','smart','think'],
+  '❤️': ['heart','love','valentine'],
+  '💸': ['money','cash','flying','rich'],
+  '🎯': ['target','aim','bullseye'],
+  '🏆': ['trophy','winner','champion'],
+}
+
+const MEME_NUMBERS = {
+  '420': ['weed','cannabis','stoner','herb','blaze'],
+  '69':  ['funny','nice','nsfw','dirty'],
+  '11':  ['eleven','stranger','supernatural'],
+  '100': ['perfect','based','full','complete'],
+  '1000':['thousand','grand','1000x'],
+  '777': ['lucky','jackpot','slot','sevens'],
+  '666': ['devil','satan','evil','demon','beast'],
+  '404': ['notfound','error','missing'],
+  '42':  ['meaning','universe','hitchhiker','ultimate'],
+  '88':  ['heil','speed','luck','infiniti'],
+}
+
+const expandTickerForSearch = (symbol) => {
+  const extra = new Set()
+  // Emoji expansion
+  Object.entries(EMOJI_MAP).forEach(([emoji, terms]) => {
+    if (symbol.includes(emoji)) terms.forEach(t => extra.add(t))
+  })
+  // Number expansion
+  const numOnly = symbol.replace(/[^0-9]/g, '')
+  if (numOnly && MEME_NUMBERS[numOnly]) {
+    MEME_NUMBERS[numOnly].forEach(t => extra.add(t))
+  }
+  return [...extra]
 }
 
 // ─── Signal 9: Vector 9 — Bidirectional Description Match ──────
@@ -869,7 +1155,8 @@ const fetchKeywordBetas = async (alphaSymbol, alphaName = '', extraTerms = []) =
   const terms      = getSearchTerms(alphaSymbol)
   const decomposed = decomposeSymbol(alphaSymbol)
 
-  const allTerms = [...new Set([...nameTerms, ...extraTerms, ...terms, ...decomposed])]
+  const emojiNumTerms = expandTickerForSearch(alphaSymbol)
+  const allTerms = [...new Set([...nameTerms, ...extraTerms, ...terms, ...decomposed, ...emojiNumTerms])]
     .filter(isValidSearchTerm)
 
   console.log(`[Vector1] $${alphaSymbol} searching ${allTerms.length} keyword terms: [${allTerms.slice(0,10).join(', ')}${allTerms.length > 10 ? '...' : ''}]`)
@@ -882,6 +1169,8 @@ const fetchKeywordBetas = async (alphaSymbol, alphaName = '', extraTerms = []) =
         .filter(p =>
           p.chainId === 'solana' &&
           (p.liquidity?.usd || 0) >= MIN_LIQUIDITY &&
+          isHealthyBetaLiquidity(p) &&
+          isActiveBeta(p) &&
           !['SOL','USDC','USDT'].includes(p.baseToken?.symbol)
         )
       if (hits.length > 0) {
@@ -909,6 +1198,8 @@ const fetchDescriptionBetas = async (alpha, descKeywords, extraTerms = []) => {
         .filter(p =>
           p.chainId === 'solana' &&
           (p.liquidity?.usd || 0) >= MIN_LIQUIDITY &&
+          isHealthyBetaLiquidity(p) &&
+          isActiveBeta(p) &&
           p.baseToken?.address !== alpha.address &&
           !['SOL','USDC','USDT'].includes(p.baseToken?.symbol)
         )
@@ -942,6 +1233,8 @@ const fetchLoreBetas = async (alphaSymbol, alphaName = '', extraTerms = []) => {
         .filter(p =>
           p.chainId === 'solana' &&
           (p.liquidity?.usd || 0) >= MIN_LIQUIDITY &&
+          isHealthyBetaLiquidity(p) &&
+          isActiveBeta(p) &&
           !['SOL','USDC','USDT'].includes(p.baseToken?.symbol)
         )
       if (hits.length > 0) {
@@ -967,6 +1260,8 @@ const fetchMorphologyBetas = async (alphaSymbol) => {
       ;(res.data?.pairs || [])
         .filter(p =>
           p.chainId === 'solana' &&
+          isHealthyBetaLiquidity(p) &&
+          isActiveBeta(p) &&
           (p.liquidity?.usd || 0) >= MIN_LIQUIDITY &&
           p.baseToken?.symbol?.toUpperCase() === variant.toUpperCase() &&
           !['SOL','USDC','USDT'].includes(p.baseToken?.symbol)
@@ -991,6 +1286,107 @@ const fetchMorphologyBetas = async (alphaSymbol) => {
 // so Vector 8 can classify them as TWIN or OG correctly.
 
 const MIN_LIQUIDITY_OG = 250  // OGs go dormant — they won't have $1K+ liquidity
+
+// ─── Beta liquidity health check ─────────────────────────────────
+// Mirrors the dynamic ratio check in useParentAlpha.js but with
+// slightly relaxed ratios — betas can be smaller/newer than parents.
+//
+// Tiers (minimum liq/mcap ratio):
+//   < $100K   → 0.5%  (tiny beta, some liq still required)
+//   $100K–$1M → 1.0%  (small beta, should have meaningful liq)
+//   $1M–$10M  → 0.8%  (mid cap)
+//   $10M–$100M→ 0.3%  (large cap)
+//   > $100M   → 0.1%  (mega — $OO with $908M mcap / $3.6M liq = 0.4%, passes)
+//
+// Absolute floor: $500 liq — catches ghost tokens like $Pikachu ($6 liq)
+// Note: $OO had $908M mcap / $3.6M liq = 0.4% which PASSES the $100M tier.
+// We also check freezable flag from DEX to block scam tokens.
+const getBetaMinLiqRatio = (mcap) => {
+  if (mcap < 100_000)     return 0.005
+  if (mcap < 1_000_000)   return 0.010
+  if (mcap < 10_000_000)  return 0.008
+  if (mcap < 100_000_000) return 0.003
+  return 0.001
+}
+
+const isHealthyBetaLiquidity = (p) => {
+  const liq  = p.liquidity?.usd || 0
+  const mcap = p.marketCap || p.fdv || 0
+
+  // Absolute floor — ghost tokens have < $500 liq
+  if (liq < 500) return false
+
+  // Freezable tokens are scam vectors — always reject
+  if (p.info?.freezable === true) {
+    console.log(`[BetaFilter] Rejected $${p.baseToken?.symbol} — token is freezable`)
+    return false
+  }
+
+  // For tokens with no mcap data, just apply the absolute floor
+  if (mcap === 0) return liq >= MIN_LIQUIDITY
+
+  const minRatio = getBetaMinLiqRatio(mcap)
+  const liqRatio = liq / mcap
+  const passes   = liqRatio >= minRatio
+
+  if (!passes) {
+    console.log(
+      `[BetaFilter] Rejected $${p.baseToken?.symbol} — ` +
+      `liq $${Math.round(liq).toLocaleString()} / mcap $${Math.round(mcap).toLocaleString()} ` +
+      `= ${(liqRatio * 100).toFixed(2)}% (need ${(minRatio * 100).toFixed(1)}%)`
+    )
+  }
+  return passes
+}
+
+// ─── Beta transaction count + volume check ───────────────────────
+// Catches fraudulent tokens with inflated mcap but zero real trading.
+// $MAX: $118M mcap, 2 txns total, $3 volume — textbook ghost token.
+// $00: $908M mcap, 7 txns, $2.6K volume — manipulated market.
+//
+// Tiered minimums scale with mcap — larger tokens should have more activity:
+//   < $100K     →  3 txns  (tiny derivative, may be new)
+//   $100K–$1M   →  8 txns  (should have some genuine trading)
+//   $1M–$10M    → 15 txns  (active market expected)
+//   > $10M      → 30 txns  (large cap = many traders)
+//
+// Also checks volume floor: mcap > $1M with < $100 volume = fake market.
+// New tokens (< 2 hours old) bypass txn check — they haven't had time yet.
+const isActiveBeta = (p) => {
+  const mcap      = p.marketCap || p.fdv || 0
+  const vol       = p.volume?.h24 || 0
+  const txns      = (p.txns?.h24?.buys || 0) + (p.txns?.h24?.sells || 0)
+  const ageMs     = p.pairCreatedAt ? Date.now() - p.pairCreatedAt : null
+  const isNew     = ageMs !== null && ageMs < 2 * 60 * 60 * 1000  // < 2 hours old
+
+  // Brand new tokens get a pass — they haven't had time to accumulate txns
+  if (isNew) return true
+
+  // Volume floor: > $1M mcap with < $100 volume in 24h = no real market
+  if (mcap > 1_000_000 && vol < 100) {
+    console.log(`[BetaFilter] Rejected $${p.baseToken?.symbol} — mcap $${Math.round(mcap).toLocaleString()} but only $${vol.toFixed(0)} volume`)
+    return false
+  }
+
+  // Tiered transaction minimum
+  const getMinTxns = (mcap) => {
+    if (mcap < 100_000)    return 3
+    if (mcap < 1_000_000)  return 8
+    if (mcap < 10_000_000) return 15
+    return 30
+  }
+
+  const minTxns = getMinTxns(mcap)
+  if (txns < minTxns) {
+    console.log(
+      `[BetaFilter] Rejected $${p.baseToken?.symbol} — ` +
+      `only ${txns} txns in 24h (need ${minTxns} for $${Math.round(mcap).toLocaleString()} mcap)`
+    )
+    return false
+  }
+
+  return true
+}
 
 const fetchExactMatchOGs = async (alphaSymbol, alphaAddress) => {
   const results  = []
@@ -1157,17 +1553,40 @@ const mergeAndScore = (rawResults, alphaSymbol, alphaMcap) => {
   const deduped = Array.from(seen.values())
     .filter(b => !['SOL','USDC','USDT'].includes(b.symbol))
 
-  return classifyTokens(deduped)
+  // Second-pass dedup by token contract address (b.address).
+  // mergeAndScore keys by pair.baseToken?.address || pair.pairAddress, so
+  // the same token can enter twice if one result had it on baseToken.address
+  // and another had it on pairAddress (different pool). classifyTokens then
+  // assigns OG/RIVAL to both, and React throws duplicate key warnings.
+  // This dedup keeps the highest-ranked entry for each contract address.
+  const classified = classifyTokens(deduped)
     .map(b => ({ ...b, mcapRatio: getMcapRatio(alphaMcap, b.marketCap), betaRank: computeBetaRank(b) }))
     .sort((a, b) => {
-      // LP pair always floats to top — structural ground truth
       const aIsLP = a.signalSources?.includes('lp_pair') ? 1 : 0
       const bIsLP = b.signalSources?.includes('lp_pair') ? 1 : 0
       if (bIsLP !== aIsLP) return bIsLP - aIsLP
-      // Otherwise sort by rank — signal confidence × relationship strength
       return b.betaRank - a.betaRank
     })
-    .slice(0, 30)
+
+  const addrSeen = new Map()
+  for (const b of classified) {
+    const addr = b.address
+    if (!addr) continue
+    if (!addrSeen.has(addr)) {
+      addrSeen.set(addr, b)
+    } else {
+      // Keep whichever has more signal sources (more corroboration)
+      const existing = addrSeen.get(addr)
+      if ((b.signalSources?.length || 0) > (existing.signalSources?.length || 0)) {
+        addrSeen.set(addr, { ...b, signalSources: [...new Set([...(existing.signalSources || []), ...(b.signalSources || [])])] })
+      } else {
+        // Merge signals from duplicate into keeper
+        addrSeen.set(addr, { ...existing, signalSources: [...new Set([...(existing.signalSources || []), ...(b.signalSources || [])])] })
+      }
+    }
+  }
+
+  return Array.from(addrSeen.values()).slice(0, 30)
 }
 
 // ─── Main hook ───────────────────────────────────────────────────
@@ -1264,7 +1683,9 @@ const useBetas = (alpha, parentAlpha = null) => {
       let relationshipHints = {}
       try {
         const expansion   = await fetchAlphaExpansion(enrichedAlpha)
-        v0SearchTerms      = expansion.searchTerms   || []
+        // Expand search terms — each CamelCase compound becomes two entries:
+        // "EmptyHand" → ["emptyhand", "empty hand"] to find both tickers and named tokens.
+        v0SearchTerms      = expandSearchTerms(expansion.searchTerms || [])
         v0VisualTerms      = expansion.visualTerms   || []
         relationshipHints  = expansion.relationshipHints || {}
         console.log(
@@ -1391,7 +1812,8 @@ const useBetas = (alpha, parentAlpha = null) => {
               ;(res.data?.pairs || [])
                 .filter(p =>
                   p.chainId === 'solana' &&
-                  (p.liquidity?.usd || 0) >= MIN_LIQUIDITY
+                  (p.liquidity?.usd || 0) >= MIN_LIQUIDITY &&
+                  isHealthyBetaLiquidity(p)
                 )
                 .forEach(p => {
                   storedSiblingResults.push({ pair: p, sources: ['sibling_stored'] })
@@ -1490,6 +1912,15 @@ const useBetas = (alpha, parentAlpha = null) => {
               // These are pre-validated — no additional corroboration needed.
               const sources = b.signalSources || []
               if (sources.includes('sibling_stored')) return true
+
+              // Morphology hit on parent symbol = strong sibling signal even without
+              // prior parent confirmation. If $GROKETTE is found by searching GROK
+              // variants, it's almost certainly a sibling of $GROKHOUSE under $GROK.
+              // No parent map entry needed — morphology is structural, not text-based.
+              if (sources.includes('morphology')) {
+                console.log(`[Siblings] Accepted $${b.symbol} — morphology of parent $${parentAlpha.symbol} (probable sibling)`)
+                return true
+              }
 
               // For search-discovered siblings with no parent_map entry,
               // require at least one corroborating signal to avoid noise.
@@ -1754,6 +2185,35 @@ const useBetas = (alpha, parentAlpha = null) => {
   }, [alpha?.id, parentAlpha?.id])
 
   useEffect(() => { fetchBetas() }, [fetchBetas])
+
+  // ── Interval-based beta price refresh ────────────────────────
+  // Keeps beta prices live without triggering a full rescan.
+  // Runs every 90 seconds — aggressive enough to catch rapid moves
+  // while avoiding hammering DEX (30 addresses per call max).
+  //
+  // Guards:
+  //   - Only runs when an alpha is selected (betas exist)
+  //   - Skips if a full scan is in progress (loading)
+  //   - Skips if betas list is empty
+  //   - Uses the same refreshBetaPrices fn the scan uses
+  useEffect(() => {
+    if (!alpha?.address) return
+
+    const interval = setInterval(async () => {
+      setBetas(prev => {
+        if (!prev?.length || loading) return prev
+        // Fire refresh in background — update state when done
+        refreshBetaPrices(prev).then(refreshed => {
+          if (refreshed && refreshed.length > 0) {
+            setBetas(refreshed)
+          }
+        }).catch(() => {})  // Silent — stale prices better than crash
+        return prev  // Return prev immediately — refreshed arrives async
+      })
+    }, 90_000)
+
+    return () => clearInterval(interval)
+  }, [alpha?.address, loading])
 
   return { betas, loading, error, refresh: fetchBetas }
 }

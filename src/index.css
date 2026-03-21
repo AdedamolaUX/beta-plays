@@ -563,12 +563,42 @@ body {
   background: rgba(255, 68, 102, 0.1);
   border: 1px solid var(--red);
   color: var(--red);
+  animation: bonded-pulse 2s infinite;
+}
+
+@keyframes bonded-pulse {
+  0%, 100% { box-shadow: 0 0 4px rgba(255, 68, 102, 0.3); border-color: rgba(255, 68, 102, 0.5); }
+  50%       { box-shadow: 0 0 10px rgba(255, 68, 102, 0.7); border-color: rgba(255, 68, 102, 1.0); }
 }
 
 .badge-visual {
   background: rgba(180, 100, 255, 0.12);
   border: 1px solid rgba(180, 100, 255, 0.7);
   color: #b464ff;
+}
+
+.badge-organic {
+  background: rgba(100, 200, 255, 0.1);
+  border: 1px solid rgba(100, 200, 255, 0.4);
+  color: rgba(100, 200, 255, 0.9);
+  animation: organic-pulse 2s infinite;
+}
+
+@keyframes organic-pulse {
+  0%, 100% { box-shadow: 0 0 4px rgba(100, 200, 255, 0.3); border-color: rgba(100, 200, 255, 0.4); }
+  50%       { box-shadow: 0 0 10px rgba(100, 200, 255, 0.7); border-color: rgba(100, 200, 255, 0.9); }
+}
+
+.badge-new-pair {
+  background: rgba(180, 100, 255, 0.1);
+  border: 1px solid rgba(180, 100, 255, 0.4);
+  color: rgba(180, 100, 255, 0.9);
+  animation: new-pair-pulse 2s infinite;
+}
+
+@keyframes new-pair-pulse {
+  0%, 100% { box-shadow: 0 0 4px rgba(180, 100, 255, 0.3); border-color: rgba(180, 100, 255, 0.4); }
+  50%       { box-shadow: 0 0 10px rgba(180, 100, 255, 0.7); border-color: rgba(180, 100, 255, 0.9); }
 }
 
 /* ── Buttons ── */

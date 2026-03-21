@@ -25,15 +25,47 @@ const getCacheKey = (alphaAddress, betaAddresses) =>
 
 // ─── Classification prompt ────────────────────────────────────────
 const buildClassificationPrompt = (alpha, candidates, relationshipHints = {}) => {
-  const alphaContext = [
-    `Symbol: ${alpha.symbol}`,  // No $ prefix — display convention only, not a semantic signal
-    alpha.name        ? `Name: ${alpha.name}`               : null,
-    alpha.description ? `Description: ${alpha.description}` : null,
-  ].filter(Boolean).join('\n')
+  // Description is the most reliable signal — it tells us what the token
+  // actually IS, not just what its symbol pattern suggests.
+  // When present, it becomes the explicit narrative frame: the AI must classify
+  // candidates in the context of the DESCRIPTION, not the symbol alone.
+  // This prevents hallucination like $LANDLORD scoring as a COUNTER for $HUGH
+  // (a raccoon) just because "HUGH" superficially resembles "HOUSE".
+  const alphaContext = alpha.description
+    ? [
+        `Symbol: ${alpha.symbol}`,
+        alpha.name && alpha.name.toLowerCase() !== alpha.symbol.toLowerCase()
+          ? `Name: ${alpha.name}` : null,
+        `
+⚠️  NARRATIVE FRAME — evaluate candidates two ways:
 
-  // Inject hints from Vector 0 to help classification
+1. WORD-BY-WORD: Decompose the description into individual concepts first.
+   "${alpha.description}"
+   Each word is a separate concept. A candidate matching ANY ONE is a valid beta:
+   - Matches all concepts → strong beta (0.8-1.0)
+   - Matches one or some concepts → moderate beta (0.5-0.7, classify as UNIVERSE or SECTOR)
+   - Matches no concepts at all → reject (0.1)
+
+2. WHOLE PHRASE: Also evaluate the description as a unified concept.
+   What does the full phrase mean together? What cultural/thematic world does it reference?
+   A candidate fitting that whole-phrase meaning is also a valid beta even if it
+   doesn't match any individual word.
+
+Both evaluations run. The higher score wins.`,
+      ].filter(Boolean).join('\n')
+    : [
+        `Symbol: ${alpha.symbol}`,
+        alpha.name ? `Name: ${alpha.name}` : null,
+      ].filter(Boolean).join('\n')
+
+  // Inject hints from Vector 0 — but only when they don't contradict the description.
+  // If a description exists, hints are secondary: the description is ground truth.
+  // Mark them clearly so the AI knows they are suggestions, not facts.
   const hintsText = Object.keys(relationshipHints).length > 0
-    ? `\nNARRATIVE HINTS from concept expansion:\n${
+    ? `\n${alpha.description
+        ? 'SUPPLEMENTARY HINTS (lower priority than the description above — discard any hint that contradicts the narrative frame):'
+        : 'NARRATIVE HINTS from concept expansion:'
+      }\n${
         Object.entries(relationshipHints)
           .map(([term, type]) => `  "${term}" → ${type}`)
           .join('\n')

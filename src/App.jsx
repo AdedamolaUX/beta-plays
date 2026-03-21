@@ -430,6 +430,12 @@ const AlphaCard = ({ alpha, isSelected, onClick, isWatched, onToggleWatch }) => 
                   🔥 {alpha.bondingProgress}% bonding
                 </span>
               )}
+              {alpha.source === 'birdeye_trending' && (
+                <span className="badge badge-organic" style={{ fontSize: 7, padding: '1px 5px' }}>🦅 ORGANIC</span>
+              )}
+              {alpha.source === 'dex_new' && (
+                <span className="badge badge-new-pair" style={{ fontSize: 7, padding: '1px 5px' }}>✨ NEW</span>
+              )}
             </div>
             <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
               <div className="token-address">{shortAddress(alpha.address)}</div>
@@ -709,6 +715,60 @@ const AlphaBoard = ({ selectedAlpha, onSelect, onNewRunners, alphaListRef }) => 
   const [coolingTimeframe, setCoolingTimeframe] = useState('24h')
   const [watchlist,        setWatchlist]        = useState(() => getWatchlistRaw())
 
+  // ── Watchlist price refresh ───────────────────────────────────
+  // Prices are stale the moment a token is added. Refresh every 90s
+  // by hitting DEX directly — batched in groups of 30 (DEX limit).
+  useEffect(() => {
+    const refreshWatchlistPrices = async () => {
+      const current = getWatchlistRaw()
+      if (current.length === 0) return
+      try {
+        // Batch into groups of 30
+        for (let i = 0; i < current.length; i += 30) {
+          const batch = current.slice(i, i + 30)
+          const addrs = batch.map(a => a.address).filter(Boolean).join(',')
+          if (!addrs) continue
+          const res  = await fetch(
+            `https://api.dexscreener.com/latest/dex/tokens/${addrs}`
+          )
+          const data = await res.json()
+          const pairs = (data?.pairs || []).filter(p => p.chainId === 'solana')
+          // Build best pair map (highest volume per token address)
+          const bestPair = {}
+          pairs.forEach(p => {
+            const addr = p.baseToken?.address
+            if (!addr) return
+            if (!bestPair[addr] || (p.volume?.h24 || 0) > (bestPair[addr].volume?.h24 || 0)) {
+              bestPair[addr] = p
+            }
+          })
+          // Patch watchlist entries with fresh prices
+          batch.forEach(token => {
+            const pair = bestPair[token.address]
+            if (!pair) return
+            const idx = current.findIndex(a => a.address === token.address)
+            if (idx === -1) return
+            current[idx] = {
+              ...current[idx],
+              priceUsd:      pair.priceUsd      || current[idx].priceUsd,
+              priceChange24h: parseFloat(pair.priceChange?.h24 || 0),
+              volume24h:     pair.volume?.h24   || current[idx].volume24h,
+              marketCap:     pair.marketCap || pair.fdv || current[idx].marketCap,
+              liquidity:     pair.liquidity?.usd || current[idx].liquidity,
+            }
+          })
+        }
+        saveWatchlistRaw(current)
+        setWatchlist([...current])
+      } catch { /* silent — stale prices are better than a crash */ }
+    }
+
+    // Run immediately on mount, then every 90 seconds
+    refreshWatchlistPrices()
+    const interval = setInterval(refreshWatchlistPrices, 90_000)
+    return () => clearInterval(interval)
+  }, [])
+
   const { liveAlphas, coolingAlphas, positioningAlphas, legends, loading, isRefreshing, error, lastUpdated, refresh } = useAlphas()
   const sznCards = useNarrativeSzn(liveAlphas)
 
@@ -851,7 +911,7 @@ const AlphaBoard = ({ selectedAlpha, onSelect, onNewRunners, alphaListRef }) => 
     { key: 'live',        label: '🔥 Live',     count: liveAlphas.length        },
     { key: 'cooling',     label: '❄️ Cooling',  count: null                     },
     { key: 'positioning', label: '🎯 Position', count: null                     },
-    { key: 'watch',       label: '⭐ Watch',    count: watchlist.length         },
+    { key: 'watch',       label: '⭐ Watchlist', count: watchlist.length         },
     { key: 'legends',     label: '🏆 OGs',      count: legends.length, noUppercase: true },
   ]
 
