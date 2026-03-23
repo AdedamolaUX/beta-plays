@@ -1943,24 +1943,30 @@ const useBetas = (alpha, parentAlpha = null) => {
           // Run all vectors against the parent, PLUS LP pair scraping and OG scan
           // against the parent address. These are address-based so they find dormant
           // siblings that fell off search results — not just trending tokens.
-          const [sibKeyword, sibLore, sibMorph, sibPump, sibLP, sibOG] = await Promise.allSettled([
+          // Also fetch Telegram/Twitter betas for the parent — if $CLAW has Telegram
+          // signal, those betas are also valid plays when $CLAWCARD is selected.
+          const [sibKeyword, sibLore, sibMorph, sibPump, sibLP, sibOG, sibTelegram, sibTwitter] = await Promise.allSettled([
             fetchKeywordBetas(parentAlpha.symbol, parentAlpha.name),
             fetchLoreBetas(parentAlpha.symbol, parentAlpha.name),
             fetchMorphologyBetas(parentAlpha.symbol),
             fetchPumpFunBetas(parentAlpha.symbol, [], parentAlpha.name),
-            fetchLPPairBetas(parentAlpha),           // finds tokens paired against parent LP
-            fetchExactMatchOGs(parentAlpha.symbol, parentAlpha.address),  // finds dormant OGs
+            fetchLPPairBetas(parentAlpha),
+            fetchExactMatchOGs(parentAlpha.symbol, parentAlpha.address),
+            fetchTelegramBetas(parentAlpha.symbol),
+            fetchTwitterBetas(parentAlpha.symbol),
           ])
           const sibRaw = [
             // Step A: known siblings from localStorage (address-based, not search-rank dependent)
             ...storedSiblingResults,
             // Step B: DEX search results (finds newly launched siblings)
-            ...(sibKeyword.status === 'fulfilled' ? sibKeyword.value : []),
-            ...(sibLore.status    === 'fulfilled' ? sibLore.value    : []),
-            ...(sibMorph.status   === 'fulfilled' ? sibMorph.value   : []),
-            ...(sibPump.status    === 'fulfilled' ? sibPump.value    : []),
-            ...(sibLP.status      === 'fulfilled' ? sibLP.value      : []),
-            ...(sibOG.status      === 'fulfilled' ? sibOG.value      : []),
+            ...(sibKeyword.status   === 'fulfilled' ? sibKeyword.value   : []),
+            ...(sibLore.status      === 'fulfilled' ? sibLore.value      : []),
+            ...(sibMorph.status     === 'fulfilled' ? sibMorph.value     : []),
+            ...(sibPump.status      === 'fulfilled' ? sibPump.value      : []),
+            ...(sibLP.status        === 'fulfilled' ? sibLP.value        : []),
+            ...(sibOG.status        === 'fulfilled' ? sibOG.value        : []),
+            ...(sibTelegram.status  === 'fulfilled' ? sibTelegram.value  : []),
+            ...(sibTwitter.status   === 'fulfilled' ? sibTwitter.value   : []),
           ]
           const sibMerged    = mergeAndScore(sibRaw, parentAlpha.symbol, parentAlpha.marketCap)
           const mergedAddrs  = new Set(merged.map(b => b.address))

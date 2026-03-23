@@ -886,14 +886,40 @@ const AlphaBoard = ({ selectedAlpha, onSelect, onNewRunners, alphaListRef }) => 
   // ── Report alphas to backend for Telegram Vector 10 ─────────────
   // Every time liveAlphas updates, tell the backend what alphas are
   // on screen so telegramService knows what to match against during
-  // its 15-min poll cycle. Fire-and-forget — never blocks the UI.
+  // its 15-min poll cycle. Also includes:
+  // - coolingAlphas — still relevant, derivatives may still be running
+  // - parent alphas from betaplays_parent_map — so when $CLAWCARD is
+  //   selected and $CLAW is its parent, $CLAW gets Telegram signal too
+  //   even if it's no longer on the live feed.
+  // Fire-and-forget — never blocks the UI.
   useEffect(() => {
     if (!liveAlphas.length) return
+
     const allAlphas = [...liveAlphas, ...coolingAlphas].map(a => ({
       symbol:  a.symbol,
       name:    a.name,
       address: a.address,
     }))
+
+    // Add parent alphas from the parent map (deduped by address)
+    try {
+      const parentMap  = JSON.parse(localStorage.getItem('betaplays_parent_map') || '{}')
+      const seenAddrs  = new Set(allAlphas.map(a => a.address))
+      const seenAlphas = JSON.parse(localStorage.getItem('betaplays_seen_alphas') || '{}')
+
+      Object.values(parentMap).forEach(parent => {
+        if (!parent?.address || seenAddrs.has(parent.address)) return
+        // Look up full token data from seen_alphas if available
+        const full = seenAlphas[parent.address]
+        allAlphas.push({
+          symbol:  parent.symbol  || full?.symbol  || '',
+          name:    full?.name     || parent.symbol || '',
+          address: parent.address,
+        })
+        seenAddrs.add(parent.address)
+      })
+    } catch { /* localStorage parse error — non-critical */ }
+
     fetch(`${BACKEND_URL}/api/report-alphas`, {
       method:  'POST',
       headers: { 'Content-Type': 'application/json' },
