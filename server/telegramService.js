@@ -180,10 +180,9 @@ function findKnownAlphasInText (text) {
     }
     if (matched) continue
 
-    // Single word — symbol only, min 5 chars when no $ present
-    // Short symbols (ALL, LOL, WRT etc) are too common as English words
-    // to safely match without $. $ALL with dollar sign = fine. "all" bare = not.
-    if (w1.length >= 5 && knownSymbolSet.has(w1)) {
+    // Single word — symbol only, min 3 chars
+    // Short symbols safe now because BLOCKED_ALPHA_TERMS handles common words
+    if (w1.length >= 3 && knownSymbolSet.has(w1)) {
       found.push({ term: w1, type: 'known_match', confidence: 0.75 })
     }
   }
@@ -237,10 +236,20 @@ function dedupTerms (terms) {
   })
 }
 
+// ─── Terms that must never be treated as alphas ───────────────────
+// Chain names, platform names, and generic crypto terms that happen
+// to be token names but appear constantly in normal messages
+const BLOCKED_ALPHA_TERMS = new Set([
+  'solana', 'sol', 'ethereum', 'bitcoin', 'binance', 'coinbase',
+  'pumpfun', 'raydium', 'jupiter', 'phantom', 'metamask',
+  'yes', 'no', 'not', 'now', 'new', 'old', 'all', 'any',
+])
+
 // ─── Find alpha from extracted terms ─────────────────────────────
 function findAlphaInTerms (terms) {
   for (const t of terms) {
     const lower = t.term.toLowerCase().replace(/\s+/g, '')
+    if (BLOCKED_ALPHA_TERMS.has(lower)) continue  // never an alpha
     for (const alpha of knownAlphas) {
       const sym  = (alpha.symbol || '').toLowerCase()
       const name = (alpha.name   || '').toLowerCase().replace(/\s+/g, '')
@@ -433,9 +442,17 @@ async function processMessage (text, channelHandle, channelWeight, msgTs) {
   const hasRelKw   = RELATIONSHIP_KEYWORDS.some(kw => new RegExp(kw, 'i').test(text))
   const confidence = channelWeight * (hasRelKw ? 0.85 : 0.70) + (hasRelKw ? 0.10 : 0)
 
-  // Step 5: Everything that isn't the alpha = beta candidate (capped at 3)
+  // Step 5: Beta candidates MUST have $ prefix or be a contract address
+  // Known alpha list matching is for ALPHA identification only — not betas
+  // This is the key rule: degens use $ when they mean a token intentionally
+  // "if believe runs, $LOLZ is the play" → BELIEVE=alpha, $LOLZ=beta ✅
+  // "if believe runs, fish may follow" → BELIEVE=alpha, fish rejected ✅
+  // Layer 3 AI handles edge cases where neither token has $
   const betaTerms = extracted
     .filter(t => {
+      // Only explicitly $ prefixed tokens or contract addresses as betas
+      if (t.type !== 'dollar_ticker' && t.type !== 'address' && t.type !== 'ai_extracted') return false
+      // Must not be the alpha
       if (!alpha) return true
       const lower = t.term.toLowerCase().replace(/\s+/g, '')
       return lower !== (alpha.symbol || '').toLowerCase() &&
