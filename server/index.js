@@ -20,6 +20,7 @@ const rateLimit = require('express-rate-limit')
 require('dotenv').config({ path: require('path').join(__dirname, '.env') })
 
 const telegramService = require('./telegramService')
+const twitterService  = require('./twitterService')
 
 const app = express()
 app.use(cors())
@@ -1357,6 +1358,18 @@ app.get('/api/telegram-betas', (req, res) => {
   return res.json({ symbol, results })
 })
 
+// ─── Twitter Vector 11 endpoint (stub) ───────────────────────────
+
+// GET /api/twitter-betas?symbol=WIF
+// Returns [] until Twitter credentials added to .env.
+// Same interface as /api/telegram-betas — frontend treats them identically.
+app.get('/api/twitter-betas', (req, res) => {
+  const { symbol } = req.query
+  if (!symbol) return res.status(400).json({ error: 'symbol required' })
+  const results = twitterService.getTwitterBetas(symbol)
+  return res.json({ symbol, results })
+})
+
 // POST /api/report-alphas
 // Frontend posts its current alpha list so telegramService knows what to
 // match against during polling. Called automatically on each alpha refresh.
@@ -1365,6 +1378,7 @@ app.post('/api/report-alphas', (req, res) => {
   const { alphas } = req.body
   if (!Array.isArray(alphas)) return res.status(400).json({ error: 'alphas array required' })
   telegramService.updateKnownAlphas(alphas)
+  twitterService.updateKnownAlphas(alphas)  // Twitter gets same list, ready for when activated
   return res.json({ ok: true, count: alphas.length })
 })
 
@@ -1374,5 +1388,9 @@ app.listen(PORT, () => {
   // Initialise Telegram service after server is up
   telegramService.init().catch(err =>
     console.error('[TelegramService] Init failed:', err.message)
+  )
+  // Initialise Twitter service (stub — logs status, no-ops until credentials added)
+  twitterService.init().catch(err =>
+    console.error('[TwitterService] Init failed:', err.message)
   )
 })

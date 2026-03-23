@@ -1596,6 +1596,53 @@ const fetchTelegramBetas = async (alphaSymbol) => {
   }
 }
 
+// ─── Vector 11: Twitter/X Social Signal (STUB) ───────────────────
+// Same interface as fetchTelegramBetas. Returns [] until backend
+// twitterService is activated with credentials in .env.
+// Wired into the parallel fetch — activates automatically when data flows.
+const fetchTwitterBetas = async (alphaSymbol) => {
+  try {
+    const url      = `${BACKEND_URL}/api/twitter-betas?symbol=${encodeURIComponent(alphaSymbol)}`
+    const response = await fetch(url, { signal: AbortSignal.timeout(5000) })
+    if (!response.ok) return []
+
+    const data    = await response.json()
+    const results = data?.results || []
+    if (results.length === 0) return []
+
+    console.log(`[V11/Twitter] $${alphaSymbol} — ${results.length} social signal beta(s)`)
+
+    // Same format conversion as fetchTelegramBetas
+    return results.map(r => ({
+      pair: {
+        chainId:     'solana',
+        pairAddress: r.pairAddress || r.address,
+        dexId:       r.dexId       || '',
+        url:         r.url         || '',
+        baseToken: {
+          address: r.address,
+          symbol:  r.symbol,
+          name:    r.name,
+        },
+        priceUsd:    r.priceUsd    || '0',
+        liquidity:   { usd: r.liquidity || 0 },
+        volume:      { h24: r.volume24h  || 0 },
+        priceChange: {
+          h1:  r.priceChange?.h1  || 0,
+          h24: r.priceChange?.h24 || 0,
+        },
+        fdv: r.fdv || 0,
+      },
+      sources: r.tied
+        ? ['twitter_signal', 'twitter_tied']
+        : ['twitter_signal'],
+    }))
+  } catch (err) {
+    console.warn('[V11/Twitter] fetch failed (non-fatal):', err.message)
+    return []
+  }
+}
+
 // ─── Merge + dedupe ──────────────────────────────────────────────
 const mergeAndScore = (rawResults, alphaSymbol, alphaMcap) => {
   const seen = new Map()
@@ -1761,7 +1808,7 @@ const useBetas = (alpha, parentAlpha = null) => {
 
       // Run all signals in parallel — seeded with v0SearchTerms ONLY.
       // v0VisualTerms are reserved for the vision pipeline below.
-      const [keywordRes, descRes, loreRes, morphRes, pumpRes, lpRes, ogRes, telegramRes] =
+      const [keywordRes, descRes, loreRes, morphRes, pumpRes, lpRes, ogRes, telegramRes, twitterRes] =
         await Promise.allSettled([
           fetchKeywordBetas(enrichedAlpha.symbol, enrichedAlpha.name, v0SearchTerms),
           fetchDescriptionBetas(enrichedAlpha, descKeywords, v0SearchTerms),
@@ -1771,6 +1818,7 @@ const useBetas = (alpha, parentAlpha = null) => {
           fetchLPPairBetas(enrichedAlpha),
           fetchExactMatchOGs(enrichedAlpha.symbol, enrichedAlpha.address),
           fetchTelegramBetas(enrichedAlpha.symbol),
+          fetchTwitterBetas(enrichedAlpha.symbol),
         ])
 
       const allResults = [
@@ -1782,6 +1830,7 @@ const useBetas = (alpha, parentAlpha = null) => {
         ...(lpRes.status       === 'fulfilled' ? lpRes.value       : []),
         ...(ogRes.status       === 'fulfilled' ? ogRes.value       : []),
         ...(telegramRes.status === 'fulfilled' ? telegramRes.value : []),
+        ...(twitterRes.status  === 'fulfilled' ? twitterRes.value  : []),
       ]
 
       // Merge signals 1-5 into deduplicated list
