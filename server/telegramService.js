@@ -78,13 +78,23 @@ const betaCache = new Map()
 const holdingPool = []
 
 // ─── Update known alphas (called from index.js) ───────────────────
-function updateKnownAlphas(alphas) {
+// Also immediately checks holding pool — items held during earlier
+// polls (when alpha list was empty) get a second chance right now
+// instead of waiting for the next 15-min poll cycle.
+function updateKnownAlphas (alphas) {
   if (!Array.isArray(alphas)) return
+  const wasEmpty = knownAlphas.length === 0
   knownAlphas = alphas
   knownAlphaSet.clear()
   for (const a of alphas) {
     if (a.symbol) knownAlphaSet.add(a.symbol.toLowerCase())
     if (a.name)   knownAlphaSet.add(a.name.toLowerCase())
+  }
+  // If we just received alphas for the first time and have held items,
+  // check holding pool immediately — don't wait for next poll cycle
+  if (wasEmpty && holdingPool.length > 0 && isConnected) {
+    console.log(`[TelegramService] Alphas received — checking holding pool (${holdingPool.length} items)`)
+    checkHoldingPool().catch(() => {})
   }
 }
 
@@ -704,9 +714,14 @@ async function init() {
     isConnected = true
     console.log('[TelegramService] ✅ Connected to Telegram')
 
-    // Run immediately on startup, then every 15 min
-    await runPollCycle()
-    pollTimer = setInterval(runPollCycle, POLL_INTERVAL_MS)
+    // Delay first poll 30s — gives frontend time to call /api/report-alphas
+    // so knownAlphas is populated before we start matching messages.
+    // After that, poll every 15 min.
+    console.log('[TelegramService] First poll in 30s (waiting for alpha list)...')
+    setTimeout(async () => {
+      await runPollCycle()
+      pollTimer = setInterval(runPollCycle, POLL_INTERVAL_MS)
+    }, 30_000)
 
   } catch (err) {
     console.error('[TelegramService] ❌ Failed to connect:', err.message)
