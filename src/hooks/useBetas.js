@@ -901,6 +901,11 @@ export const getSignal = (beta) => {
   if (s.includes('ai_match')   && s.includes('keyword'))         return { label: 'CABAL',    tier: 5 }
   if (s.includes('ai_match')   && s.includes('morphology'))      return { label: 'CABAL',    tier: 5 }
   if (s.includes('ai_match')   && s.includes('og_match'))        return { label: 'CABAL',    tier: 5 }
+  // Telegram/Twitter + any mechanical signal = CABAL tier
+  if (s.includes('telegram_signal') && (s.includes('keyword') || s.includes('ai_match') || s.includes('morphology') || s.includes('og_match')))
+                                                                  return { label: 'CABAL',    tier: 5 }
+  if (s.includes('twitter_signal')  && (s.includes('keyword') || s.includes('ai_match') || s.includes('morphology') || s.includes('og_match')))
+                                                                  return { label: 'CABAL',    tier: 5 }
   // Visual match alone = STRONG (image comparison, not just text)
   if (s.includes('visual_match'))                                 return { label: 'VISUAL',   tier: 3 }
   if (s.includes('pumpfun')    && s.includes('keyword'))         return { label: 'CABAL',    tier: 4 }
@@ -912,6 +917,9 @@ export const getSignal = (beta) => {
   if (s.includes('desc_match'))                                   return { label: 'NAMED',    tier: 4 }
   if (s.includes('og_match'))                                    return { label: 'OG',       tier: 4 }
   if (s.includes('pumpfun'))                                     return { label: 'TRENDING', tier: 3 }
+  // Social signals alone — their own tier
+  if (s.includes('telegram_signal'))                             return { label: 'TELEGRAM', tier: 2.5 }
+  if (s.includes('twitter_signal'))                              return { label: 'TWITTER',  tier: 2.5 }
   if (s.includes('ai_match'))                                    return { label: 'AI',       tier: 3 }
   if (s.includes('description'))                                 return { label: 'KEYWORD',  tier: 2 }
   if (s.includes('morphology'))                                  return { label: 'KEYWORD',  tier: 2 }

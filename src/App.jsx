@@ -1236,6 +1236,8 @@ const SignalBadge = ({ beta }) => {
     WEAK:     'badge-weak',
     LP_PAIR:  'badge-cabal',
     AI:       'badge-verified',
+    TELEGRAM: 'badge-telegram',
+    TWITTER:  'badge-twitter',
   }
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 3, alignItems: 'flex-start', justifyContent: 'center', width: '100%' }}>
@@ -1263,7 +1265,9 @@ const SignalBadge = ({ beta }) => {
          signal.label === 'LP_PAIR'  ? '🔗 LP PAIR'  :
          signal.label === 'AI'       ? '🤖 AI MATCH' :
          signal.label === 'KEYWORD'  ? '🔍 KEYWORD MATCH'  :
-         signal.label === 'VISUAL'    ? '👁️ VISUAL'         : signal.label}
+         signal.label === 'VISUAL'   ? '👁️ VISUAL'   :
+         signal.label === 'TELEGRAM' ? '📡 TELEGRAM' :
+         signal.label === 'TWITTER'  ? '🐦 TWITTER'  : signal.label}
       </span>
     </div>
   )
@@ -1519,7 +1523,10 @@ const BetaRow = ({ beta, alpha, isPinned, trenchOnly, onOpenDrawer }) => {
   const isPositive = change >= 0
   const wave       = getWavePhase(alpha, beta)
   const isTrench   = (beta.marketCap || 0) < 30_000
-  const isLPPair   = beta.signalSources?.includes('lp_pair')
+  const isLPPair      = beta.signalSources?.includes('lp_pair')
+  const isTelegramSig = beta.signalSources?.includes('telegram_signal')
+  const isTwitterSig  = beta.signalSources?.includes('twitter_signal')
+  const isTied        = beta.signalSources?.includes('telegram_tied')
 
   if (trenchOnly && !isTrench) return null
 
@@ -1538,7 +1545,10 @@ const BetaRow = ({ beta, alpha, isPinned, trenchOnly, onOpenDrawer }) => {
             <span style={{ fontFamily: 'var(--font-display)', fontWeight: 700, fontSize: 13, color: 'var(--text-primary)' }}>
               ${beta.symbol}
             </span>
-            {isLPPair       && <span className="badge badge-cabal"     style={{ fontSize: 7, padding: '1px 4px' }}>🔗 PAIRED</span>}
+            {isLPPair       && <span className="badge badge-cabal"    style={{ fontSize: 7, padding: '1px 4px' }}>🔗 PAIRED</span>}
+            {isTelegramSig  && <span className="badge" style={{ fontSize: 7, padding: '1px 4px', background: 'rgba(0,212,180,0.15)', borderColor: 'rgba(0,212,180,0.4)', color: 'rgb(0,212,180)', animation: 'pulse 2s infinite' }}>📡 TELEGRAM</span>}
+            {isTwitterSig   && <span className="badge" style={{ fontSize: 7, padding: '1px 4px', background: 'rgba(29,161,242,0.15)', borderColor: 'rgba(29,161,242,0.4)', color: 'rgb(29,161,242)', animation: 'pulse 2s infinite' }}>🐦 TWITTER</span>}
+            {isTied         && <span className="badge badge-strong"   style={{ fontSize: 7, padding: '1px 4px' }}>⚡ TIED</span>}
             {isTrench       && <span className="badge badge-new"      style={{ fontSize: 7, padding: '1px 4px' }}>⛏️ TRENCHES</span>}
             <FlagWarningBadge address={beta.address} />
             {isPinned       && <span className="badge badge-verified" style={{ fontSize: 7, padding: '1px 4px' }}>DEV VERIFIED</span>}
