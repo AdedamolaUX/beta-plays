@@ -8,6 +8,8 @@ import useNarrativeSzn from './hooks/useNarrativeSzn'
 import useBirdeye from './hooks/useBirdeye'
 import './index.css'
 
+const BACKEND_URL = import.meta.env.VITE_BACKEND_URL || 'http://localhost:3001'
+
 // ─── Helpers ────────────────────────────────────────────────────
 
 const formatNum = (num) => {
@@ -880,6 +882,24 @@ const AlphaBoard = ({ selectedAlpha, onSelect, onNewRunners, alphaListRef }) => 
       }, 100)
     }
   }, [liveAlphas, isRefreshing, selectedAlpha])
+
+  // ── Report alphas to backend for Telegram Vector 10 ─────────────
+  // Every time liveAlphas updates, tell the backend what alphas are
+  // on screen so telegramService knows what to match against during
+  // its 15-min poll cycle. Fire-and-forget — never blocks the UI.
+  useEffect(() => {
+    if (!liveAlphas.length) return
+    const allAlphas = [...liveAlphas, ...coolingAlphas].map(a => ({
+      symbol:  a.symbol,
+      name:    a.name,
+      address: a.address,
+    }))
+    fetch(`${BACKEND_URL}/api/report-alphas`, {
+      method:  'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body:    JSON.stringify({ alphas: allAlphas }),
+    }).catch(() => {})  // silent fail — non-critical
+  }, [liveAlphas, coolingAlphas])
 
   const rawList =
     activeTab === 'live'        ? liveAlphas         :

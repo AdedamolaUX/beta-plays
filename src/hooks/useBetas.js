@@ -1536,6 +1536,58 @@ const fetchPumpFunBetas = async (alphaSymbol, descKeywords = [], alphaName = '',
   return results
 }
 
+// ─── Vector 10: Telegram Social Signal ──────────────────────────
+// Reads pre-computed cached results from the backend Telegram poller.
+// Zero processing on request — backend already ran quality filters,
+// concept grouping, and Runner selection during its 15-min poll cycle.
+// Returns results in { pair, sources } format for mergeAndScore.
+const fetchTelegramBetas = async (alphaSymbol) => {
+  try {
+    const url      = `${BACKEND_URL}/api/telegram-betas?symbol=${encodeURIComponent(alphaSymbol)}`
+    const response = await fetch(url, { signal: AbortSignal.timeout(5000) })
+    if (!response.ok) return []
+
+    const data    = await response.json()
+    const results = data?.results || []
+    if (results.length === 0) return []
+
+    console.log(`[V10/Telegram] $${alphaSymbol} — ${results.length} social signal beta(s)`)
+
+    // Convert telegramService format → { pair, sources } for mergeAndScore
+    return results.map(r => ({
+      pair: {
+        chainId:     'solana',
+        pairAddress: r.pairAddress || r.address,
+        dexId:       r.dexId       || '',
+        url:         r.url         || '',
+        baseToken: {
+          address: r.address,
+          symbol:  r.symbol,
+          name:    r.name,
+        },
+        priceUsd:    r.priceUsd    || '0',
+        liquidity:   { usd: r.liquidity || 0 },
+        volume:      { h24: r.volume24h  || 0 },
+        priceChange: {
+          h1:  r.priceChange?.h1  || 0,
+          h24: r.priceChange?.h24 || 0,
+        },
+        fdv:         r.fdv         || 0,
+        // Pass tied flag through for badge rendering
+        _telegramTied: r.tied      || false,
+        _telegramChannel: r.channel || '',
+        _telegramConfidence: r.confidence || 0.7,
+      },
+      sources: r.tied
+        ? ['telegram_signal', 'telegram_tied']
+        : ['telegram_signal'],
+    }))
+  } catch (err) {
+    console.warn('[V10/Telegram] fetch failed (non-fatal):', err.message)
+    return []
+  }
+}
+
 // ─── Merge + dedupe ──────────────────────────────────────────────
 const mergeAndScore = (rawResults, alphaSymbol, alphaMcap) => {
   const seen = new Map()
@@ -1701,7 +1753,7 @@ const useBetas = (alpha, parentAlpha = null) => {
 
       // Run all signals in parallel — seeded with v0SearchTerms ONLY.
       // v0VisualTerms are reserved for the vision pipeline below.
-      const [keywordRes, descRes, loreRes, morphRes, pumpRes, lpRes, ogRes] =
+      const [keywordRes, descRes, loreRes, morphRes, pumpRes, lpRes, ogRes, telegramRes] =
         await Promise.allSettled([
           fetchKeywordBetas(enrichedAlpha.symbol, enrichedAlpha.name, v0SearchTerms),
           fetchDescriptionBetas(enrichedAlpha, descKeywords, v0SearchTerms),
@@ -1710,16 +1762,18 @@ const useBetas = (alpha, parentAlpha = null) => {
           fetchPumpFunBetas(enrichedAlpha.symbol, descKeywords, enrichedAlpha.name, v0SearchTerms),
           fetchLPPairBetas(enrichedAlpha),
           fetchExactMatchOGs(enrichedAlpha.symbol, enrichedAlpha.address),
+          fetchTelegramBetas(enrichedAlpha.symbol),
         ])
 
       const allResults = [
-        ...(keywordRes.status === 'fulfilled' ? keywordRes.value : []),
-        ...(descRes.status    === 'fulfilled' ? descRes.value    : []),
-        ...(loreRes.status    === 'fulfilled' ? loreRes.value    : []),
-        ...(morphRes.status   === 'fulfilled' ? morphRes.value   : []),
-        ...(pumpRes.status    === 'fulfilled' ? pumpRes.value    : []),
-        ...(lpRes.status      === 'fulfilled' ? lpRes.value      : []),
-        ...(ogRes.status      === 'fulfilled' ? ogRes.value      : []),
+        ...(keywordRes.status  === 'fulfilled' ? keywordRes.value  : []),
+        ...(descRes.status     === 'fulfilled' ? descRes.value     : []),
+        ...(loreRes.status     === 'fulfilled' ? loreRes.value     : []),
+        ...(morphRes.status    === 'fulfilled' ? morphRes.value    : []),
+        ...(pumpRes.status     === 'fulfilled' ? pumpRes.value     : []),
+        ...(lpRes.status       === 'fulfilled' ? lpRes.value       : []),
+        ...(ogRes.status       === 'fulfilled' ? ogRes.value       : []),
+        ...(telegramRes.status === 'fulfilled' ? telegramRes.value : []),
       ]
 
       // Merge signals 1-5 into deduplicated list

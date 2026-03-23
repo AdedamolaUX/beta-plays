@@ -19,6 +19,8 @@ const cors      = require('cors')
 const rateLimit = require('express-rate-limit')
 require('dotenv').config({ path: require('path').join(__dirname, '.env') })
 
+const telegramService = require('./telegramService')
+
 const app = express()
 app.use(cors())
 app.use(express.json({ limit: '10mb' }))  // 10mb for base64 image payloads
@@ -1343,5 +1345,34 @@ app.get('/api/pumpfun', async (req, res) => {
   }
 })
 
+// ─── Telegram Vector 10 endpoints ────────────────────────────────
+
+// GET /api/telegram-betas?symbol=WIF
+// Returns pre-computed cached beta results for a given alpha symbol.
+// Zero processing on request — all heavy work happens in background poller.
+app.get('/api/telegram-betas', (req, res) => {
+  const { symbol } = req.query
+  if (!symbol) return res.status(400).json({ error: 'symbol required' })
+  const results = telegramService.getTelegramBetas(symbol)
+  return res.json({ symbol, results })
+})
+
+// POST /api/report-alphas
+// Frontend posts its current alpha list so telegramService knows what to
+// match against during polling. Called automatically on each alpha refresh.
+// Body: { alphas: [{ symbol, name, address }, ...] }
+app.post('/api/report-alphas', (req, res) => {
+  const { alphas } = req.body
+  if (!Array.isArray(alphas)) return res.status(400).json({ error: 'alphas array required' })
+  telegramService.updateKnownAlphas(alphas)
+  return res.json({ ok: true, count: alphas.length })
+})
+
 const PORT = process.env.PORT || 3001
-app.listen(PORT, () => console.log(`BetaPlays backend on port ${PORT}`))
+app.listen(PORT, () => {
+  console.log(`BetaPlays backend on port ${PORT}`)
+  // Initialise Telegram service after server is up
+  telegramService.init().catch(err =>
+    console.error('[TelegramService] Init failed:', err.message)
+  )
+})
