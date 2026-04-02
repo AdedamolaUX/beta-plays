@@ -125,19 +125,21 @@ const loadHistoricalByPriceAction = (currentAddresses) => {
 
       if (dumped) {
         // Force into cooling regardless of 24h%
+        const peakDistance = peak > 0 ? Math.round((mcap / peak) * 100) : null
         historicalCooling.push({
           ...a,
           priceChange24h: cappedChange,
           isCooling:      true,
           isDumped:       true,
           isHistorical:   true,
+          cooledAt:       a.priceRefreshedAt || a.lastSeen || now,
+          peakDistance,
           coolingLabel:   `Dumped — ${Math.round((1 - mcap/peak) * 100)}% from peak`,
         })
         return
       }
 
       if (cappedChange > LIVE_MIN_CHANGE && volume >= LIVE_MIN_VOLUME && !isStale) {
-        // Was pumping and data is still fresh enough to trust
         historicalLive.push({
           ...a,
           priceChange24h: cappedChange,
@@ -145,13 +147,24 @@ const loadHistoricalByPriceAction = (currentAddresses) => {
           coolingLabel:   null,
         })
       } else if (cappedChange < 0 || isStale) {
-        // Retracing, OR data too old to show as live — move to Cooling
+        // Cooled Xh ago — more actionable than "Watching for reversal"
+        const cooledAt     = a.priceRefreshedAt || a.lastSeen || now
+        const cooledAgoH   = Math.round((now - cooledAt) / 3600000)
+        const cooledLabel  = cooledAgoH < 1
+          ? 'Cooled just now'
+          : cooledAgoH < 24
+            ? `Cooled ${cooledAgoH}h ago`
+            : `Cooled ${Math.floor(cooledAgoH / 24)}d ago`
+        const peakDistance = peak > 0 && mcap > 0 ? Math.round((mcap / peak) * 100) : null
         historicalCooling.push({
           ...a,
           priceChange24h: cappedChange,
           isCooling:      true,
           isHistorical:   true,
-          coolingLabel:   isStale ? `Last seen ${ageLabel}` : 'Watching for reversal',
+          cooledAt,
+          peakDistance,
+          volumeRising:   a.volumeRising || false,
+          coolingLabel:   isStale ? `Last seen ${ageLabel}` : cooledLabel,
         })
       }
     })
@@ -734,20 +747,41 @@ const refreshHistoricalPrices = async () => {
             5000
           )
 
+          // ── Volume Rising detection (3-reading rolling history) ──
+          // Store last 3 volume1h readings with timestamps.
+          // volumeRising = 2 of last 3 intervals show an increase AND price is negative.
+          // This filters single-transaction spikes — needs consistent accumulation.
+          const currentVol1h   = pair.volume?.h1 || 0
+          const prevHistory    = existing[token.address]?.volumeHistory || []
+          const newReading     = { vol: currentVol1h, ts: now }
+          // Keep last 3 readings (newest first)
+          const volumeHistory  = [newReading, ...prevHistory].slice(0, 3)
+
+          // Compute rising count across consecutive pairs
+          // Need at least 2 readings to compare
+          let risingCount = 0
+          for (let i = 0; i < volumeHistory.length - 1; i++) {
+            if (volumeHistory[i].vol > volumeHistory[i + 1].vol) risingCount++
+          }
+          // 2+ of last 3 intervals rising AND price is negative = accumulation signal
+          const volumeRising = volumeHistory.length >= 2
+            && risingCount >= 2
+            && safePriceChange < 0
+
           existing[token.address] = {
             ...existing[token.address],
-            priceUsd:       pair.priceUsd || token.priceUsd,
-            priceChange24h: safePriceChange,
-            volume24h:      pair.volume?.h24    || token.volume24h,
-            marketCap:      pair.marketCap || pair.fdv || token.marketCap,
-            liquidity:      pair.liquidity?.usd  || token.liquidity,
-            // Update peakMarketCap if current is higher
-            peakMarketCap:  Math.max(
+            priceUsd:         pair.priceUsd || token.priceUsd,
+            priceChange24h:   safePriceChange,
+            volume24h:        pair.volume?.h24   || token.volume24h,
+            volume1h:         currentVol1h,
+            volumeHistory,
+            volumeRising,
+            marketCap:        pair.marketCap || pair.fdv || token.marketCap,
+            liquidity:        pair.liquidity?.usd || token.liquidity,
+            peakMarketCap:    Math.max(
               existing[token.address]?.peakMarketCap || 0,
               pair.marketCap || pair.fdv || 0
             ),
-            // lastSeen intentionally NOT updated — that tracks when we saw it in the feed
-            // We use a separate field to track when price was last refreshed
             priceRefreshedAt: now,
           }
         })
@@ -1061,7 +1095,12 @@ const useAlphas = () => {
           return [
             ...prev.filter(a => !a.isHistorical),
             ...freshHistCool.filter(a => !freshAddrs.has(a.address)),
-          ].sort((a, b) => (parseFloat(a.priceChange24h) || 0) - (parseFloat(b.priceChange24h) || 0)).slice(0, 50)
+          ].sort((a, b) => {
+            const aRecent = a.priceRefreshedAt || a.lastSeen || 0
+            const bRecent = b.priceRefreshedAt || b.lastSeen || 0
+            if (bRecent !== aRecent) return bRecent - aRecent
+            return (parseFloat(a.priceChange24h) || 0) - (parseFloat(b.priceChange24h) || 0)
+          }).slice(0, 50)
         })
         setPositioningAlphas(loadPositioningPlays())
         console.log('[PriceRefresh] Tabs updated with fresh historical prices')
@@ -1110,7 +1149,14 @@ const useAlphas = () => {
         .slice(0, 100)
 
       const sortedCooling = allCooling
-        .sort((a, b) => (parseFloat(a.priceChange24h) || 0) - (parseFloat(b.priceChange24h) || 0))
+        .sort((a, b) => {
+          // Primary: most recently cooled first — just-cooled tokens are most actionable
+          const aRecent = a.priceRefreshedAt || a.lastSeen || 0
+          const bRecent = b.priceRefreshedAt || b.lastSeen || 0
+          if (bRecent !== aRecent) return bRecent - aRecent
+          // Secondary: biggest dump (degens hunting gold in the rough)
+          return (parseFloat(a.priceChange24h) || 0) - (parseFloat(b.priceChange24h) || 0)
+        })
         .slice(0, 50)
 
       if (sortedLive.length === 0) {

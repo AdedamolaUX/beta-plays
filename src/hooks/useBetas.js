@@ -680,22 +680,134 @@ const extractDescriptionKeywords = (description) => {
     .slice(0, 8)
 }
 
+// ─── V1b Description Noise Filter ────────────────────────────────
+// Scoped ONLY to description keywords — never touches V0A terms.
+// Removes marketing copy that passes extractDescriptionKeywords but
+// has no anchor in the token's actual identity (symbol or name).
+//
+// Scoring:
+//   symbol hit (exact word boundary) = 3pts
+//   name hit   (exact word boundary) = 2pts
+//   description-only                 = 1pt + 0.3/extra mention, cap 1.9
+//
+// A keyword only survives if its score ≥ 1.3pts OR its cluster total ≥ 3pts.
+// This means a pure-description word needs to appear 2+ times to survive alone,
+// OR appear alongside other related description words that together form a cluster.
+//
+// V0A terms bypass this entirely — they go straight to search.
+
+const DESC_NOISE_TERMS = new Set([
+  // Marketing/project copy
+  'community','resilience','loyalty','driven','inspired','project','celebrates',
+  'mission','vision','utility','governance','ecosystem','protocol','platform',
+  'innovative','revolutionary','pioneering','official','exclusive','unique',
+  // Generic crypto/finance
+  'solana','sol','ethereum','eth','bitcoin','btc','coin','token','chain','web3',
+  'defi','nft','dao','wallet','contract','launch','presale','airdrop','staking',
+  // Generic descriptors
+  'cute','cool','funny','happy','sad','good','bad','new','real','best','great',
+])
+
+// Semantic clusters for V1b — same logic as before but scoped to description only
+const V1B_CLUSTER_MAP = {
+  dog:    ['dog','doge','shiba','puppy','pup','doggo','hound','canine'],
+  cat:    ['cat','kitten','meow','neko','kitty','feline','tabby'],
+  frog:   ['frog','pepe','toad','kermit','ribbit'],
+  bear:   ['bear','berenstain','grizzly','panda','teddy','ursus','honey','forest'],
+  ape:    ['ape','monkey','gorilla','chimp','kong','primate','orangutan','bonobo'],
+  wolf:   ['wolf','wolfpack','howl'],
+  dragon: ['dragon','drago','drake','wyrm'],
+  elon:   ['elon','musk','tesla','spacex'],
+  trump:  ['trump','donald','maga','melania'],
+  pepe:   ['pepe','wojak','chad','feels'],
+  anime:  ['anime','manga','chibi','kawaii','otaku'],
+  ai:     ['ai','gpt','llm','neural','agent','bot','grok','claude'],
+  space:  ['space','mars','rocket','galaxy','alien','ufo','orbit'],
+}
+
+const V1B_TERM_TO_CLUSTER = new Map()
+Object.entries(V1B_CLUSTER_MAP).forEach(([label, terms]) => {
+  terms.forEach(t => { if (!V1B_TERM_TO_CLUSTER.has(t)) V1B_TERM_TO_CLUSTER.set(t, label) })
+  if (!V1B_TERM_TO_CLUSTER.has(label)) V1B_TERM_TO_CLUSTER.set(label, label)
+})
+
+const scoreDescKeyword = (kw, symbol, name, description) => {
+  const kwLower   = kw.toLowerCase()
+  const symLower  = symbol.toLowerCase()
+  const nameLower = (name || '').toLowerCase()
+  const descLower = (description || '').toLowerCase()
+
+  // Exact word boundary check — fixes the "redapes contains ape" substring bug
+  const symWords  = symLower.replace(/[^a-z0-9]/g, ' ').split(/\s+/).filter(Boolean)
+  const nameWords = nameLower.replace(/[^a-z0-9]/g, ' ').split(/\s+/).filter(Boolean)
+
+  if (symWords.includes(kwLower))  return 3.0
+  if (nameWords.includes(kwLower)) return 2.0
+
+  // Description-only: base 1pt + frequency bonus, cap 1.9
+  const escaped = kw.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+  const matches  = descLower.match(new RegExp(`\\b${escaped}\\b`, 'g'))
+  const freq     = matches ? matches.length : 1
+  return Math.min(1.0 + Math.max(0, freq - 1) * 0.3, 1.9)
+}
+
+const filterDescriptionKeywords = (rawKeywords, symbol, name, description) => {
+  if (!rawKeywords || rawKeywords.length === 0) return rawKeywords
+
+  // Strip obvious noise terms first
+  const filtered = rawKeywords.filter(kw => !DESC_NOISE_TERMS.has(kw.toLowerCase()))
+
+  // If everything was noise — return empty, let V0A terms carry the search
+  // Do NOT fall back to raw keywords — that's exactly what we're trying to prevent
+  if (filtered.length === 0) {
+    console.log(`[V1bFilter] $${symbol} — all keywords were noise, returning empty (V0A takes over)`)
+    return []
+  }
+
+  // Score each keyword
+  const scored = filtered.map(kw => ({
+    kw: kw.toLowerCase(),
+    score: scoreDescKeyword(kw, symbol, name, description),
+    cluster: V1B_TERM_TO_CLUSTER.get(kw.toLowerCase()) || kw.toLowerCase(),
+  }))
+
+  // Group into clusters and sum scores
+  const clusterTotals = new Map()
+  scored.forEach(({ cluster, score }) => {
+    clusterTotals.set(cluster, (clusterTotals.get(cluster) || 0) + score)
+  })
+
+  // Keep keyword if: its own score ≥ 1.3 OR its cluster total ≥ 3.0
+  const survivors = scored.filter(({ score, cluster }) =>
+    score >= 1.3 || (clusterTotals.get(cluster) || 0) >= 3.0
+  )
+
+  // If nothing survived scoring — same logic: return empty, let V0A carry
+  if (survivors.length === 0) {
+    console.log(`[V1bFilter] $${symbol} — nothing passed score gate, returning empty (V0A takes over)`)
+    return []
+  }
+
+  const result = [...new Set(survivors.map(s => s.kw))]
+  const dropped = filtered.filter(kw => !result.includes(kw.toLowerCase()))
+  if (dropped.length > 0) {
+    console.log(`[V1bFilter] $${symbol} — dropped noise: [${dropped.join(', ')}]`)
+  }
+  return result
+}
+
 const fetchDescriptionKeywords = async (alpha) => {
   try {
     // ── Source 1: already on the alpha object (best case) ────────
-    // Populated by useAlphas via token-profiles endpoint or PumpFun feed.
-    // This is the richest description source — use it if available.
     if (alpha.description && alpha.description.length > 10) {
-      const keywords = extractDescriptionKeywords(alpha.description)
+      const raw      = extractDescriptionKeywords(alpha.description)
+      const keywords = filterDescriptionKeywords(raw, alpha.symbol, alpha.name || '', alpha.description)
       console.log(`[Vector1b] $${alpha.symbol} description (cached): "${alpha.description.slice(0, 60)}..."`)
       console.log(`[Vector1b] $${alpha.symbol} description keywords:`, keywords)
       return { keywords, description: alpha.description }
     }
 
     // ── Source 2: DEX /tokens/{address} ──────────────────────────
-    // Direct token lookup. Works well for Raydium/graduated tokens.
-    // PumpFun tokens often return empty info.description here — that's
-    // why we have Sources 3 and 4 as fallbacks.
     const res = await DEX_QUEUE.get(
       `${DEXSCREENER_BASE}/latest/dex/tokens/${alpha.address}`
     )
@@ -706,16 +818,14 @@ const fetchDescriptionKeywords = async (alpha) => {
       ''
 
     if (tokenDesc && tokenDesc.length > 10) {
-      const keywords = extractDescriptionKeywords(tokenDesc)
+      const raw      = extractDescriptionKeywords(tokenDesc)
+      const keywords = filterDescriptionKeywords(raw, alpha.symbol, alpha.name || '', tokenDesc)
       console.log(`[Vector1b] $${alpha.symbol} description (tokens endpoint): "${tokenDesc.slice(0, 60)}..."`)
       console.log(`[Vector1b] $${alpha.symbol} description keywords:`, keywords)
       return { keywords, description: tokenDesc }
     }
 
     // ── Source 3: DEX /search?q={symbol} ─────────────────────────
-    // Search results carry richer info blocks than the direct token lookup,
-    // especially for PumpFun tokens where profile data is indexed separately.
-    // Different endpoint = different cache key = fresh data.
     console.log(`[Vector1b] $${alpha.symbol} tokens endpoint empty — trying search fallback`)
     try {
       const searchRes = await DEX_QUEUE.get(
@@ -729,7 +839,8 @@ const fetchDescriptionKeywords = async (alpha) => {
         ''
 
       if (searchDesc && searchDesc.length > 10) {
-        const keywords = extractDescriptionKeywords(searchDesc)
+        const raw      = extractDescriptionKeywords(searchDesc)
+        const keywords = filterDescriptionKeywords(raw, alpha.symbol, alpha.name || '', searchDesc)
         console.log(`[Vector1b] $${alpha.symbol} description (search endpoint): "${searchDesc.slice(0, 60)}..."`)
         console.log(`[Vector1b] $${alpha.symbol} description keywords:`, keywords)
         return { keywords, description: searchDesc }
@@ -737,8 +848,6 @@ const fetchDescriptionKeywords = async (alpha) => {
     } catch { /* silent — fall through to source 4 */ }
 
     // ── Source 4: DEX /search?q={address} ────────────────────────
-    // Searching by contract address sometimes returns richer info than by symbol,
-    // especially when a token's symbol is very short or ambiguous.
     try {
       const addrRes = await DEX_QUEUE.get(
         `${DEXSCREENER_BASE}/latest/dex/search?q=${alpha.address}`
@@ -751,7 +860,8 @@ const fetchDescriptionKeywords = async (alpha) => {
         ''
 
       if (addrDesc && addrDesc.length > 10) {
-        const keywords = extractDescriptionKeywords(addrDesc)
+        const raw      = extractDescriptionKeywords(addrDesc)
+        const keywords = filterDescriptionKeywords(raw, alpha.symbol, alpha.name || '', addrDesc)
         console.log(`[Vector1b] $${alpha.symbol} description (address search): "${addrDesc.slice(0, 60)}..."`)
         console.log(`[Vector1b] $${alpha.symbol} description keywords:`, keywords)
         return { keywords, description: addrDesc }
@@ -759,8 +869,6 @@ const fetchDescriptionKeywords = async (alpha) => {
     } catch { /* silent */ }
 
     // ── Source 5: search by name (if different from symbol) ─────
-    // Some launchpads (LaunchLab, Bonk.fun, Moonshot) index description
-    // under the token name rather than symbol. Worth one more try.
     if (alpha.name && alpha.name.toLowerCase() !== alpha.symbol.toLowerCase()) {
       try {
         const nameRes = await DEX_QUEUE.get(
@@ -774,7 +882,8 @@ const fetchDescriptionKeywords = async (alpha) => {
           ''
 
         if (nameDesc && nameDesc.length > 10) {
-          const keywords = extractDescriptionKeywords(nameDesc)
+          const raw      = extractDescriptionKeywords(nameDesc)
+          const keywords = filterDescriptionKeywords(raw, alpha.symbol, alpha.name || '', nameDesc)
           console.log(`[Vector1b] $${alpha.symbol} description (name search): "${nameDesc.slice(0, 60)}..."`)
           console.log(`[Vector1b] $${alpha.symbol} description keywords:`, keywords)
           return { keywords, description: nameDesc }
@@ -782,17 +891,13 @@ const fetchDescriptionKeywords = async (alpha) => {
       } catch { /* silent */ }
     }
 
-    // ── No description found — fall back to symbol-based inference ──
-    // For very new tokens (just graduated, profile not yet indexed),
-    // we infer a minimal description from the symbol itself so Vector 0
-    // has SOMETHING to work with beyond the bare symbol.
-    // This is better than returning nothing — at minimum it prevents
-    // Vector 0 from hallucinating a completely wrong narrative.
+    // ── No description found — name fallback ──────────────────────
     const symbolDesc = alpha.name && alpha.name.toLowerCase() !== alpha.symbol.toLowerCase()
-      ? alpha.name   // Use the full name as a fallback description
+      ? alpha.name
       : ''
     if (symbolDesc) {
-      const keywords = extractDescriptionKeywords(symbolDesc)
+      const raw      = extractDescriptionKeywords(symbolDesc)
+      const keywords = filterDescriptionKeywords(raw, alpha.symbol, alpha.name || '', symbolDesc)
       console.log(`[Vector1b] $${alpha.symbol} — using name as description fallback: "${symbolDesc}"`)
       return { keywords, description: symbolDesc }
     }
@@ -2188,49 +2293,50 @@ const useBetas = (alpha, parentAlpha = null) => {
         const withAIAndNew = [...withAI, ...aiOnly]
 
         // ── Remove confirmed noise ─────────────────────────────────
-        // STRONG = on-chain facts that can't be argued with.
-        //   lp_pair  — token has a direct liquidity pool with the alpha
-        //   og_match — exact same ticker, found by address, not just search ranking
+        // STRONG on-chain facts override everything:
+        //   lp_pair  — direct liquidity pool with alpha (undeniable)
+        //   og_match — exact same ticker found by address
         //
-        // NOTE: 'lore' and 'desc_match' are NOT strong signals — they fire too
-        // broadly and produce false positives ($TPH in $pepe's list via "rare").
-        // They must go through AI gating like everything else.
-        //
-        // Rejection priority:
-        //   1. Always drop if in rejectedAddresses (Vector 8 explicit reject)
-        //      UNLESS it's lp_pair or og_match — on-chain facts override AI.
-        //   2. Drop single-weak-signal tokens with low AI confidence.
-        //   3. Keep everything else.
-        const UNCHALLENGEABLE = new Set(['lp_pair','og_match'])  // on-chain facts
-        // visual_match is now a corroborating signal — if AI also confirms it,
-        // it becomes CABAL tier. But visual_match alone is still subject to AI gating
-        // (a high visualScore means likely related, but AI makes the final call).
-        const WEAK_SOLO       = new Set(['keyword','morphology','description','lore','desc_match'])
+        // V8 rejection logic:
+        //   1. On-chain signals always win
+        //   2. V8 explicit rejects always honoured
+        //   3. Description-only single signals: keep the gate tight
+        //      Description keywords can still leak noise despite V1b filter
+        //      (safety net, scoring edge cases). Keep V8 cautious here.
+        //   4. All other single signals: V8 free reign — trust its scoring
+        const UNCHALLENGEABLE = new Set(['lp_pair','og_match'])
 
         const filtered = withAIAndNew.filter(b => {
           const srcs = b.signalSources || []
 
-          // On-chain signals can't be argued with — keep regardless of AI
+          // On-chain signals can't be argued with
           if (srcs.some(s => UNCHALLENGEABLE.has(s))) return true
 
-          // Vector 8 explicitly rejected this token
+          // V8 explicitly rejected — always honour
           if (rejectedAddresses.has(b.address)) {
-            console.log(`[Vector8] 🗑️  Removed $${b.symbol} — AI rejected (score below threshold) | signals:[${srcs.join(',')}]`)
+            console.log(`[Vector8] 🗑️  Removed $${b.symbol} — AI rejected | signals:[${srcs.join(',')}]`)
             return false
           }
 
-          // Single-signal token that Vector 8 classified as low-confidence —
-          // drop it regardless of which weak signal found it.
-          // This catches: keyword-only, lore-only, description-only false positives.
-          const isSingleWeakSignal = srcs.length > 0 && srcs.every(s => WEAK_SOLO.has(s))
-          if (isSingleWeakSignal) {
-            const isLowConfidence =
-              (b.relationshipType === 'SPIN' || !b.relationshipType) &&
-              (b.aiScore || 0) < 0.5
+          const hasNoRelationship = !b.relationshipType || b.relationshipType === 'SPIN'
+          const veryLowScore      = (b.aiScore || 0) < 0.45
+          const singleSignal      = srcs.length === 1
+
+          // Description-only: tighter gate — noise still leaks occasionally
+          // Keep this until V1b filter is battle-tested across many tokens
+          if (singleSignal && srcs[0] === 'description') {
+            const isLowConfidence = hasNoRelationship && veryLowScore
             if (isLowConfidence) {
-              console.log(`[Vector8] 🗑️  Removed $${b.symbol} — single weak signal + low AI confidence (${b.aiScore || 'unscored'}) | signals:[${srcs.join(',')}]`)
+              console.log(`[Vector8] 🗑️  Removed $${b.symbol} — description-only, no relationship, score ${b.aiScore || 'unscored'} | signals:[${srcs.join(',')}]`)
               return false
             }
+          }
+
+          // All other single-signal tokens: only drop if truly unrelated
+          // (no relationship assigned AND score extremely low)
+          if (singleSignal && hasNoRelationship && veryLowScore) {
+            console.log(`[Vector8] 🗑️  Removed $${b.symbol} — single signal, no relationship, score ${b.aiScore || 'unscored'} | signals:[${srcs.join(',')}]`)
+            return false
           }
 
           return true

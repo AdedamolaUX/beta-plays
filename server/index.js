@@ -131,7 +131,7 @@ const callGroqFast = async (prompt, systemPrompt = null) => {
     },
     body: JSON.stringify({
       model:       'llama-3.1-8b-instant',
-      max_tokens:  600,
+      max_tokens:  1200,
       temperature: 0.1,
       messages,
     }),
@@ -369,130 +369,64 @@ const buildExpansionPrompt = (alpha) => {
     alpha.description ? `Description: ${alpha.description}` : null,
   ].filter(Boolean).join('\n')
 
-  return `You are a crypto degen AND a narrative analyst. Your job: given a Solana meme token,
-generate the search terms that would find every possible beta play on DEXScreener —
-tokens that degens will ape alongside this runner because of narrative connection.
+  return `You are a crypto degen and narrative analyst. Find every beta play for this Solana meme token — tokens degens will ape alongside it due to narrative connection.
 
 ALPHA TOKEN:
 ${context}
 
-CRITICAL: Every term you generate must come ONLY from the token currently being analyzed.
-Never copy, recycle, or pattern-match from any example below — examples show REASONING only.
+All terms must come from THIS token only. Examples below show reasoning style only — never copy them.
 
-STEP 1 — SYMBOL WORD ANALYSIS (do this before reading anything else):
-Take the raw symbol ticker as a standalone word. Ignore case. Ask:
-  - What are the direct synonyms of THIS word?
-  - What are the direct antonyms/opposites of THIS word?
-  - What complete word family does this word belong to?
-    If a word belongs to a set (quantity / color / emotion / direction), complete the set.
-    Never generate part of a word family — generate all members.
-  - What words are in the same semantic cluster as THIS word?
-These are your HIGHEST-PRIORITY terms. Do not use any specific terms as examples here —
-derive everything from the actual symbol you are currently analyzing.
+ANALYSIS (work through each step):
 
-STEP 2 — TOKEN NAME WORD ANALYSIS (separate from Step 1):
-If the token name differs from the symbol, analyse EACH significant word independently.
-IMPORTANT: If a name word is slang, a misspelling, or an invented word, translate it
-to standard English first, then expand from the translation.
-Pattern: slang/invented word → what real English word does it sound like or derive from?
-         → then expand that real word into its synonyms and related terms
-Also: do NOT decompose a symbol by letter pattern if the token name tells you what it means.
-The name is always a more reliable signal than letter-pattern guessing.
-Do not collapse the name into a single phrase. Break it into individual words first.
+1. SYMBOL: Synonyms, antonyms, word family, semantic cluster of the raw ticker word.
+   If it belongs to a set (colors, emotions, directions, quantities) — complete the entire set.
 
-STEP 3 — FULL NAME AND DESCRIPTION AS A WHOLE PHRASE:
-After breaking into individual words (Step 2), ALSO treat the full name/description
-as a single unified concept and ask what it means as a whole:
-  - What is the overall theme or vibe of this phrase?
-  - What emotions, actions, or archetypes does the whole phrase evoke?
-  - What cultural reference does the combined phrase point to?
-This generates additional terms that individual words alone wouldn't produce.
-These whole-phrase terms are ADDITIVE — they extend Steps 1 and 2, never replace them.
+2. NAME: If name differs from symbol, break into individual words and expand each independently.
+   Slang/misspellings → translate to standard English first, then expand.
+   Name always overrides letter-pattern guessing.
 
-STEP 4 — DESCRIPTION & NARRATIVE EXPANSION:
-Now read any additional description text beyond the name. Generate further terms.
-Always additive — extends all previous steps.
+3. WHOLE PHRASE: After individual words, treat the full name as one unified concept.
+   What theme, archetype, or cultural reference does the combined phrase evoke?
 
-THINK LIKE A DEGEN — ask: "This token is running. What else would degens ape?"
+4. DESCRIPTION: Mine additional narrative from description text.
+   IGNORE charity mentions, fees, utility, partnerships — those are admin, not identity.
+   Focus on what the token IS, not what it does with its treasury.
 
-1. SYMBOL OPPOSITES + SYNONYMS — direct English language relationships (highest priority)
-   Pattern: what is the direct opposite word? what are synonyms? what words are in this word family?
+5. SUBJECT EXPANSION — expand in all four directions:
+   A. SPECIES/FAMILY: If animal/creature, name every biological family member.
+      Never stop at the name word — complete the full family.
+      (ape → gorilla, chimp, orangutan, monkey, primate, bonobo)
+   B. PROPS/ACCESSORIES/ACTIONS: What is the subject wearing, holding, doing?
+      Degens name tokens after accessories. (hat → wif, cap, fedora / chain → drip, bling)
+   C. SETTING/ENVIRONMENT: Where does this subject exist?
+      (jungle ape → jungle, banana, vine / space → cosmos, nebula, ufo)
+   D. DEGEN DERIVATIVES: What remix tokens would CT immediately spin up from this runner?
+      (ape → babyape, evilape, darkape, apewif / pepe → babypepe, pepewif, sadpepe)
 
-2. TWINS — equivalent concepts and reframings
-   Pattern: what other words mean the same thing in crypto/meme culture?
+6. CRYPTO CULTURE: What ran alongside this narrative historically?
+   What CT communities, collections, or movements does this connect to?
 
-3. COUNTER — the opposing narrative that runs BECAUSE this one runs
-   Pattern: for every strong concept, there is an opposing concept. Name it.
+RELATIONSHIP TYPES (assign each term one):
+TWIN=synonym/equivalent | COUNTER=direct opposite | ECHO=consequence/extension
+UNIVERSE=same cultural world | SECTOR=same category | SPIN=loose derivative
 
-4. SUBJECT — what is the token literally (logo + name + description)?
-   Pattern: if it depicts an animal, search that animal and related species.
+RULES:
+- No generic terms: solana/eth/crypto/token/coin/chain/cute/cool/funny/animal/pet/moon/pump/buy/sell
+- Never output instruction words as search terms: opposite/synonym/counter/twin/echo/universe/sector
+- No words already in the symbol or name
+- Only terms specific enough to be a real meme token ticker
+- 12-20 terms. Single words preferred. Compounds: output joined AND spaced forms, lowercase only.
+- Anti-drift: each term must complete "This token IS/IS A TYPE OF/IS THE OPPOSITE OF/LIVES IN/Degens CREATE ___ from it"
+  Biological family and cultural crypto associations never drift.
 
-5. ECHO — narrative consequences and extensions
-   Pattern: what does this concept lead to or cause?
+SELF-CHECK before outputting — remove any term that:
+- Is a relationship label (opposite, synonym, twin, counter, echo, universe, sector)
+- Could describe any random Solana token (too generic)
+- You invented right now and likely doesn't exist as a real token name
+- Needs more than one reasoning hop to connect to this token
 
-6. UNIVERSE — same cultural/fictional world
-   Pattern: related characters, species, locations from the same narrative.
-
-COMPOUND NAME RULE:
-If symbol combines two concepts (e.g. a token symbol that looks like two words joined),
-expand BOTH halves separately as independent terms.
-
-EMOJI TICKER RULE:
-If the symbol contains emoji (e.g. $🐸, $💀, $🚀), translate each emoji to its
-common English name AND its cultural meaning in crypto/meme context:
-  🐸 → frog, pepe, kermit (crypto meme)
-  💀 → skull, death, dead, rip
-  🚀 → rocket, moon, launch
-  🍀 → clover, lucky, shamrock
-  🐶 → dog, doge, shiba
-Search for BOTH the literal translation AND other emoji tokens in the same category.
-
-NUMBER TICKER RULE:
-If the symbol is a number (e.g. $420, $69, $11, $1000), recognise its cultural meaning:
-  420 → weed, cannabis, stoner, mary jane
-  69  → funny, sex, nsfw, dirty
-  11  → eleven, stranger things, supernatural
-  100 → perfect, based, full, complete
-  1000 → 1000x, thousand, grand
-Search for other number tokens AND tokens referencing the same cultural concept.
-
-STRICT RULES:
-- Terms must come from THIS token's data only — never from memory of other tokens
-- NO generic terms — these return thousands of unrelated tokens and are useless:
-  BANNED: solana, sol, eth, crypto, blockchain, defi, token, coin, chain, web3
-  BANNED: cute, cool, funny, happy, sad, animal, pet, friend, buddy, creature
-  BANNED: good, bad, big, small, new, real, best, great, king, hero, legend, god
-  BANNED: moon, pump, dump, hold, buy, sell, launch, degen, based, wild
-  If a word could describe ANY token on Solana, it is banned. Be specific.
-- NO words already in the symbol or name
-- ONLY terms specific enough that they would appear as a MEME TOKEN TICKER
-  Ask: "would a degen name their token this?" If yes → include. If not → exclude.
-- 8-12 terms total, always include symbol-level opposites/synonyms first
-- PREFER single words — they match both token names and tickers on DEX
-- For compound concepts, output BOTH forms as separate entries in the array:
-  1. Joined lowercase (for ticker matching): the words run together without spaces
-  2. Spaced lowercase (for name matching): the words separated by a space
-  Why: token NAME can have spaces but ticker cannot. DEX searches both fields.
-  NEVER use CamelCase — only lowercase forms.
-- Also add the component words as individual entries for broader coverage
-
-ANTI-DRIFT RULE — critical to avoid cross-token bleeding:
-Concepts have neighbours. Do NOT follow conceptual chains beyond one degree.
-Each term must complete: "This token IS/HAS/MEANS ___" using only the token's own data.
-If the justification needs "which relates to" — the term has drifted. Drop it.
-Tokens that share a conceptual neighbour (e.g. both touch "emptiness") must still
-produce DIFFERENT search terms because they ARE different tokens with different contexts.
-Never reuse terms from another token you may have processed recently.
-
-Respond ONLY with valid JSON. No explanation, no markdown:
-{
-  "searchTerms": ["term1","term2","term3"],
-  "relationshipHints": {
-    "term1": "TWIN",
-    "term2": "COUNTER",
-    "term3": "UNIVERSE"
-  }
-}`
+Respond ONLY with valid JSON, no markdown:
+{"searchTerms":["term1","term2"],"relationshipHints":{"term1":"TWIN","term2":"COUNTER"}}`
 }
 
 // Vector 0B: Image expansion via Groq vision (called when Gemini quota exhausted)
@@ -855,17 +789,60 @@ app.post('/api/expand-alpha', async (req, res) => {
     console.log(`[Vector0] Expanding $${symbol}${forceRefresh ? ' (forced refresh)' : ''}...`)
 
     // ── Vector 0A: Text expansion ─────────────────────────────────
+    // Uses 70b for quality — expansion is the most critical step in the
+    // pipeline. A weak model here starves every downstream vector.
+    // Falls back to Gemini Flash if Groq 70b quota is hit.
     let searchTerms      = []
     let relationshipHints = {}
 
     try {
-      const textResult = await callGroqFast(
-        buildExpansionPrompt({ symbol, name, description }),
-        'You are a crypto narrative analyst. Always respond with valid JSON only — no explanation, no markdown.'
-      )
-      searchTerms       = textResult.searchTerms      || []
-      relationshipHints = textResult.relationshipHints || {}
-      console.log(`[Vector0A] $${symbol} → ${searchTerms.length} text terms`)
+      const expansionPrompt = buildExpansionPrompt({ symbol, name, description })
+      const expansionSystem = 'You are a crypto narrative analyst. Always respond with valid JSON only — no explanation, no markdown.'
+
+      let textResult = null
+
+      // Try Groq 70b first — best reasoning quality
+      if (isGroq70bAvailable()) {
+        try {
+          console.log(`[Vector0A] $${symbol} — trying Groq 70b...`)
+          textResult = await callGroq(expansionPrompt, expansionSystem)
+          console.log(`[Vector0A] $${symbol} → Groq 70b → ${(textResult?.searchTerms||[]).length} terms`)
+        } catch (groq70Err) {
+          if (groq70Err.message?.includes('429') || groq70Err.message?.includes('rate') || groq70Err.message?.includes('daily')) {
+            markGroq70bDailyLimitHit()
+            console.warn(`[Vector0A] Groq 70b quota hit — falling back to Gemini`)
+          } else {
+            console.warn(`[Vector0A] Groq 70b error:`, groq70Err.message)
+          }
+        }
+      } else {
+        console.log(`[Vector0A] $${symbol} — Groq 70b daily limit active, going straight to Gemini`)
+      }
+
+      // Fallback: Gemini Flash — generous quota, strong reasoning
+      if (!textResult) {
+        try {
+          console.log(`[Vector0A] $${symbol} — trying Gemini Flash...`)
+          textResult = await callGeminiText(expansionSystem, expansionPrompt)
+          console.log(`[Vector0A] $${symbol} → Gemini Flash → ${(textResult?.searchTerms||[]).length} terms`)
+        } catch (geminiErr) {
+          console.warn(`[Vector0A] Gemini Flash failed:`, geminiErr.message)
+        }
+      }
+
+      // 8b-instant removed from V0A chain — it truncates JSON on longer responses
+      // and produces broken output that caches as 0 terms. If both 70b and Gemini
+      // fail, V0A returns empty and symbol/name decomposition carries the search.
+      // That's better than broken cached results from 8b.
+      if (!textResult) {
+        console.warn(`[Vector0A] $${symbol} — all models failed, returning empty (symbol decomposition takes over)`)
+      }
+
+      if (textResult) {
+        searchTerms       = textResult.searchTerms      || []
+        relationshipHints = textResult.relationshipHints || {}
+        console.log(`[Vector0A] $${symbol} → ${searchTerms.length} text terms`)
+      }
     } catch (textErr) {
       console.warn(`[Vector0A] Text expansion failed for $${symbol}:`, textErr.message)
     }

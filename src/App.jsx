@@ -446,6 +446,16 @@ const AlphaCard = ({ alpha, isSelected, onClick, isWatched, onToggleWatch }) => 
                   {alpha.coolingLabel}
                 </span>
               )}
+              {alpha.volumeRising && (
+                <span style={{ fontFamily: 'var(--font-mono)', fontSize: 8, color: 'rgb(0,255,150)' }}>
+                  📈 vol↑
+                </span>
+              )}
+              {alpha.peakDistance != null && !alpha.isDumped && (
+                <span style={{ fontFamily: 'var(--font-mono)', fontSize: 8, color: 'var(--text-muted)' }}>
+                  {alpha.peakDistance}% of peak
+                </span>
+              )}
               {alpha.weeklyContext && !alpha.isDumped && alpha.weeklyContext.ageDays >= 2 && (
                 <span style={{ fontFamily: 'var(--font-mono)', fontSize: 8, color: 'var(--text-muted)' }}>
                   {alpha.weeklyContext.changeSinceFirst >= 0 ? '+' : ''}{alpha.weeklyContext.changeSinceFirst}% in {alpha.weeklyContext.ageDays}d
@@ -710,11 +720,12 @@ const AdminNominationPanel = ({ onClose }) => {
   )
 }
 
-const AlphaBoard = ({ selectedAlpha, onSelect, onNewRunners, alphaListRef }) => {
+const AlphaBoard = ({ selectedAlpha, onSelect, onNewRunners, onLiveAlphas, alphaListRef }) => {
   const [activeTab,        setActiveTab]        = useState('live')
   const [searchQuery,      setSearchQuery]      = useState('')
   const [showAdminPanel,   setShowAdminPanel]   = useState(false)
   const [coolingTimeframe, setCoolingTimeframe] = useState('24h')
+  const [volumeRising,     setVolumeRising]     = useState(false)
   const [watchlist,        setWatchlist]        = useState(() => getWatchlistRaw())
 
   // ── Watchlist price refresh ───────────────────────────────────
@@ -790,12 +801,14 @@ const AlphaBoard = ({ selectedAlpha, onSelect, onNewRunners, alphaListRef }) => 
 
   // ── Cooling timeframe filter ───────────────────────────────────
   const TIMEFRAME_MS = { '24h': 86400000, '3d': 3 * 86400000, '7d': 7 * 86400000 }
-  const filteredCooling = useMemo(() =>
-    coolingAlphas.filter(a =>
-      !a.lastSeen || (Date.now() - a.lastSeen) < TIMEFRAME_MS[coolingTimeframe]
-    ),
-    [coolingAlphas, coolingTimeframe]
-  )
+  const filteredCooling = useMemo(() => {
+    const now = Date.now()
+    return coolingAlphas.filter(a => {
+      if (a.lastSeen && (now - a.lastSeen) >= TIMEFRAME_MS[coolingTimeframe]) return false
+      if (volumeRising && !a.volumeRising) return false
+      return true
+    })
+  }, [coolingAlphas, coolingTimeframe, volumeRising])
 
   // Restore selected alpha from sessionStorage when alphas first load
   const restoredRef       = useRef(false)
@@ -870,9 +883,10 @@ const AlphaBoard = ({ selectedAlpha, onSelect, onNewRunners, alphaListRef }) => 
     }
     prevAddrsRef.current = new Set(liveAlphas.map(a => a.address))
 
+    // Feed liveAlphas up to App so BetaPanel can use for momentum-weighted parent detection
+    if (onLiveAlphas) onLiveAlphas(liveAlphas)
+
     // Only snap back to selected alpha if user is NOT actively scrolling.
-    // If they're browsing the list, leave them alone. Once they go idle
-    // for 3s, the next refresh will snap back automatically.
     if (selectedAlpha?.address && !userIsScrolling.current) {
       setTimeout(() => {
         const el = alphaListRef.current?.querySelector(
@@ -1027,29 +1041,49 @@ const AlphaBoard = ({ selectedAlpha, onSelect, onNewRunners, alphaListRef }) => 
 
       {/* Cooling timeframe sub-tabs */}
       {activeTab === 'cooling' && !searchQuery && (
-        <div style={{
-          display: 'flex', gap: 2, flexShrink: 0,
-          background: 'var(--surface-2)', padding: 3,
-          borderRadius: 'var(--radius-md)', border: '1px solid var(--border)',
-        }}>
-          {[['24h', '24h'], ['3d', '3 days'], ['7d', '7 days']].map(([key, label]) => (
-            <button
-              key={key}
-              className={`tab-btn ${coolingTimeframe === key ? 'active' : ''}`}
-              onClick={() => setCoolingTimeframe(key)}
-              style={{ flex: 1, textAlign: 'center' }}
-            >
-              {label}
-              <span style={{
-                marginLeft: 3, fontSize: 7,
-                color: coolingTimeframe === key ? 'var(--cyan)' : 'var(--text-muted)',
-              }}>
-                {coolingAlphas.filter(a =>
-                  !a.lastSeen || (Date.now() - a.lastSeen) < TIMEFRAME_MS[key]
-                ).length}
-              </span>
-            </button>
-          ))}
+        <div style={{ display: 'flex', gap: 4, flexShrink: 0, alignItems: 'center' }}>
+          <div style={{
+            display: 'flex', gap: 2, flex: 1,
+            background: 'var(--surface-2)', padding: 3,
+            borderRadius: 'var(--radius-md)', border: '1px solid var(--border)',
+          }}>
+            {[['24h', '24h'], ['3d', '3 days'], ['7d', '7 days']].map(([key, label]) => (
+              <button
+                key={key}
+                className={`tab-btn ${coolingTimeframe === key ? 'active' : ''}`}
+                onClick={() => setCoolingTimeframe(key)}
+                style={{ flex: 1, textAlign: 'center' }}
+              >
+                {label}
+                <span style={{
+                  marginLeft: 3, fontSize: 7,
+                  color: coolingTimeframe === key ? 'var(--cyan)' : 'var(--text-muted)',
+                }}>
+                  {coolingAlphas.filter(a =>
+                    !a.lastSeen || (Date.now() - a.lastSeen) < TIMEFRAME_MS[key]
+                  ).length}
+                </span>
+              </button>
+            ))}
+          </div>
+          {/* Volume Rising toggle */}
+          <button
+            onClick={() => setVolumeRising(prev => !prev)}
+            style={{
+              flexShrink: 0,
+              padding: '3px 8px',
+              fontSize: 9,
+              fontFamily: 'var(--font-mono)',
+              background: volumeRising ? 'rgba(0,255,150,0.15)' : 'var(--surface-2)',
+              border: `1px solid ${volumeRising ? 'rgba(0,255,150,0.5)' : 'var(--border)'}`,
+              borderRadius: 'var(--radius-md)',
+              color: volumeRising ? 'rgb(0,255,150)' : 'var(--text-muted)',
+              cursor: 'pointer',
+              whiteSpace: 'nowrap',
+            }}
+          >
+            📈 Vol Rising
+          </button>
         </div>
       )}
 
@@ -1063,7 +1097,10 @@ const AlphaBoard = ({ selectedAlpha, onSelect, onNewRunners, alphaListRef }) => 
           )}
           {activeTab === 'cooling' && (
             <p style={{ fontFamily: 'var(--font-mono)', fontSize: 9, color: 'var(--cyan)', lineHeight: 1.5 }}>
-              Tokens retracing or consolidating — {filteredCooling.length} in the last {coolingTimeframe}. Watch for second leg entry.
+              {volumeRising
+                ? `📈 ${filteredCooling.length} tokens with rising volume despite negative price — accumulation signal. Gold in the rough.`
+                : `Tokens retracing or consolidating — ${filteredCooling.length} in the last ${coolingTimeframe}. Sorted by recency. Gold in the rough.`
+              }
             </p>
           )}
           {activeTab === 'positioning' && (
@@ -1766,8 +1803,8 @@ const SznPanel = ({ szn, onListBeta, onOpenDrawer }) => {
 
 // ─── Beta Panel ──────────────────────────────────────────────────
 
-const BetaPanel = ({ alpha, onListBeta, onOpenDrawer, onScrollToAlpha }) => {
-  const { parent, loading: parentLoading }               = useParentAlpha(alpha)
+const BetaPanel = ({ alpha, liveAlphas, onListBeta, onOpenDrawer, onScrollToAlpha }) => {
+  const { parent, loading: parentLoading }               = useParentAlpha(alpha, liveAlphas)
   const { betas, loading: betasLoading, error, refresh } = useBetas(alpha, parent)
   const { birdeye }                                       = useBirdeye(alpha?.address)
   const [trenchOnly,   setTrenchOnly]   = useState(false)
@@ -2382,6 +2419,7 @@ export default function App() {
   const [showListModal, setShowListModal]  = useState(false)
   const [drawerToken,   setDrawerToken]    = useState(null)
   const [newRunners,    setNewRunners]     = useState(false)
+  const [appLiveAlphas, setAppLiveAlphas] = useState([])  // fed by AlphaBoard via onLiveAlphas
   const alphaListRef = useRef(null)
   const isSzn = selectedAlpha?.isSzn === true
 
@@ -2405,10 +2443,10 @@ export default function App() {
     <div className="app-wrapper">
       <Navbar onListBeta={() => setShowListModal(true)} newRunners={newRunners} />
       <div className="main-layout">
-        <AlphaBoard selectedAlpha={selectedAlpha} onSelect={handleSelectAlpha} onNewRunners={handleNewRunners} alphaListRef={alphaListRef} />
+        <AlphaBoard selectedAlpha={selectedAlpha} onSelect={handleSelectAlpha} onNewRunners={handleNewRunners} onLiveAlphas={setAppLiveAlphas} alphaListRef={alphaListRef} />
         {isSzn
           ? <SznPanel  szn={selectedAlpha}   onListBeta={() => setShowListModal(true)} onOpenDrawer={setDrawerToken} />
-          : <BetaPanel alpha={selectedAlpha} onListBeta={() => setShowListModal(true)} onOpenDrawer={setDrawerToken} onScrollToAlpha={handleScrollToAlpha} />
+          : <BetaPanel alpha={selectedAlpha} liveAlphas={appLiveAlphas} onListBeta={() => setShowListModal(true)} onOpenDrawer={setDrawerToken} onScrollToAlpha={handleScrollToAlpha} />
         }
       </div>
 

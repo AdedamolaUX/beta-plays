@@ -170,10 +170,18 @@ const NAME_STOP = new Set([
 //   TIER 3 (+0.10): word in token name      → "Dark Pippin" → PIPPIN
 //   TIER 4 (+0.00): symbol prefix/pattern   → PEAKYCHU → PEAKY (weakest)
 //
-// Key fix: description is fetched independently at step 1 since the
-// live feed often strips it out of the alpha object.
+// Momentum weighting (added Session 18):
+//   +0.20: candidate is currently in liveAlphas → this IS the active meta
+//   +0.15: priceChange1h > 5% → actively running right now
+//   +0.10: priceChange1h > 0% → positive momentum
+//   +0.05: priceChange24h > 0% → at least positive on the day
+//   +0.00: negative → not the current narrative
+//
+// This ensures $CHIBI beats $TRUMP for $ChibiTrump when CHIBI is the
+// active meta — regardless of TRUMP's larger mcap.
+// mcapBoost kept but demoted to tiebreaker (max +0.05).
 
-const useParentAlpha = (alpha) => {
+const useParentAlpha = (alpha, liveAlphas = []) => {
   const [parent,  setParent]  = useState(null)
   const [loading, setLoading] = useState(false)
 
@@ -184,6 +192,9 @@ const useParentAlpha = (alpha) => {
     setParent(null)
 
     const symbol = alpha.symbol.toUpperCase()
+
+    // Build live address set inside callback — always fresh
+    const liveAddressSet = new Set((liveAlphas || []).map(a => a.address).filter(Boolean))
 
     // ── Step 1: Get description (fetch if missing) ────────────────
     const description = await fetchDescription(alpha)
@@ -323,20 +334,34 @@ const useParentAlpha = (alpha) => {
                 )
             // Description queries need only 0.30 base sim to qualify
             // Symbol-pattern queries need 0.65 to prevent garbage winning
-            const minBase     = boost > 0 ? 0.30 : 0.65
-            // Mcap tiebreaker: prefer the highest-mcap parent among equal similarity scores.
-            // Normalized against $1B — so $TRUMP at $664M scores +0.033,
-            // dominating any mid-tier token with similar name similarity.
-            // Max boost is +0.05 so it only decides ties, never overrides sim.
-            const mcapBoost   = Math.min((p.marketCap || p.fdv || 0) / 1_000_000_000, 0.05)
-            const totalScore  = baseSim + boost + mcapBoost
+            const minBase = boost > 0 ? 0.30 : 0.65
+
+            // ── Momentum boost — current meta wins ────────────────
+            // A token actively running right now is more likely the
+            // narrative driver than a large but dormant token.
+            // $CHIBI running hard beats $TRUMP (large but quiet) for $ChibiTrump.
+            const change1h  = parseFloat(p.priceChange?.h1  || 0)
+            const change24h = parseFloat(p.priceChange?.h24 || 0)
+            const isLiveNow = liveAddressSet.has(p.baseToken?.address || '')
+
+            const momentumBoost =
+              isLiveNow      ? 0.20 :  // currently on live feed = this IS the meta
+              change1h > 5   ? 0.15 :  // actively running right now
+              change1h > 0   ? 0.10 :  // positive 1h momentum
+              change24h > 0  ? 0.05 :  // at least positive on the day
+              0                        // negative = not the current narrative
+
+            // mcap is demoted to tiebreaker only (max +0.05)
+            const mcapTiebreaker = Math.min((p.marketCap || p.fdv || 0) / 1_000_000_000, 0.05)
+            const totalScore     = baseSim + boost + momentumBoost + mcapTiebreaker
 
             if (baseSim >= minBase && totalScore > bestScore) {
               bestScore = totalScore
               bestMatch = p
               console.log(
                 `[ParentSearch] Candidate $${cSym}: baseSim=${baseSim.toFixed(2)} ` +
-                `boost=${boost} total=${totalScore.toFixed(2)} via query "${q}"`
+                `descBoost=${boost} momentum=${momentumBoost} isLive=${isLiveNow} ` +
+                `total=${totalScore.toFixed(2)} via query "${q}"`
               )
             }
           })

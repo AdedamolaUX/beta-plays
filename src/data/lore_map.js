@@ -110,6 +110,13 @@ const LORE_MAP = {
   BONK:   { terms: ['babybonk','bonkwif','megabonk','bonk'], concepts: ['bonk','dog','solana'], category: 'dogs', universe: 'solana-dogs' },
   MYRO:   { terms: ['babymyro','myrowif','myro'], concepts: ['myro','dog','solana'], category: 'dogs', universe: 'solana-dogs' },
   DOGE:   { terms: ['babydoge','dogecoin','doge','shib','elon','floki'], concepts: ['doge','dog','elon'], category: 'dogs', universe: 'doge-ecosystem' },
+  // Dog slang — all map to the same dog universe
+  DAWG:   { terms: ['dog','doge','shiba','puppy','hound','canine','mutt','doggo','woof','dogwif','bonk','myro'], concepts: ['dog','slang','dawg'], category: 'dogs', universe: 'solana-dogs' },
+  DOG:    { terms: ['dawg','doge','shiba','puppy','hound','canine','mutt','doggo','woof','bonk','inu'], concepts: ['dog','dawg'], category: 'dogs', universe: 'solana-dogs' },
+  DOGGY:  { terms: ['dog','dawg','doge','puppy','shiba','woof','mutt','canine'], concepts: ['dog','doggy','slang'], category: 'dogs', universe: 'solana-dogs' },
+  DOGG:   { terms: ['dog','dawg','doge','shiba','puppy','hound','canine'], concepts: ['dog','slang'], category: 'dogs', universe: 'solana-dogs' },
+  PUPPER: { terms: ['puppy','pup','dog','dawg','doggo','shiba','canine'], concepts: ['dog','puppy','slang'], category: 'dogs', universe: 'solana-dogs' },
+  PUP:    { terms: ['puppy','pupper','dog','dawg','doggo','shiba'], concepts: ['dog','puppy'], category: 'dogs', universe: 'solana-dogs' },
 
   // ── Cat narrative ──
   POPCAT: { terms: ['popdog','popelon','pop','cat'], concepts: ['cat','pop','meme'], category: 'cats', universe: 'pop-memes' },
@@ -240,7 +247,7 @@ export const NARRATIVE_CATEGORIES = {
   // ── Tier 1: Highly specific — unique keywords, low overlap ──────
   aliens:    { label: '👽 Aliens',    priority: 1, keywords: ['alien','ufo','disclosure','area51','extraterrestrial','greys','abduct','roswell','saucer'] },
   frogs:     { label: '🐸 Frog',     priority: 1, keywords: ['pepe','frog','toad','feels','kek','peepo','ribbit','kermit'] },
-  dogs:      { label: '🐕 Dog',      priority: 1, keywords: ['wif','bonk','shib','doge','inu','pup','mutt','puppy','doggo','woofie'] },
+  dogs:      { label: '🐕 Dog',      priority: 1, keywords: ['wif','bonk','shib','doge','inu','pup','mutt','puppy','doggo','woofie','dawg','dog','doggy','dogg','pupper','hound','canine','woof','shiba'] },
   cats:      { label: '🐱 Cat',      priority: 1, keywords: ['cat','mew','nyan','kitty','meow','kitten','purr','whisker'] },
   elon:      { label: '⚡ Elon',      priority: 1, keywords: ['elon','musk','spacex','grok','neuralink','xaei'] },
   trump:     { label: '🇺🇸 Trump',    priority: 1, keywords: ['trump','maga','melania','barron','ivanka','donnie','magahat'] },
