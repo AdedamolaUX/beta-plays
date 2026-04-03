@@ -179,14 +179,15 @@ const callGemini = async (parts) => {
   }
 }
 
-// ─── Healer Alpha vision fallback ────────────────────────────────
-// Omni-modal model on OpenRouter — supports vision, free tier.
-// Used when both Gemini and Groq vision are quota-exhausted.
+// ─── MiMo V2 Omni vision fallback ────────────────────────────────
+// Previously "Healer Alpha" — that model was deprecated March 18, 2026
+// and replaced by xiaomi/mimo-v2-omni on OpenRouter.
+// Omni-modal model supporting vision. Used when Gemini + Groq both exhausted.
 const callHealerVision = async (parts, prompt) => {
   const OR_KEY = process.env.OPENROUTER_API_KEY
   if (!OR_KEY) throw new Error('OPENROUTER_API_KEY not configured')
 
-  // Healer Alpha uses OpenAI-compatible vision format
+  // MiMo V2 Omni uses OpenAI-compatible vision format
   const content = []
   parts.forEach(p => {
     if (p.text) {
@@ -208,7 +209,7 @@ const callHealerVision = async (parts, prompt) => {
       'X-Title':       'BetaPlays',
     },
     body: JSON.stringify({
-      model: 'openrouter/healer-alpha',
+      model: 'xiaomi/mimo-v2-omni',
       max_tokens: 1000,
       temperature: 0.1,
       messages: [
@@ -220,7 +221,7 @@ const callHealerVision = async (parts, prompt) => {
 
   if (!response.ok) {
     const err = await response.text()
-    throw new Error(`Healer Alpha error ${response.status}: ${err}`)
+    throw new Error(`MiMo V2 Omni error ${response.status}: ${err}`)
   }
 
   const data  = await response.json()
@@ -403,8 +404,20 @@ ANALYSIS (work through each step):
    D. DEGEN DERIVATIVES: What remix tokens would CT immediately spin up from this runner?
       (ape → babyape, evilape, darkape, apewif / pepe → babypepe, pepewif, sadpepe)
 
-6. CRYPTO CULTURE: What ran alongside this narrative historically?
+6. MANDATORY COUNTER — this step is required, never skip it:
+   Every concept has an opposing force that runs BECAUSE this token runs.
+   Name the direct antonym, the narrative enemy, the philosophical opposite.
+   zen → chaos | bull → bear | light → dark | heaven → hell | order → chaos
+   hot → cold | fast → slow | hero → villain | good → evil | rich → poor
+   Output at least 1-2 COUNTER terms. Mark them COUNTER in relationshipHints.
+   If the concept has an explicit dark/inverted version (evil twin, corrupted form,
+   shadow self) — output that too and mark it EVIL_TWIN.
+   zen → darkzen, chaoszen (EVIL_TWIN) | pepe → wojak (COUNTER) | bull → bear (COUNTER)
+
+7. CRYPTO CULTURE: What ran alongside this narrative historically?
    What CT communities, collections, or movements does this connect to?
+   What competing tokens or rival concepts exist in the same space?
+   (zen → tao, buddha, monk as SECTOR rivals / ape → bayc, bored as UNIVERSE)
 
 RELATIONSHIP TYPES (assign each term one):
 TWIN=synonym/equivalent | COUNTER=direct opposite | ECHO=consequence/extension
@@ -424,6 +437,10 @@ SELF-CHECK before outputting — remove any term that:
 - Could describe any random Solana token (too generic)
 - You invented right now and likely doesn't exist as a real token name
 - Needs more than one reasoning hop to connect to this token
+
+ALSO VERIFY before outputting:
+- Do your relationshipHints include at least one COUNTER? If not — add one now.
+- Do your searchTerms include the direct antonym of the core concept? If not — add it.
 
 Respond ONLY with valid JSON, no markdown:
 {"searchTerms":["term1","term2"],"relationshipHints":{"term1":"TWIN","term2":"COUNTER"}}`
@@ -664,13 +681,13 @@ app.post('/api/score-betas', async (req, res) => {
       } catch (e) { if (e.message !== '429') throw e; console.warn('[Vector8] OR llama-3.3-70b quota hit') }
     }
 
-    // 4. OR DeepSeek R1 — strong reasoning
+    // 4. OR DeepSeek V3 — R1:free removed from OR April 2026, V3-5 is replacement
     if (OR_KEY) {
       try {
-        const result = await tryOpenAI('https://openrouter.ai/api/v1/chat/completions', OR_KEY, 'deepseek/deepseek-r1:free', OR_HEADERS)
-        console.log('[Vector8] OR fallback: deepseek-r1:free')
+        const result = await tryOpenAI('https://openrouter.ai/api/v1/chat/completions', OR_KEY, 'deepseek/deepseek-chat-v3-5:free', OR_HEADERS)
+        console.log('[Vector8] OR fallback: deepseek-v3-5:free')
         return res.json(result)
-      } catch (e) { if (e.message !== '429') throw e; console.warn('[Vector8] OR deepseek-r1 quota hit') }
+      } catch (e) { if (e.message !== '429') throw e; console.warn('[Vector8] OR deepseek-v3-5 quota hit') }
     }
 
     // 5. Kimi K2.5 — 1T params, strong reasoning, free on OpenRouter
@@ -682,6 +699,16 @@ app.post('/api/score-betas', async (req, res) => {
       } catch (e) { if (e.message !== '429') throw e; console.warn('[Vector8] Kimi K2.5 quota hit') }
     }
 
+    // 5b. Gemma 4 31B — #3 open model, reasoning mode, strong classification quality
+    // Released April 2025. Free on OpenRouter. Better reasoning than Qwen/Hunter.
+    if (OR_KEY) {
+      try {
+        const result = await tryOpenAI('https://openrouter.ai/api/v1/chat/completions', OR_KEY, 'google/gemma-4-31b-it', OR_HEADERS)
+        console.log('[Vector8] OR fallback: gemma-4-31b-it')
+        return res.json(result)
+      } catch (e) { if (e.message !== '429') throw e; console.warn('[Vector8] Gemma 4 31B quota hit') }
+    }
+
     // 6. OR Qwen 2.5 72b — solid alternative
     if (OR_KEY) {
       try {
@@ -691,13 +718,13 @@ app.post('/api/score-betas', async (req, res) => {
       } catch (e) { if (e.message !== '429') throw e; console.warn('[Vector8] OR qwen-2.5-72b quota hit') }
     }
 
-    // 7. Hunter Alpha — 1T params, 1M context, free (reasoning benchmarks moderate)
+    // 7. MiMo V2 Omni — formerly "Hunter Alpha", replaced March 18 2026
     if (OR_KEY) {
       try {
-        const result = await tryOpenAI('https://openrouter.ai/api/v1/chat/completions', OR_KEY, 'openrouter/hunter-alpha', OR_HEADERS)
-        console.log('[Vector8] OR fallback: hunter-alpha')
+        const result = await tryOpenAI('https://openrouter.ai/api/v1/chat/completions', OR_KEY, 'xiaomi/mimo-v2-omni', OR_HEADERS)
+        console.log('[Vector8] OR fallback: mimo-v2-omni')
         return res.json(result)
-      } catch (e) { if (e.message !== '429') throw e; console.warn('[Vector8] Hunter Alpha quota hit') }
+      } catch (e) { if (e.message !== '429') throw e; console.warn('[Vector8] MiMo V2 Omni quota hit') }
     }
 
     // 8. Gemini Flash — existing key, 1500 req/day
@@ -779,6 +806,8 @@ app.post('/api/expand-alpha', async (req, res) => {
     const { address, symbol, name, description, logoUrl, marketCap, forceRefresh } = req.body
     if (!address || !symbol) return res.status(400).json({ error: 'address and symbol required' })
 
+    const OR_KEY = process.env.OPENROUTER_API_KEY  // needed for Gemma 4 calls
+
     // Check server-side cache first
     const cached = expansionCache.get(address)
     if (isExpansionCacheValid(cached, marketCap, forceRefresh)) {
@@ -789,9 +818,13 @@ app.post('/api/expand-alpha', async (req, res) => {
     console.log(`[Vector0] Expanding $${symbol}${forceRefresh ? ' (forced refresh)' : ''}...`)
 
     // ── Vector 0A: Text expansion ─────────────────────────────────
-    // Uses 70b for quality — expansion is the most critical step in the
-    // pipeline. A weak model here starves every downstream vector.
-    // Falls back to Gemini Flash if Groq 70b quota is hit.
+    // Model chain priority:
+    //   1. Groq 70b          — fastest, reliable, known quality (100K TPD)
+    //   2. Gemma 4 26B MoE   — #6 open model, fast MoE (3.8B active params),
+    //                          free on OpenRouter, comparable quality to 31B
+    //   3. Gemini Flash      — generous quota (1500/day), strong reasoning
+    //   empty if all fail    — symbol decomposition carries the search
+    //                          (better than broken 8b JSON cached as 0 terms)
     let searchTerms      = []
     let relationshipHints = {}
 
@@ -801,7 +834,7 @@ app.post('/api/expand-alpha', async (req, res) => {
 
       let textResult = null
 
-      // Try Groq 70b first — best reasoning quality
+      // 1. Groq 70b — fastest, best quota for our usage
       if (isGroq70bAvailable()) {
         try {
           console.log(`[Vector0A] $${symbol} — trying Groq 70b...`)
@@ -810,16 +843,54 @@ app.post('/api/expand-alpha', async (req, res) => {
         } catch (groq70Err) {
           if (groq70Err.message?.includes('429') || groq70Err.message?.includes('rate') || groq70Err.message?.includes('daily')) {
             markGroq70bDailyLimitHit()
-            console.warn(`[Vector0A] Groq 70b quota hit — falling back to Gemini`)
+            console.warn(`[Vector0A] Groq 70b quota hit — trying Gemma 4 26B MoE`)
           } else {
             console.warn(`[Vector0A] Groq 70b error:`, groq70Err.message)
           }
         }
       } else {
-        console.log(`[Vector0A] $${symbol} — Groq 70b daily limit active, going straight to Gemini`)
+        console.log(`[Vector0A] $${symbol} — Groq 70b daily limit active, trying Gemma 4 26B MoE`)
       }
 
-      // Fallback: Gemini Flash — generous quota, strong reasoning
+      // 2. Gemma 4 26B MoE — #6 open model, fast inference (3.8B active params)
+      // Free on OpenRouter. Strong reasoning, 256K context, native function calling.
+      // MoE variant chosen over 31B for speed — comparable quality, much faster.
+      if (!textResult && OR_KEY) {
+        try {
+          console.log(`[Vector0A] $${symbol} — trying Gemma 4 26B MoE...`)
+          const response = await fetch('https://openrouter.ai/api/v1/chat/completions', {
+            method: 'POST',
+            headers: {
+              'Content-Type':  'application/json',
+              'Authorization': `Bearer ${OR_KEY}`,
+              'HTTP-Referer':  'https://betaplays.app',
+              'X-Title':       'BetaPlays',
+            },
+            body: JSON.stringify({
+              model:       'google/gemma-4-26b-a4b-it',
+              max_tokens:  1200,
+              temperature: 0.1,
+              messages: [
+                { role: 'system', content: expansionSystem },
+                { role: 'user',   content: expansionPrompt },
+              ],
+            }),
+          })
+          if (!response.ok) {
+            const errText = await response.text()
+            throw new Error(`Gemma 4 MoE ${response.status}: ${errText.slice(0, 100)}`)
+          }
+          const data = await response.json()
+          const text = data.choices?.[0]?.message?.content || ''
+          const clean = text.replace(/```json|```/g, '').trim()
+          textResult = JSON.parse(clean)
+          console.log(`[Vector0A] $${symbol} → Gemma 4 26B MoE → ${(textResult?.searchTerms||[]).length} terms`)
+        } catch (gemma4Err) {
+          console.warn(`[Vector0A] Gemma 4 26B MoE failed:`, gemma4Err.message)
+        }
+      }
+
+      // 3. Gemini Flash — generous quota fallback
       if (!textResult) {
         try {
           console.log(`[Vector0A] $${symbol} — trying Gemini Flash...`)
@@ -830,10 +901,6 @@ app.post('/api/expand-alpha', async (req, res) => {
         }
       }
 
-      // 8b-instant removed from V0A chain — it truncates JSON on longer responses
-      // and produces broken output that caches as 0 terms. If both 70b and Gemini
-      // fail, V0A returns empty and symbol/name decomposition carries the search.
-      // That's better than broken cached results from 8b.
       if (!textResult) {
         console.warn(`[Vector0A] $${symbol} — all models failed, returning empty (symbol decomposition takes over)`)
       }
@@ -848,6 +915,11 @@ app.post('/api/expand-alpha', async (req, res) => {
     }
 
     // ── Vector 0B: Image expansion ────────────────────────────────
+    // Model chain priority:
+    //   1. Gemini Flash    — best cultural/visual analysis, existing key
+    //   2. Gemma 4 31B     — vision benchmark leader, better than Gemini
+    //                        on charts/diagrams/logo understanding
+    //   3. Groq vision     — last resort (Llama 4 Scout)
     let visualTerms  = []
     let visualHints  = {}
     let mood         = null
@@ -856,7 +928,8 @@ app.post('/api/expand-alpha', async (req, res) => {
       try {
         const imgData = await fetchImageAsBase64(logoUrl)
         if (imgData && GROQ_SUPPORTED_TYPES.includes(imgData.mimeType)) {
-          // Try Gemini first — better at visual cultural analysis
+
+          // 1. Gemini — primary vision model
           try {
             const parts  = buildImageExpansionParts(symbol, name, imgData)
             const result = await callGemini(parts)
@@ -866,15 +939,88 @@ app.post('/api/expand-alpha', async (req, res) => {
             console.log(`[Vector0B] $${symbol} → ${visualTerms.length} visual terms via Gemini`)
           } catch (geminiErr) {
             if (isGeminiQuotaError(geminiErr)) {
-              console.warn(`[Vector0B] Gemini quota — falling back to Groq vision for $${symbol}`)
-              try {
-                const result = await callGroqImageExpansion(symbol, name, imgData)
-                visualTerms  = result.visualTerms || []
-                visualHints  = result.visualHints  || {}
-                mood         = result.mood         || null
-                console.log(`[Vector0B] $${symbol} → ${visualTerms.length} visual terms via Groq`)
-              } catch (groqErr) {
-                console.warn(`[Vector0B] Groq vision fallback failed:`, groqErr.message)
+              console.warn(`[Vector0B] Gemini quota — trying Gemma 4 31B vision for $${symbol}`)
+
+              // 2. Gemma 4 31B — superior vision benchmarks, free on OpenRouter
+              // Handles charts, diagrams, logos better than Gemini on visual tasks.
+              // Uses same prompt structure as Groq vision (OpenAI-compatible format).
+              if (OR_KEY) {
+                try {
+                  const visionContent = [
+                    {
+                      type: 'image_url',
+                      image_url: { url: `data:${imgData.mimeType};base64,${imgData.base64}` },
+                    },
+                    {
+                      type: 'text',
+                      text: `This is the logo of Solana meme token $${symbol}${name && name.toLowerCase() !== symbol.toLowerCase() ? ' (' + name + ')' : ''}.
+
+Step 1 — IDENTIFY THE SUBJECT: What is the main character or object? Be specific about species/type.
+  Good: "holstein cow", "shiba inu dog", "pepe frog", "raccoon", "astronaut"
+  Bad: "animal", "character", "creature"
+
+Step 2 — NOTABLE ACCESSORIES or ACTIONS: What is it wearing or doing that makes it unique?
+  Good: "red baseball cap", "crying expression", "holding sign", "wearing suit"
+  Bad: "colorful", "cute", "big eyes"
+
+Step 3 — DEGEN NARRATIVE ANGLE: What narrative would a meme token creator derive from this image?
+  Cow farting → fart, gas, methane | Dog with hat → dogwif | Sad frog → pepe, feels
+
+Output 3-5 terms: the SUBJECT (most important), then accessories, then degen narrative angle.
+Also note mood (happy/evil/stoic/chaotic/sad/angry).
+
+Respond ONLY with valid JSON. No markdown:
+{"visualTerms":["cow","bovine","fart","farm","holstein"],"mood":"happy","visualHints":{"cow":"TWIN","fart":"TWIN","farm":"UNIVERSE"}}`,
+                    },
+                  ]
+                  const gemma4Res = await fetch('https://openrouter.ai/api/v1/chat/completions', {
+                    method: 'POST',
+                    headers: {
+                      'Content-Type':  'application/json',
+                      'Authorization': `Bearer ${OR_KEY}`,
+                      'HTTP-Referer':  'https://betaplays.app',
+                      'X-Title':       'BetaPlays',
+                    },
+                    body: JSON.stringify({
+                      model:       'google/gemma-4-31b-it',
+                      max_tokens:  400,
+                      temperature: 0.1,
+                      messages: [{ role: 'user', content: visionContent }],
+                    }),
+                  })
+                  if (!gemma4Res.ok) throw new Error(`Gemma 4 vision ${gemma4Res.status}`)
+                  const gemma4Data = await gemma4Res.json()
+                  const gemma4Text = gemma4Data.choices?.[0]?.message?.content || ''
+                  const result = JSON.parse(gemma4Text.replace(/```json|```/g, '').trim())
+                  visualTerms  = result.visualTerms || []
+                  visualHints  = result.visualHints  || {}
+                  mood         = result.mood         || null
+                  console.log(`[Vector0B] $${symbol} → ${visualTerms.length} visual terms via Gemma 4 31B`)
+                } catch (gemma4Err) {
+                  console.warn(`[Vector0B] Gemma 4 31B vision failed:`, gemma4Err.message)
+
+                  // 3. Groq vision — last resort
+                  try {
+                    const result = await callGroqImageExpansion(symbol, name, imgData)
+                    visualTerms  = result.visualTerms || []
+                    visualHints  = result.visualHints  || {}
+                    mood         = result.mood         || null
+                    console.log(`[Vector0B] $${symbol} → ${visualTerms.length} visual terms via Groq`)
+                  } catch (groqErr) {
+                    console.warn(`[Vector0B] Groq vision fallback failed:`, groqErr.message)
+                  }
+                }
+              } else {
+                // No OR key — fall straight to Groq vision
+                try {
+                  const result = await callGroqImageExpansion(symbol, name, imgData)
+                  visualTerms  = result.visualTerms || []
+                  visualHints  = result.visualHints  || {}
+                  mood         = result.mood         || null
+                  console.log(`[Vector0B] $${symbol} → ${visualTerms.length} visual terms via Groq`)
+                } catch (groqErr) {
+                  console.warn(`[Vector0B] Groq vision fallback failed:`, groqErr.message)
+                }
               }
             } else {
               console.warn(`[Vector0B] Gemini error (non-quota):`, geminiErr.message)
@@ -984,10 +1130,10 @@ Respond ONLY with a JSON array. No explanation, no markdown. Example:
       { url: 'https://api.groq.com/openai/v1/chat/completions',   key: GROQ_KEY, model: 'llama-3.3-70b-versatile',                      headers: {},         tag: 'Groq 70b'           },
       { url: 'https://api.groq.com/openai/v1/chat/completions',   key: GROQ_KEY, model: 'meta-llama/llama-4-scout-17b-16e-instruct',     headers: {},         tag: 'Groq Scout'         },
       { url: 'https://openrouter.ai/api/v1/chat/completions',     key: OR_KEY,   model: 'meta-llama/llama-3.3-70b-instruct:free',        headers: OR_HEADERS, tag: 'OR llama-70b'       },
-      { url: 'https://openrouter.ai/api/v1/chat/completions',     key: OR_KEY,   model: 'deepseek/deepseek-r1:free',                     headers: OR_HEADERS, tag: 'OR deepseek-r1'     },
+      { url: 'https://openrouter.ai/api/v1/chat/completions',     key: OR_KEY,   model: 'deepseek/deepseek-chat-v3-5:free',                 headers: OR_HEADERS, tag: 'OR deepseek-v3-5'  },
       { url: 'https://openrouter.ai/api/v1/chat/completions',     key: OR_KEY,   model: 'moonshotai/kimi-k2.5',                          headers: OR_HEADERS, tag: 'Kimi K2.5'          },
       { url: 'https://openrouter.ai/api/v1/chat/completions',     key: OR_KEY,   model: 'qwen/qwen-2.5-72b-instruct:free',               headers: OR_HEADERS, tag: 'OR qwen-72b'        },
-      { url: 'https://openrouter.ai/api/v1/chat/completions',     key: OR_KEY,   model: 'openrouter/hunter-alpha',                       headers: OR_HEADERS, tag: 'Hunter Alpha'       },
+      { url: 'https://openrouter.ai/api/v1/chat/completions',     key: OR_KEY,   model: 'xiaomi/mimo-v2-omni',                              headers: OR_HEADERS, tag: 'MiMo V2 Omni'       },
       { url: 'https://openrouter.ai/api/v1/chat/completions',     key: OR_KEY,   model: 'google/gemini-2.0-flash-exp:free',              headers: OR_HEADERS, tag: 'OR gemini-flash'    },
       { url: 'https://api.groq.com/openai/v1/chat/completions',   key: GROQ_KEY, model: 'llama-3.1-8b-instant',                         headers: {},         tag: 'Groq 8b (last resort)' },
     ]
@@ -1088,9 +1234,9 @@ Respond ONLY with a JSON array. No markdown. Example:
           result = await callGroqVision('classify', groqCompatible)
           console.log('[Vision] Groq vision classify OK')
         } catch (groqErr) {
-          console.warn('[Vision] Groq vision failed — trying Healer Alpha')
+          console.warn('[Vision] Groq vision failed — trying MiMo V2 Omni')
           result = await callHealerVision(parts, 'classify')
-          console.log('[Vision] Healer Alpha classify OK')
+          console.log('[Vision] MiMo V2 Omni classify OK')
         }
       }
       const enriched = result.map(r => ({
@@ -1158,9 +1304,9 @@ Respond ONLY with a JSON array. No markdown. Example:
           result = await callGroqVision('compare', groqCompatible, alphaWithImg)
           console.log('[Vision] Groq vision compare OK')
         } catch (groqErr) {
-          console.warn('[Vision] Groq vision failed — trying Healer Alpha')
+          console.warn('[Vision] Groq vision failed — trying MiMo V2 Omni')
           result = await callHealerVision(parts, 'compare')
-          console.log('[Vision] Healer Alpha compare OK')
+          console.log('[Vision] MiMo V2 Omni compare OK')
         }
       }
       const enriched = result.map(r => ({

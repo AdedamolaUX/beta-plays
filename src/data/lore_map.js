@@ -135,6 +135,8 @@ const LORE_MAP = {
   GOAT:   { terms: ['goat','ai','terminal','truth'], concepts: ['ai','goat','terminal'], category: 'ai', universe: 'ai-terminal' },
   CLAUDE: { terms: ['claude','anthropic','ai','llm','sonnet'], concepts: ['ai','claude','anthropic'], category: 'ai', universe: 'ai-models' },
   GPT:    { terms: ['gpt','openai','chatgpt','ai','llm'], concepts: ['ai','gpt','openai'], category: 'ai', universe: 'ai-models' },
+  GEMMA:  { terms: ['gemma','google','ai','llm','gemini','model','deepmind'], concepts: ['ai','gemma','google'], category: 'ai', universe: 'ai-models' },
+  GEMMA4: { terms: ['gemma','gemma4','google','ai','llm','gemini','model'], concepts: ['ai','gemma4','google'], category: 'ai', universe: 'ai-models' },
   VIBE:   { terms: ['vibecode','vibecoding','cursor','devin','coder'], concepts: ['vibe','coding','ai','dev'], category: 'ai', universe: 'vibecoding' },
 
   // ── Gaming narrative ──
@@ -259,7 +261,7 @@ export const NARRATIVE_CATEGORIES = {
   penguins:  { label: '🐧 Penguins',  priority: 1, keywords: ['penguin','waddle','tux','arctic','igloo','pingu'] },
 
   // ── Tier 2: Moderate specificity ────────────────────────────────
-  ai:        { label: '🤖 AI',        priority: 2, keywords: ['ai','gpt','neural','agent','llm','robot','claude','vibe','cursor','devin','copilot','gemini','chatbot'] },
+  ai:        { label: '🤖 AI',        priority: 2, keywords: ['ai','gpt','neural','agent','llm','robot','claude','vibe','cursor','devin','copilot','gemini','chatbot','gemma','deepmind','anthropic','mistral','groq','llama'] },
   political: { label: '🏛️ Political', priority: 2, keywords: ['biden','kamala','obama','political','vote','election','senate','congress','democrat','republican','maga','usa'] },
   space:     { label: '🚀 Space',     priority: 2, keywords: ['moon','mars','space','rocket','nasa','galaxy','star','cosmos','astronaut','orbit','saturn','jupiter'] },
   movies:    { label: '🎬 Movies/TV', priority: 2, keywords: ['walter','jesse','joker','batman','breaking','heisenberg','marvel','dc','disney','netflix','hbo','squid'] },
@@ -329,6 +331,21 @@ export const getCategory = (symbol) => {
 export const getUniverse = (symbol) => {
   const upper = symbol.toUpperCase()
   return LORE_MAP[upper]?.universe || null
+}
+
+// ─── Category detection ───────────────────────────────────────────
+// Checks symbol, name, and description against NARRATIVE_CATEGORIES keywords.
+// Returns the first matching category key or null.
+// Priority-sorted so specific categories match before generic ones.
+const SORTED_CATEGORIES = Object.entries(NARRATIVE_CATEGORIES)
+  .sort((a, b) => (a[1].priority || 2) - (b[1].priority || 2))
+
+export const detectCategory = (symbol, name = '', description = '') => {
+  const haystack = `${symbol} ${name} ${description}`.toLowerCase()
+  for (const [key, cat] of SORTED_CATEGORIES) {
+    if (cat.keywords.some(kw => haystack.includes(kw))) return key
+  }
+  return null
 }
 
 export default LORE_MAP

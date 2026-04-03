@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
 import axios from 'axios'
-import { getSearchTerms, getConcepts, generateTickerVariants } from '../data/lore_map'
+import { getSearchTerms, getConcepts, generateTickerVariants, detectCategory, NARRATIVE_CATEGORIES } from '../data/lore_map'
 import classifyRelationships from './useAIBetaScoring'
 import { compareLogos, shouldRunVision } from './useImageAnalysis'
 
@@ -901,6 +901,34 @@ const fetchDescriptionKeywords = async (alpha) => {
       console.log(`[Vector1b] $${alpha.symbol} — using name as description fallback: "${symbolDesc}"`)
       return { keywords, description: symbolDesc }
     }
+
+    // ── Source 6: DEXScreener token profiles endpoint ─────────────
+    // Tokens that have claimed their DEXScreener profile store their
+    // description in a separate profiles system — not always returned
+    // by the pair/search endpoints above. This catches tokens like
+    // $ROCKET whose description only lives in the profiles API.
+    try {
+      const profileRes = await DEX_QUEUE.get(
+        `${DEXSCREENER_BASE}/token-profiles/latest/v1`
+      )
+      const profiles = profileRes.data || []
+      const match = Array.isArray(profiles)
+        ? profiles.find(p =>
+            p.chainId === 'solana' &&
+            (p.tokenAddress === alpha.address ||
+             p.header?.toLowerCase().includes(alpha.symbol.toLowerCase()))
+          )
+        : null
+
+      const profileDesc = match?.description || ''
+      if (profileDesc && profileDesc.length > 10) {
+        const raw      = extractDescriptionKeywords(profileDesc)
+        const keywords = filterDescriptionKeywords(raw, alpha.symbol, alpha.name || '', profileDesc)
+        console.log(`[Vector1b] $${alpha.symbol} description (token profiles): "${profileDesc.slice(0, 60)}..."`)
+        console.log(`[Vector1b] $${alpha.symbol} description keywords:`, keywords)
+        return { keywords, description: profileDesc }
+      }
+    } catch { /* silent */ }
 
     console.log(`[Vector1b] $${alpha.symbol} — no description found across all sources`)
     return { keywords: [], description: '' }
@@ -1911,15 +1939,99 @@ const useBetas = (alpha, parentAlpha = null) => {
         console.warn('[Vector0] Expansion failed (non-fatal — continuing without):', v0Err.message)
       }
 
+      // ── Category-aware search seeding ────────────────────────────
+      // If a token falls into a known narrative category, inject that
+      // category's keywords into the search pool — even when V0A fails.
+      // This is the "category determines search strategy" principle:
+      // $ROCKET identified as space/emoji → search space AND emoji tokens
+      // $ZEN identified as spiritual → search chaos/disorder as COUNTER
+      //
+      // Three detection layers:
+      //   1. Emoji token detection — symbol or name IS an emoji concept
+      //   2. Narrative category from detectCategory() (lore_map.js)
+      //   3. Current events / lore linking — injected via Telegram V10
+      //      (no systematic news API yet — V11 Twitter activation unlocks this)
+      //
+      // Detected category seeds are tagged 'category_seed' so they can be
+      // distinguished from V0A terms in downstream logging.
+
+      let categorySeeds = []
+
+      // ── Layer 1: Emoji token detection ───────────────────────────
+      // If the token IS an emoji concept (rocket, skull, frog, fire etc),
+      // search for actual emoji tickers on DEX alongside text equivalents.
+      // Emoji tokens form their own meta-universe — when $ROCKET runs,
+      // $🚀 $🔥 $💀 etc often follow because degens treat them as a category.
+      const EMOJI_CONCEPT_MAP = {
+        rocket:    { emoji: '🚀', related: ['moon','launch','blast','orbit','nasa','mars','space'] },
+        skull:     { emoji: '💀', related: ['dead','death','rip','ghost','bones','dark'] },
+        frog:      { emoji: '🐸', related: ['pepe','toad','kermit','ribbit'] },
+        fire:      { emoji: '🔥', related: ['flame','blaze','burn','hot','inferno'] },
+        dog:       { emoji: '🐶', related: ['doge','shiba','puppy','woof','bonk'] },
+        cat:       { emoji: '🐱', related: ['meow','neko','kitty','pepe'] },
+        diamond:   { emoji: '💎', related: ['gem','jewel','crystal','rare','based'] },
+        lightning: { emoji: '⚡', related: ['thunder','bolt','zap','fast','electric'] },
+        moon:      { emoji: '🌙', related: ['luna','lunar','night','dark','space'] },
+        clover:    { emoji: '🍀', related: ['lucky','shamrock','green','irish'] },
+        bear:      { emoji: '🐻', related: ['grizzly','panda','honey','woods'] },
+        alien:     { emoji: '👽', related: ['ufo','extraterrestrial','area51','disclosure'] },
+        money:     { emoji: '💸', related: ['cash','rich','wealth','dollar','bread'] },
+        brain:     { emoji: '🧠', related: ['smart','iq','think','genius','mind'] },
+        poop:      { emoji: '💩', related: ['shit','crap','turd','fart','stink'] },
+      }
+
+      const symLowerForCat = enrichedAlpha.symbol.toLowerCase()
+      const nameLowerForCat = (enrichedAlpha.name || '').toLowerCase()
+      const emojiMatch = Object.entries(EMOJI_CONCEPT_MAP).find(([concept]) =>
+        symLowerForCat === concept ||
+        symLowerForCat.includes(concept) ||
+        nameLowerForCat.includes(concept)
+      )
+
+      if (emojiMatch) {
+        const [concept, { emoji, related }] = emojiMatch
+        categorySeeds = [...related, emoji]
+        console.log(`[CategorySeed] $${enrichedAlpha.symbol} → emoji concept "${concept}" → seeds: [${categorySeeds.join(', ')}]`)
+      }
+
+      // ── Layer 2: Narrative category seeding ──────────────────────
+      // When detectCategory() matches a known narrative, inject that
+      // category's keywords as additional search seeds.
+      // This ensures category membership drives search even when V0A
+      // fails or produces thin output.
+      if (categorySeeds.length === 0) {
+        try {
+          const detectedCat = detectCategory(
+            enrichedAlpha.symbol,
+            enrichedAlpha.name || '',
+            enrichedAlpha.description || ''
+          )
+          if (detectedCat && NARRATIVE_CATEGORIES[detectedCat]) {
+            const catKeywords = NARRATIVE_CATEGORIES[detectedCat].keywords || []
+            categorySeeds = catKeywords
+              .filter(k => !v0SearchTerms.includes(k) && isValidSearchTerm(k))
+              .slice(0, 8)
+            if (categorySeeds.length > 0) {
+              console.log(`[CategorySeed] $${enrichedAlpha.symbol} → category "${detectedCat}" → seeds: [${categorySeeds.join(', ')}]`)
+            }
+          }
+        } catch (catErr) {
+          console.warn('[CategorySeed] Detection failed (non-fatal):', catErr.message)
+        }
+      }
+
+      // Merge category seeds into V0A search terms
+      const allV0Terms = [...new Set([...v0SearchTerms, ...categorySeeds])]
+
       // Run all signals in parallel — seeded with v0SearchTerms ONLY.
       // v0VisualTerms are reserved for the vision pipeline below.
       const [keywordRes, descRes, loreRes, morphRes, pumpRes, lpRes, ogRes, telegramRes, twitterRes] =
         await Promise.allSettled([
-          fetchKeywordBetas(enrichedAlpha.symbol, enrichedAlpha.name, v0SearchTerms),
-          fetchDescriptionBetas(enrichedAlpha, descKeywords, v0SearchTerms),
-          fetchLoreBetas(enrichedAlpha.symbol, enrichedAlpha.name, v0SearchTerms),
+          fetchKeywordBetas(enrichedAlpha.symbol, enrichedAlpha.name, allV0Terms),
+          fetchDescriptionBetas(enrichedAlpha, descKeywords, allV0Terms),
+          fetchLoreBetas(enrichedAlpha.symbol, enrichedAlpha.name, allV0Terms),
           fetchMorphologyBetas(enrichedAlpha.symbol),
-          fetchPumpFunBetas(enrichedAlpha.symbol, descKeywords, enrichedAlpha.name, v0SearchTerms),
+          fetchPumpFunBetas(enrichedAlpha.symbol, descKeywords, enrichedAlpha.name, allV0Terms),
           fetchLPPairBetas(enrichedAlpha),
           fetchExactMatchOGs(enrichedAlpha.symbol, enrichedAlpha.address),
           fetchTelegramBetas(enrichedAlpha.symbol),
