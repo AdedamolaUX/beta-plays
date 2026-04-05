@@ -62,6 +62,17 @@ function markGroq70bDailyLimitHit () {
 const pumpFunCache = new Map()  // key: query string → { data, ts }
 const PUMPFUN_CACHE_TTL = 10 * 60 * 1000  // 10 minutes
 
+// Outage cooldown — when both PumpFun AND PumpPortal fail, mark as down
+// for 5 minutes. Skips all PumpFun calls immediately instead of waiting
+// 8s × 2 timeouts on every request. Same pattern as Groq 70b daily limit.
+let pumpFunOutageUntil = 0
+const PUMPFUN_OUTAGE_COOLDOWN = 5 * 60 * 1000  // 5 minutes
+const isPumpFunDown = () => Date.now() < pumpFunOutageUntil
+const markPumpFunDown = () => {
+  pumpFunOutageUntil = Date.now() + PUMPFUN_OUTAGE_COOLDOWN
+  console.warn(`[PumpFun] Both PumpFun + PumpPortal failed — cooling down until ${new Date(pumpFunOutageUntil).toISOString()}`)
+}
+
 // Rate limiting — split limits so vision batches don't eat the shared quota
 const limiter = rateLimit({
   windowMs: 60 * 1000,
@@ -1379,6 +1390,46 @@ app.get('/api/birdeye', async (req, res) => {
   }
 })
 
+// ─── PumpFun metadata proxy ───────────────────────────────────────
+// PumpFun blocks direct browser fetch (CORS). Backend proxies the
+// request server-side to bypass this restriction.
+// Used by Vector 1b Source 8 to fetch token descriptions for
+// PumpFun-launched tokens — their descriptions only live in PumpFun's
+// API, not in DEXScreener or Birdeye.
+// GET /api/pumpfun-metadata?address={address}
+app.get('/api/pumpfun-metadata', async (req, res) => {
+  const { address } = req.query
+  if (!address) return res.status(400).json({ error: 'address required' })
+
+  // Skip if PumpFun is in outage cooldown
+  if (isPumpFunDown()) {
+    console.warn(`[PumpFunMeta] Outage cooldown active — skipping ${address}`)
+    return res.status(503).json({ error: 'PumpFun outage — cooling down' })
+  }
+
+  try {
+    const response = await fetch(
+      `https://frontend-api.pump.fun/coins/${address}`,
+      {
+        headers: {
+          'User-Agent': 'Mozilla/5.0 (compatible; BetaPlays/1.0)',
+          'Accept':     'application/json',
+        },
+      }
+    )
+    if (!response.ok) {
+      console.warn(`[PumpFunMeta] ${address} → ${response.status}`)
+      return res.status(response.status).json({ error: `PumpFun returned ${response.status}` })
+    }
+    const data = await response.json()
+    console.log(`[PumpFunMeta] ${address} → description: "${(data?.description || '').slice(0, 60)}"`)
+    res.json({ description: data?.description || '', name: data?.name || '', symbol: data?.symbol || '' })
+  } catch (err) {
+    console.error('[PumpFunMeta] fetch error:', err.message)
+    res.status(502).json({ error: err.message })
+  }
+})
+
 // ─── PumpFun proxy ────────────────────────────────────────────────
 app.get('/api/pumpfun', async (req, res) => {
   const { path: apiPath, ...params } = req.query
@@ -1395,6 +1446,17 @@ app.get('/api/pumpfun', async (req, res) => {
   if (cached && Date.now() - cached.ts < PUMPFUN_CACHE_TTL) {
     console.log(`[PumpFun] Cache hit for ${cacheKey}`)
     return res.json(cached.data)
+  }
+
+  // ── Skip if both sources recently failed ───────────────────────
+  if (isPumpFunDown()) {
+    console.warn(`[PumpFun] Outage cooldown active — skipping until ${new Date(pumpFunOutageUntil).toISOString()}`)
+    if (cached) {
+      const ageMin = Math.round((Date.now() - cached.ts) / 60000)
+      console.warn(`[PumpFun] Serving stale cache (${ageMin}m old) during cooldown`)
+      return res.json(cached.data)
+    }
+    return res.status(503).json({ error: 'PumpFun outage — cooling down' })
   }
 
   // ── Try PumpFun first ──────────────────────────────────────────
@@ -1456,6 +1518,9 @@ app.get('/api/pumpfun', async (req, res) => {
       return res.json(ppData)
     } catch (ppErr) {
       console.error(`[PumpPortal] Fallback also failed: ${ppErr.message}`)
+
+      // Mark both sources as down — skip for 5 minutes
+      markPumpFunDown()
 
       // ── Last resort: serve stale cache rather than empty ──────
       if (cached) {

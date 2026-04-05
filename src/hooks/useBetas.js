@@ -974,14 +974,14 @@ const fetchDescriptionKeywords = async (alpha) => {
       }
     } catch { /* silent */ }
 
-    // ── Source 8: PumpFun API ─────────────────────────────────────
+    // ── Source 8: PumpFun API (via backend proxy) ─────────────────
+    // PumpFun blocks direct browser fetch (CORS) — goes through backend.
     // PumpFun-launched tokens store descriptions in their own API,
-    // not DEXScreener. Most meme tokens ($Dunald, $ROCKET etc) launch
-    // on PumpFun — their description lives here and nowhere else.
-    // No auth required — public endpoint.
+    // not DEXScreener or Birdeye. Most meme tokens ($Dunald, $ROCKET)
+    // launch on PumpFun — "tired of wunning" lives here and nowhere else.
     try {
       const pumpRes = await fetch(
-        `https://frontend-api.pump.fun/coins/${alpha.address}`
+        `${BACKEND_URL}/api/pumpfun-metadata?address=${alpha.address}`
       )
       if (pumpRes.ok) {
         const pumpData = await pumpRes.json()
@@ -2061,13 +2061,10 @@ const useBetas = (alpha, parentAlpha = null) => {
       }
 
       // ── Layer 2: Narrative category seeding ──────────────────────
-      // When detectCategory() matches a known narrative, inject that
-      // category's keywords as additional search seeds.
-      // This ensures category membership drives search even when V0A
-      // fails or produces thin output.
+      let detectedCat = null  // captured here — used by MetaSeed below
       if (categorySeeds.length === 0) {
         try {
-          const detectedCat = detectCategory(
+          detectedCat = detectCategory(
             enrichedAlpha.symbol,
             enrichedAlpha.name || '',
             enrichedAlpha.description || ''
@@ -2090,47 +2087,64 @@ const useBetas = (alpha, parentAlpha = null) => {
       let allV0Terms = [...new Set([...v0SearchTerms, ...categorySeeds])]
 
       // ── Active narrative meta seeding ─────────────────────────────
-      // Read the SZN cache to find what narrative is dominating the live
-      // feed RIGHT NOW. If 3+ tokens share a category, that category's
-      // keywords seed every scan — even tokens whose own name/description
-      // doesn't match that category.
+      // Reads the SZN cache to find what narrative dominates the live feed.
+      // Only injects if MetaSeed category COMPLEMENTS the token's own category.
       //
-      // Example: 5 political runners on feed → every scan gets
-      // [trump, maga, melania, kamala, biden] injected automatically.
-      // This is how $Dunald finds $TRUMP as a beta even when its own
-      // symbol doesn't match the political keyword list.
+      // Complement logic:
+      //   - Token has NO detected category → MetaSeed injects freely
+      //     (best signal available for ambiguous tokens like $XYZ)
+      //   - Token HAS a category AND MetaSeed matches/complements it → inject
+      //     (political token on political feed = additive signal)
+      //   - Token HAS a category AND MetaSeed is unrelated → BLOCKED
+      //     ($Dunald=political should never search animal terms)
       //
-      // Zero API cost — reads localStorage only. Fast.
+      // Zero API cost — reads localStorage only.
+      const META_COMPLEMENTS = {
+        political:  ['political', 'memes'],
+        animals:    ['animals', 'nature', 'frogs', 'dogs', 'cats', 'bears', 'penguins', 'aliens'],
+        ai:         ['ai', 'tech', 'elon'],
+        memes:      ['memes', 'political'],
+        dogs:       ['dogs', 'animals', 'nature'],
+        cats:       ['cats', 'animals', 'nature'],
+        frogs:      ['frogs', 'animals', 'memes'],
+        bears:      ['bears', 'animals', 'nature'],
+        space:      ['space', 'ai', 'elon', 'aliens'],
+        elon:       ['elon', 'ai', 'space', 'political'],
+        trump:      ['trump', 'political', 'memes'],
+      }
       try {
         const sznRaw = localStorage.getItem('betaplays_szn_cache_v1')
         if (sznRaw) {
           const sznCache = JSON.parse(sznRaw)
-          // Count category occurrences across cached tokens
           const categoryCounts = {}
           Object.values(sznCache).forEach(entry => {
             if (entry?.category) {
               categoryCounts[entry.category] = (categoryCounts[entry.category] || 0) + 1
             }
           })
-          // Find dominant category — must have 3+ tokens to be considered active meta
           const dominant = Object.entries(categoryCounts)
             .sort((a, b) => b[1] - a[1])
             .find(([, count]) => count >= 3)
 
           if (dominant) {
-            const [dominantCat] = dominant
-            // Don't inject if token is already in this category — redundant
-            const tokenCategory = detectCategory(
-              enrichedAlpha.symbol,
-              enrichedAlpha.name || '',
-              enrichedAlpha.description || ''
-            )
-            if (dominantCat !== tokenCategory && NARRATIVE_CATEGORIES[dominantCat]) {
+            const [dominantCat, dominantCount] = dominant
+
+            // Complement check — block if token has its own category that
+            // doesn't complement the dominant narrative
+            const tokenCat = detectedCat  // null if no category detected
+            const allowedComplements = META_COMPLEMENTS[dominantCat] || [dominantCat]
+            const isComplement = !tokenCat || allowedComplements.includes(tokenCat)
+
+            if (!isComplement) {
+              console.log(`[MetaSeed] Blocked — token is "${tokenCat}", dominant is "${dominantCat}" (not complementary)`)
+            } else if (dominantCat === tokenCat) {
+              console.log(`[MetaSeed] Skipped — token already in dominant category "${dominantCat}"`)
+            } else if (NARRATIVE_CATEGORIES[dominantCat]) {
               const metaSeeds = (NARRATIVE_CATEGORIES[dominantCat].keywords || [])
                 .filter(k => !allV0Terms.includes(k) && isValidSearchTerm(k))
                 .slice(0, 6)
               if (metaSeeds.length > 0) {
-                console.log(`[MetaSeed] Active narrative "${dominantCat}" (${dominant[1]} runners) → seeds: [${metaSeeds.join(', ')}]`)
+                console.log(`[MetaSeed] Active narrative "${dominantCat}" (${dominantCount} runners) → seeds: [${metaSeeds.join(', ')}]`)
                 allV0Terms = [...new Set([...allV0Terms, ...metaSeeds])]
               }
             }
