@@ -126,8 +126,8 @@ const LORE_MAP = {
   PEPE:   { terms: ['pepe','frog','pepewif','peepo','kermit','pepesolana'], concepts: ['pepe','frog','kek'], category: 'frogs', universe: 'pepe' },
 
   // ── Political narrative ──
-  TRUMP:   { terms: ['maga','america','usa','biden','melania','barron','ivanka'], concepts: ['trump','maga','political','usa'], category: 'political', universe: 'trump-family' },
-  BODEN:   { terms: ['biden','joe','hunter','kamala','boden'], concepts: ['political','biden','usa'], category: 'political', universe: 'us-politics' },
+  TRUMP:   { terms: ['maga','america','usa','biden','melania','barron','ivanka','donald','trumpy'], concepts: ['trump','maga','political','usa'], category: 'political', universe: 'trump-family' },
+  BODEN:   { terms: ['biden','joe','hunter','kamala','boden','obama','obema','barry'], concepts: ['political','biden','usa'], category: 'political', universe: 'us-politics' },
   MELANIA: { terms: ['trump','barron','melania'], concepts: ['trump','political','usa'], category: 'political', universe: 'trump-family' },
 
   // ── AI / Tech narrative ──
@@ -262,7 +262,7 @@ export const NARRATIVE_CATEGORIES = {
 
   // ── Tier 2: Moderate specificity ────────────────────────────────
   ai:        { label: '🤖 AI',        priority: 2, keywords: ['ai','gpt','neural','agent','llm','robot','claude','vibe','cursor','devin','copilot','gemini','chatbot','gemma','deepmind','anthropic','mistral','groq','llama'] },
-  political: { label: '🏛️ Political', priority: 2, keywords: ['biden','kamala','obama','political','vote','election','senate','congress','democrat','republican','maga','usa'] },
+  political: { label: '🏛️ Political', priority: 1, keywords: ['trump','maga','donald','melania','biden','obama','kamala','barron','ivanka','republican','democrat','president','election','vote','senate','congress','usa','murt','obema','dunald','drump','bidun','trumpy','obonga','barrack','potus','whitehouse'] },
   space:     { label: '🚀 Space',     priority: 2, keywords: ['moon','mars','space','rocket','nasa','galaxy','star','cosmos','astronaut','orbit','saturn','jupiter'] },
   movies:    { label: '🎬 Movies/TV', priority: 2, keywords: ['walter','jesse','joker','batman','breaking','heisenberg','marvel','dc','disney','netflix','hbo','squid'] },
   celebrity: { label: '⭐ Celebrity', priority: 2, keywords: ['kanye','taylor','swift','drake','rihanna','beyonce','mrbeast','pewdiepie','hawk','tuah','diddy','jay','snoop'] },
@@ -340,11 +340,43 @@ export const getUniverse = (symbol) => {
 const SORTED_CATEGORIES = Object.entries(NARRATIVE_CATEGORIES)
   .sort((a, b) => (a[1].priority || 2) - (b[1].priority || 2))
 
+// ─── CT Misspelling → Category Map ───────────────────────────────
+// Crypto Twitter deliberately misspells political/celebrity names.
+// These patterns are stable and intentional — not random typos.
+// Used as a second pass in detectCategory when keyword matching fails.
+// Format: [regex or string, category]
+const CT_VARIANT_PATTERNS = [
+  // Trump variants: dunald, drump, trumpy, tump, donal
+  [/\bdun+ald\b|\bdrump\b|\btrumpy\b|\btump\b/, 'political'],
+  // Obama variants: obema, obonga, obunga, obongo, barry
+  [/\bob[eo]m+[ao]\b|\bobunga\b|\bobongo\b/, 'political'],
+  // Biden variants: boden, bidun, bidon
+  [/\bbod[ei]n\b|\bbidun\b|\bbidon\b/, 'political'],
+  // Musk variants: murt, elon variants (murt is CT shorthand)
+  [/\bmurt\b/, 'political'],
+  // Kamala variants: camala, kamalla
+  [/\bcam+ala\b|\bkamall+a\b/, 'political'],
+  // Generic political satire signals
+  [/tired.{0,10}wunn?ing|tired.{0,10}winn?ing/, 'political'],
+  // Pepe/wojak universe
+  [/\bwoj+ak\b|\bchad\b|\bnpc\b|\bbasedgod\b/, 'memes'],
+  // AI model misspellings/variants
+  [/\bgpt\d|\bgrok\d|\bllama\d|\bclaude\d/, 'ai'],
+]
+
 export const detectCategory = (symbol, name = '', description = '') => {
   const haystack = `${symbol} ${name} ${description}`.toLowerCase()
+
+  // Pass 1 — keyword matching (fast, exact)
   for (const [key, cat] of SORTED_CATEGORIES) {
     if (cat.keywords.some(kw => haystack.includes(kw))) return key
   }
+
+  // Pass 2 — CT variant/misspelling patterns (regex, catches obfuscated names)
+  for (const [pattern, category] of CT_VARIANT_PATTERNS) {
+    if (pattern.test(haystack)) return category
+  }
+
   return null
 }
 

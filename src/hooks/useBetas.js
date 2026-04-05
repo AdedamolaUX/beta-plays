@@ -615,7 +615,7 @@ const STOP_WORDS = new Set([
   '이', '가', '은', '는', '을', '를', '의', '에', '와', '과',
 ])
 
-const extractDescriptionKeywords = (description) => {
+const extractDescriptionKeywords = (description, symbol = '', name = '') => {
   if (!description || description.length < 10) return []
 
   const CJK_REGEX = /[　-鿿가-힯豈-﫿]/
@@ -644,15 +644,12 @@ const extractDescriptionKeywords = (description) => {
       .slice(0, 8)
   }
 
-  // Latin path — noun-prioritised
-  // Sorting by length alone promotes generic verbs like "discovering" (11 chars)
-  // over specific nouns like "raccoon" (7 chars). We want NOUNS — the subject of
-  // the token — not verbs/adjectives that are useless as DEX search terms.
-  const VERB_ADJ_ENDINGS = [
-    'ing', 'tion', 'ness', 'ment', 'ful', 'less', 'able', 'ible',
-    'ive', 'ous', 'ary', 'ery', 'ory', 'ise', 'ize', 'ify', 'ate',
-    'ent', 'ant', 'est', 'ier',
-  ]
+  // Latin path — frequency + identity ranked
+  // Scoring: identity words (in symbol/name) get +6 bonus, always surface first.
+  // Non-identity words rank by frequency in description (repeated = important),
+  // with word length as a minor tiebreaker only.
+  // This correctly surfaces short identity words like "beer", "dog", "ape"
+  // over long generic words like "tokenomics", "community", "blockchain".
   const GENERIC_VERBS = new Set([
     'travel', 'travels', 'discover', 'discovers', 'discovering',
     'dance', 'dances', 'dancing', 'moves', 'move', 'moving',
@@ -670,9 +667,17 @@ const extractDescriptionKeywords = (description) => {
       !GENERIC_VERBS.has(w) &&
       !/^\d+$/.test(w)
     )
+  const symWords  = symbol ? symbol.toLowerCase().replace(/[^a-z0-9]/g, ' ').split(/\s+/).filter(Boolean) : []
+  const nameWords = name   ? name.toLowerCase().replace(/[^a-z0-9]/g, ' ').split(/\s+/).filter(Boolean) : []
+
+  const descLower = description.toLowerCase()
   const scored = [...new Set(words)].map(w => {
-    const isVerbAdj = VERB_ADJ_ENDINGS.some(e => w.endsWith(e))
-    return { w, score: w.length - (isVerbAdj ? 4 : 0) }
+    const isIdentity = symWords.includes(w) || nameWords.includes(w)
+    const escaped    = w.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+    const freq       = (descLower.match(new RegExp(`\\b${escaped}\\b`, 'g')) || []).length
+    // Identity words always win. Frequent words beat rare long words.
+    // Length is a minor tiebreaker only — not the primary signal.
+    return { w, score: (isIdentity ? 6 : 0) + (freq * 1.5) + (w.length * 0.1) }
   })
   return scored
     .sort((a, b) => b.score - a.score)
@@ -800,7 +805,7 @@ const fetchDescriptionKeywords = async (alpha) => {
   try {
     // ── Source 1: already on the alpha object (best case) ────────
     if (alpha.description && alpha.description.length > 10) {
-      const raw      = extractDescriptionKeywords(alpha.description)
+      const raw      = extractDescriptionKeywords(alpha.description, alpha.symbol, alpha.name)
       const keywords = filterDescriptionKeywords(raw, alpha.symbol, alpha.name || '', alpha.description)
       console.log(`[Vector1b] $${alpha.symbol} description (cached): "${alpha.description.slice(0, 60)}..."`)
       console.log(`[Vector1b] $${alpha.symbol} description keywords:`, keywords)
@@ -818,7 +823,7 @@ const fetchDescriptionKeywords = async (alpha) => {
       ''
 
     if (tokenDesc && tokenDesc.length > 10) {
-      const raw      = extractDescriptionKeywords(tokenDesc)
+      const raw      = extractDescriptionKeywords(tokenDesc, alpha.symbol, alpha.name)
       const keywords = filterDescriptionKeywords(raw, alpha.symbol, alpha.name || '', tokenDesc)
       console.log(`[Vector1b] $${alpha.symbol} description (tokens endpoint): "${tokenDesc.slice(0, 60)}..."`)
       console.log(`[Vector1b] $${alpha.symbol} description keywords:`, keywords)
@@ -839,7 +844,7 @@ const fetchDescriptionKeywords = async (alpha) => {
         ''
 
       if (searchDesc && searchDesc.length > 10) {
-        const raw      = extractDescriptionKeywords(searchDesc)
+        const raw      = extractDescriptionKeywords(searchDesc, alpha.symbol, alpha.name)
         const keywords = filterDescriptionKeywords(raw, alpha.symbol, alpha.name || '', searchDesc)
         console.log(`[Vector1b] $${alpha.symbol} description (search endpoint): "${searchDesc.slice(0, 60)}..."`)
         console.log(`[Vector1b] $${alpha.symbol} description keywords:`, keywords)
@@ -860,7 +865,7 @@ const fetchDescriptionKeywords = async (alpha) => {
         ''
 
       if (addrDesc && addrDesc.length > 10) {
-        const raw      = extractDescriptionKeywords(addrDesc)
+        const raw      = extractDescriptionKeywords(addrDesc, alpha.symbol, alpha.name)
         const keywords = filterDescriptionKeywords(raw, alpha.symbol, alpha.name || '', addrDesc)
         console.log(`[Vector1b] $${alpha.symbol} description (address search): "${addrDesc.slice(0, 60)}..."`)
         console.log(`[Vector1b] $${alpha.symbol} description keywords:`, keywords)
@@ -882,7 +887,7 @@ const fetchDescriptionKeywords = async (alpha) => {
           ''
 
         if (nameDesc && nameDesc.length > 10) {
-          const raw      = extractDescriptionKeywords(nameDesc)
+          const raw      = extractDescriptionKeywords(nameDesc, alpha.symbol, alpha.name)
           const keywords = filterDescriptionKeywords(raw, alpha.symbol, alpha.name || '', nameDesc)
           console.log(`[Vector1b] $${alpha.symbol} description (name search): "${nameDesc.slice(0, 60)}..."`)
           console.log(`[Vector1b] $${alpha.symbol} description keywords:`, keywords)
@@ -896,17 +901,34 @@ const fetchDescriptionKeywords = async (alpha) => {
       ? alpha.name
       : ''
     if (symbolDesc) {
-      const raw      = extractDescriptionKeywords(symbolDesc)
+      const raw      = extractDescriptionKeywords(symbolDesc, alpha.symbol, alpha.name)
       const keywords = filterDescriptionKeywords(raw, alpha.symbol, alpha.name || '', symbolDesc)
       console.log(`[Vector1b] $${alpha.symbol} — using name as description fallback: "${symbolDesc}"`)
       return { keywords, description: symbolDesc }
     }
 
-    // ── Source 6: DEXScreener token profiles endpoint ─────────────
-    // Tokens that have claimed their DEXScreener profile store their
-    // description in a separate profiles system — not always returned
-    // by the pair/search endpoints above. This catches tokens like
-    // $ROCKET whose description only lives in the profiles API.
+    // ── Source 6: DEXScreener targeted profile lookup ─────────────
+    // Targeted address lookup — more reliable than the rolling list.
+    // Finds profiles regardless of when they were claimed.
+    try {
+      const profileRes = await DEX_QUEUE.get(
+        `${DEXSCREENER_BASE}/token-profiles/latest/v1?tokenAddress=${alpha.address}`
+      )
+      const profiles = profileRes.data || []
+      const profileDesc = Array.isArray(profiles)
+        ? (profiles.find(p => p.chainId === 'solana')?.description || '')
+        : (profileRes.data?.description || '')
+
+      if (profileDesc && profileDesc.length > 10) {
+        const raw      = extractDescriptionKeywords(profileDesc, alpha.symbol, alpha.name)
+        const keywords = filterDescriptionKeywords(raw, alpha.symbol, alpha.name || '', profileDesc)
+        console.log(`[Vector1b] $${alpha.symbol} description (DEX profile targeted): "${profileDesc.slice(0, 60)}..."`)
+        console.log(`[Vector1b] $${alpha.symbol} description keywords:`, keywords)
+        return { keywords, description: profileDesc }
+      }
+    } catch { /* silent */ }
+
+    // ── Source 6b: DEXScreener rolling profiles (original fallback) ─
     try {
       const profileRes = await DEX_QUEUE.get(
         `${DEXSCREENER_BASE}/token-profiles/latest/v1`
@@ -922,11 +944,55 @@ const fetchDescriptionKeywords = async (alpha) => {
 
       const profileDesc = match?.description || ''
       if (profileDesc && profileDesc.length > 10) {
-        const raw      = extractDescriptionKeywords(profileDesc)
+        const raw      = extractDescriptionKeywords(profileDesc, alpha.symbol, alpha.name)
         const keywords = filterDescriptionKeywords(raw, alpha.symbol, alpha.name || '', profileDesc)
-        console.log(`[Vector1b] $${alpha.symbol} description (token profiles): "${profileDesc.slice(0, 60)}..."`)
+        console.log(`[Vector1b] $${alpha.symbol} description (DEX profiles rolling): "${profileDesc.slice(0, 60)}..."`)
         console.log(`[Vector1b] $${alpha.symbol} description keywords:`, keywords)
         return { keywords, description: profileDesc }
+      }
+    } catch { /* silent */ }
+
+    // ── Source 7: Birdeye token_overview ─────────────────────────
+    // Birdeye maintains its own token metadata including descriptions.
+    // Goes through backend proxy — BIRDEYE_API_KEY already configured.
+    // Covers tokens that never claimed DEXScreener profile.
+    try {
+      const birdeyeRes = await fetch(
+        `${BACKEND_URL}/api/birdeye?endpoint=token_overview&address=${alpha.address}`
+      )
+      if (birdeyeRes.ok) {
+        const birdeyeData = await birdeyeRes.json()
+        const birdeyeDesc = birdeyeData?.data?.extensions?.description ||
+                            birdeyeData?.data?.description || ''
+        if (birdeyeDesc && birdeyeDesc.length > 10) {
+          const raw      = extractDescriptionKeywords(birdeyeDesc, alpha.symbol, alpha.name)
+          const keywords = filterDescriptionKeywords(raw, alpha.symbol, alpha.name || '', birdeyeDesc)
+          console.log(`[Vector1b] $${alpha.symbol} description (Birdeye): "${birdeyeDesc.slice(0, 60)}..."`)
+          console.log(`[Vector1b] $${alpha.symbol} description keywords:`, keywords)
+          return { keywords, description: birdeyeDesc }
+        }
+      }
+    } catch { /* silent */ }
+
+    // ── Source 8: PumpFun API ─────────────────────────────────────
+    // PumpFun-launched tokens store descriptions in their own API,
+    // not DEXScreener. Most meme tokens ($Dunald, $ROCKET etc) launch
+    // on PumpFun — their description lives here and nowhere else.
+    // No auth required — public endpoint.
+    try {
+      const pumpRes = await fetch(
+        `https://frontend-api.pump.fun/coins/${alpha.address}`
+      )
+      if (pumpRes.ok) {
+        const pumpData = await pumpRes.json()
+        const pumpDesc = pumpData?.description || ''
+        if (pumpDesc && pumpDesc.length > 10) {
+          const raw      = extractDescriptionKeywords(pumpDesc, alpha.symbol, alpha.name)
+          const keywords = filterDescriptionKeywords(raw, alpha.symbol, alpha.name || '', pumpDesc)
+          console.log(`[Vector1b] $${alpha.symbol} description (PumpFun): "${pumpDesc.slice(0, 60)}..."`)
+          console.log(`[Vector1b] $${alpha.symbol} description keywords:`, keywords)
+          return { keywords, description: pumpDesc }
+        }
       }
     } catch { /* silent */ }
 
@@ -2021,7 +2087,56 @@ const useBetas = (alpha, parentAlpha = null) => {
       }
 
       // Merge category seeds into V0A search terms
-      const allV0Terms = [...new Set([...v0SearchTerms, ...categorySeeds])]
+      let allV0Terms = [...new Set([...v0SearchTerms, ...categorySeeds])]
+
+      // ── Active narrative meta seeding ─────────────────────────────
+      // Read the SZN cache to find what narrative is dominating the live
+      // feed RIGHT NOW. If 3+ tokens share a category, that category's
+      // keywords seed every scan — even tokens whose own name/description
+      // doesn't match that category.
+      //
+      // Example: 5 political runners on feed → every scan gets
+      // [trump, maga, melania, kamala, biden] injected automatically.
+      // This is how $Dunald finds $TRUMP as a beta even when its own
+      // symbol doesn't match the political keyword list.
+      //
+      // Zero API cost — reads localStorage only. Fast.
+      try {
+        const sznRaw = localStorage.getItem('betaplays_szn_cache_v1')
+        if (sznRaw) {
+          const sznCache = JSON.parse(sznRaw)
+          // Count category occurrences across cached tokens
+          const categoryCounts = {}
+          Object.values(sznCache).forEach(entry => {
+            if (entry?.category) {
+              categoryCounts[entry.category] = (categoryCounts[entry.category] || 0) + 1
+            }
+          })
+          // Find dominant category — must have 3+ tokens to be considered active meta
+          const dominant = Object.entries(categoryCounts)
+            .sort((a, b) => b[1] - a[1])
+            .find(([, count]) => count >= 3)
+
+          if (dominant) {
+            const [dominantCat] = dominant
+            // Don't inject if token is already in this category — redundant
+            const tokenCategory = detectCategory(
+              enrichedAlpha.symbol,
+              enrichedAlpha.name || '',
+              enrichedAlpha.description || ''
+            )
+            if (dominantCat !== tokenCategory && NARRATIVE_CATEGORIES[dominantCat]) {
+              const metaSeeds = (NARRATIVE_CATEGORIES[dominantCat].keywords || [])
+                .filter(k => !allV0Terms.includes(k) && isValidSearchTerm(k))
+                .slice(0, 6)
+              if (metaSeeds.length > 0) {
+                console.log(`[MetaSeed] Active narrative "${dominantCat}" (${dominant[1]} runners) → seeds: [${metaSeeds.join(', ')}]`)
+                allV0Terms = [...new Set([...allV0Terms, ...metaSeeds])]
+              }
+            }
+          }
+        }
+      } catch { /* silent — meta seeding is non-fatal */ }
 
       // Run all signals in parallel — seeded with v0SearchTerms ONLY.
       // v0VisualTerms are reserved for the vision pipeline below.
