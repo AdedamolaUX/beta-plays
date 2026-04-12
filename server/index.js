@@ -453,8 +453,17 @@ ALSO VERIFY before outputting:
 - Do your relationshipHints include at least one COUNTER? If not — add one now.
 - Do your searchTerms include the direct antonym of the core concept? If not — add it.
 
+8. CATEGORY — name this token's primary narrative universe in ONE short lowercase word or phrase.
+   Use your own judgment — do NOT limit yourself to a fixed list. Examples of what good categories look like:
+   "political" | "dogs" | "cats" | "frogs" | "space" | "ai" | "memes" | "anime" | "food" | "sports"
+   "emoji" | "internet_culture" | "weather" | "chess" | "western" | "fitness" | "horror" | "gaming"
+   These are EXAMPLES only — invent the right label for whatever universe this token lives in.
+   If the token genuinely has no clear narrative universe, output null.
+   One rule: the category must be specific enough that a human would recognise it as a distinct theme.
+   "things" or "crypto" or "misc" are too vague — always drill down.
+
 Respond ONLY with valid JSON, no markdown:
-{"searchTerms":["term1","term2"],"relationshipHints":{"term1":"TWIN","term2":"COUNTER"}}`
+{"searchTerms":["term1","term2"],"relationshipHints":{"term1":"TWIN","term2":"COUNTER"},"category":"space"}`
 }
 
 // Vector 0B: Image expansion via Groq vision (called when Gemini quota exhausted)
@@ -495,8 +504,13 @@ Output 3-5 terms: the SUBJECT (most important), then accessories, then the degen
 
 Also note mood (happy/evil/stoic/chaotic/sad/angry).
 
+Step 4 — VISUAL COUNTERS: What would be the visual opposite or antagonist of this logo?
+  A cute panda → wolf, predator, hunter | A king → rebel, peasant, anarchist
+  Trump → democrat, opponent | A bull → bear | Kawaii → dark, edgy, villain
+  List 2–4 searchable counter concepts (not generic descriptors like "opposite").
+
 Respond ONLY with valid JSON. No markdown:
-{"visualTerms":["cow","bovine","fart","farm","holstein"],"mood":"happy","visualHints":{"cow":"TWIN","fart":"TWIN","farm":"UNIVERSE"}}`,
+{"visualTerms":["cow","bovine","fart","farm"],"visualCounters":["vegetable","vegan","farmer"],"mood":"happy","visualHints":{"cow":"TWIN","fart":"TWIN","farm":"UNIVERSE"}}`,
           },
         ],
       }],
@@ -536,7 +550,7 @@ Output 3-5 terms: subject first (most important), then accessories, then degen a
 Also note mood (happy/evil/stoic/chaotic/sad/angry).
 
 Respond ONLY with valid JSON. No markdown:
-{"visualTerms":["cow","bovine","fart","farm"],"mood":"happy","visualHints":{"cow":"TWIN","fart":"TWIN","farm":"UNIVERSE"}}`,
+{"visualTerms":["cow","bovine","fart","farm"],"visualCounters":["vegetable","vegan","farmer"],"mood":"happy","visualHints":{"cow":"TWIN","fart":"TWIN","farm":"UNIVERSE"}}`,
   },
 ]
 
@@ -838,6 +852,7 @@ app.post('/api/expand-alpha', async (req, res) => {
     //                          (better than broken 8b JSON cached as 0 terms)
     let searchTerms      = []
     let relationshipHints = {}
+    let detectedCategory  = null  // V0A-inferred narrative category — feeds MetaSeed + category seeding
 
     try {
       const expansionPrompt = buildExpansionPrompt({ symbol, name, description })
@@ -919,7 +934,17 @@ app.post('/api/expand-alpha', async (req, res) => {
       if (textResult) {
         searchTerms       = textResult.searchTerms      || []
         relationshipHints = textResult.relationshipHints || {}
+        detectedCategory  = textResult.category          || null
+        if (detectedCategory) {
+          console.log(`[Vector0A] $${symbol} → AI category: "${detectedCategory}"`)
+        } else {
+          console.log(`[Vector0A] $${symbol} → no category returned (null)`)
+        }
         console.log(`[Vector0A] $${symbol} → ${searchTerms.length} text terms`)
+        if (searchTerms.length === 0) {
+          // Log raw response when AI returned valid JSON but empty terms — helps diagnose prompt issues
+          console.warn(`[Vector0A] $${symbol} — zero search terms in response. Raw keys: ${Object.keys(textResult).join(', ')}`)
+        }
       }
     } catch (textErr) {
       console.warn(`[Vector0A] Text expansion failed for $${symbol}:`, textErr.message)
@@ -931,7 +956,8 @@ app.post('/api/expand-alpha', async (req, res) => {
     //   2. Gemma 4 31B     — vision benchmark leader, better than Gemini
     //                        on charts/diagrams/logo understanding
     //   3. Groq vision     — last resort (Llama 4 Scout)
-    let visualTerms  = []
+    let visualTerms    = []
+    let visualCounters = []
     let visualHints  = {}
     let mood         = null
 
@@ -945,6 +971,7 @@ app.post('/api/expand-alpha', async (req, res) => {
             const parts  = buildImageExpansionParts(symbol, name, imgData)
             const result = await callGemini(parts)
             visualTerms  = result.visualTerms || []
+                    visualCounters = result.visualCounters || []
             visualHints  = result.visualHints  || {}
             mood         = result.mood         || null
             console.log(`[Vector0B] $${symbol} → ${visualTerms.length} visual terms via Gemini`)
@@ -980,8 +1007,13 @@ Step 3 — DEGEN NARRATIVE ANGLE: What narrative would a meme token creator deri
 Output 3-5 terms: the SUBJECT (most important), then accessories, then degen narrative angle.
 Also note mood (happy/evil/stoic/chaotic/sad/angry).
 
+Step 4 — VISUAL COUNTERS: What would be the visual opposite or antagonist of this logo?
+  A cute panda → wolf, predator, hunter | A king → rebel, peasant, anarchist
+  Trump → democrat, opponent | A bull → bear | Kawaii → dark, edgy, villain
+  List 2–4 searchable counter concepts (not generic descriptors like "opposite").
+
 Respond ONLY with valid JSON. No markdown:
-{"visualTerms":["cow","bovine","fart","farm","holstein"],"mood":"happy","visualHints":{"cow":"TWIN","fart":"TWIN","farm":"UNIVERSE"}}`,
+{"visualTerms":["cow","bovine","fart","farm"],"visualCounters":["vegetable","vegan","farmer"],"mood":"happy","visualHints":{"cow":"TWIN","fart":"TWIN","farm":"UNIVERSE"}}`,
                     },
                   ]
                   const gemma4Res = await fetch('https://openrouter.ai/api/v1/chat/completions', {
@@ -1004,6 +1036,7 @@ Respond ONLY with valid JSON. No markdown:
                   const gemma4Text = gemma4Data.choices?.[0]?.message?.content || ''
                   const result = JSON.parse(gemma4Text.replace(/```json|```/g, '').trim())
                   visualTerms  = result.visualTerms || []
+                    visualCounters = result.visualCounters || []
                   visualHints  = result.visualHints  || {}
                   mood         = result.mood         || null
                   console.log(`[Vector0B] $${symbol} → ${visualTerms.length} visual terms via Gemma 4 31B`)
@@ -1014,6 +1047,7 @@ Respond ONLY with valid JSON. No markdown:
                   try {
                     const result = await callGroqImageExpansion(symbol, name, imgData)
                     visualTerms  = result.visualTerms || []
+                    visualCounters = result.visualCounters || []
                     visualHints  = result.visualHints  || {}
                     mood         = result.mood         || null
                     console.log(`[Vector0B] $${symbol} → ${visualTerms.length} visual terms via Groq`)
@@ -1026,6 +1060,7 @@ Respond ONLY with valid JSON. No markdown:
                 try {
                   const result = await callGroqImageExpansion(symbol, name, imgData)
                   visualTerms  = result.visualTerms || []
+                    visualCounters = result.visualCounters || []
                   visualHints  = result.visualHints  || {}
                   mood         = result.mood         || null
                   console.log(`[Vector0B] $${symbol} → ${visualTerms.length} visual terms via Groq`)
@@ -1043,12 +1078,14 @@ Respond ONLY with valid JSON. No markdown:
       }
     }
 
-    const PROMPT_VERSION = 'v5'  // Bump when expansion prompt changes significantly
+    const PROMPT_VERSION = 'v6'  // Bump when expansion prompt changes significantly
     const data = {
       searchTerms,
       visualTerms,
+      visualCounters,
       relationshipHints: { ...relationshipHints, ...visualHints },
       mood,
+      category: detectedCategory,  // V0A-inferred category — used by MetaSeed + category seeding in frontend
       promptVersion: PROMPT_VERSION,
       expandedAt: Date.now(),
     }
@@ -1275,10 +1312,19 @@ Respond ONLY with a JSON array. No markdown. Example:
 
       if (withImages.length === 0) return res.json([])
 
+      // Build visual context string from V0B terms if provided
+      const visualCtx = alpha.visualTerms?.length
+        ? `\nAlpha logo depicts: ${alpha.visualTerms.join(', ')}.${
+            alpha.visualCounters?.length
+              ? ` Visual opposites/antagonists: ${alpha.visualCounters.join(', ')}.`
+              : ''
+          } Score candidates that match either the depicted subject OR its visual opposite.`
+        : ''
+
       const parts = [
-        { text: `ALPHA TOKEN: $${alpha.symbol} — this is the token we're analyzing for beta plays.` },
+        { text: `ALPHA TOKEN: $${alpha.symbol} — this is the token we're analyzing for beta plays.${visualCtx}` },
         { inline_data: { mime_type: alphaImg.mimeType, data: alphaImg.base64 } },
-        { text: `CANDIDATE TOKENS — are any of these visually derived from the alpha above?` },
+        { text: `CANDIDATE TOKENS — are any of these visually derived from, or the visual opposite of, the alpha above?` },
       ]
 
       withImages.forEach((c, i) => {
@@ -1372,6 +1418,10 @@ app.get('/api/birdeye', async (req, res) => {
     })
     console.log(`[Birdeye] Response status: ${response.status}`)
     if (response.status === 404) return res.json({ data: null })
+    if (response.status === 400) {
+      console.warn(`[Birdeye] 400 on ${endpoint} — endpoint may require higher tier or key is invalid`)
+      return res.status(400).json({ error: `Birdeye 400 — check API key tier for ${endpoint}` })
+    }
     if (!response.ok) throw new Error(`Birdeye ${response.status}`)
 
     // Guard: Birdeye occasionally returns an HTML error page instead of JSON

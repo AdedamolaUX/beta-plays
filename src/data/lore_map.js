@@ -268,8 +268,10 @@ export const NARRATIVE_CATEGORIES = {
   celebrity: { label: '⭐ Celebrity', priority: 2, keywords: ['kanye','taylor','swift','drake','rihanna','beyonce','mrbeast','pewdiepie','hawk','tuah','diddy','jay','snoop'] },
   sports:    { label: '⚽ Sports',    priority: 2, keywords: ['ronaldo','messi','soccer','football','nba','nfl','nhl','sport','goat','champion','lebron','curry'] },
   food:      { label: '🍔 Food',      priority: 2, keywords: ['burger','pizza','ramen','taco','sushi','noodle','food','eat','cook','chef','hungry','kebab','curry'] },
-  crypto:    { label: '₿ Crypto',    priority: 2, keywords: ['bitcoin','btc','eth','sol','satoshi','nakamoto','hodl','blockchain','defi','crypto','layer','protocol'] },
+  crypto:    { label: '₿ Crypto',    priority: 2, keywords: ['bitcoin','btc','satoshi','nakamoto','hodl','blockchain','defi'] },
   memes:     { label: '😂 Memes',     priority: 2, keywords: ['wojak','chad','npc','sigma','based','gigachad','virgin','normie','doomer','zoomer','boomer','ratio'] },
+  humor:     { label: '😂 Humor',     priority: 2, keywords: ['lol','lmao','rofl','haha','kek','lulz','funny','laugh','giggle','joke','humor','comedy','hilarious','fart','poop','burp','stink','toot','toilet','prank'] },
+  internet_culture: { label: '🌐 Internet', priority: 1, keywords: ['lol','lmao','rofl','gg','wagmi','ngmi','gm','gn','cope','seethe','rekt','fud','ser','fren','anon','degen','wen','probably nothing','this is fine','touch grass','hfsp'] },
 
   // ── Tier 3: Generic — only match if nothing else does ───────────
   animals:   { label: '🦎 Animals',   priority: 3, keywords: ['bird','fish','bull','ape','monkey','snake','wolf','fox','lion','tiger','rhino','hippo','croc','hamster','rabbit'] },

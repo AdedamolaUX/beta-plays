@@ -1805,7 +1805,7 @@ const SznPanel = ({ szn, onListBeta, onOpenDrawer }) => {
 
 const BetaPanel = ({ alpha, liveAlphas, onListBeta, onOpenDrawer, onScrollToAlpha }) => {
   const { parent, loading: parentLoading }               = useParentAlpha(alpha, liveAlphas)
-  const { betas, loading: betasLoading, error, refresh } = useBetas(alpha, parent)
+  const { betas, loading: betasLoading, error, scanPhase, refresh } = useBetas(alpha, parent)
   const { birdeye }                                       = useBirdeye(alpha?.address)
   const [trenchOnly,   setTrenchOnly]   = useState(false)
   const [mcapFilter,   setMcapFilter]   = useState('all')
@@ -2004,6 +2004,23 @@ const BetaPanel = ({ alpha, liveAlphas, onListBeta, onOpenDrawer, onScrollToAlph
               <span>Signal</span>
             </div>
 
+            {/* ── Scan phase indicator — progressive population UX ── */}
+            {alpha && betasLoading && (
+              <div style={{
+                display: 'flex', alignItems: 'center', gap: 8,
+                padding: '6px 12px', marginBottom: 4,
+                background: 'rgba(0,229,255,0.04)',
+                border: '1px solid rgba(0,229,255,0.10)',
+                borderRadius: 6, fontSize: 11, color: 'var(--text-muted)',
+              }}>
+                <span style={{ animation: 'pulse 1s ease-in-out infinite', display: 'inline-block' }}>⟳</span>
+                {scanPhase === 'expanding'  && <span>🔍 Expanding concept...</span>}
+                {scanPhase === 'searching'  && <span>📡 Searching market... {betas.length > 0 ? `(${betas.length} found so far)` : ''}</span>}
+                {scanPhase === 'scoring'    && <span>🤖 AI scoring {betas.length} candidates...</span>}
+                {(!scanPhase || scanPhase === 'complete') && <span>Loading...</span>}
+              </div>
+            )}
+
             {/* Skeletons only when loading AND no stored betas to show yet */}
             {betasLoading && filteredBetas.length === 0 && (
               <>
@@ -2033,6 +2050,16 @@ const BetaPanel = ({ alpha, liveAlphas, onListBeta, onOpenDrawer, onScrollToAlph
                 onOpenDrawer={onOpenDrawer}
               />
             ))}
+
+            {/* Complete status */}
+            {!betasLoading && scanPhase === 'complete' && filteredBetas.length > 0 && (
+              <div style={{
+                textAlign: 'center', padding: '8px', fontSize: 10,
+                color: 'var(--text-muted)', opacity: 0.6,
+              }}>
+                ✅ {betas.length} beta{betas.length !== 1 ? 's' : ''} found
+              </div>
+            )}
 
             {!betasLoading && trenchOnly && trenchCount === 0 && (
               <div className="empty-state" style={{ marginTop: 24 }}>

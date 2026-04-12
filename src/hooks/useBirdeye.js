@@ -19,7 +19,15 @@ const CACHE_TTL_MS = 5 * 60 * 1000
 const cache = new Map()
 
 // ─── Fetch via backend proxy ──────────────────────────────────────
+// NOTE: token_overview and holders require Lite/Starter plan.
+// Free tier (Standard) returns 400 on these endpoints.
+// These calls are silently disabled until the API key is upgraded.
+const DISABLED_ENDPOINTS = new Set(['token_overview', 'holders'])
+
 const fetchBirdeye = async (endpoint, address) => {
+  // Skip endpoints that require a paid plan — avoids 400 spam in console
+  if (DISABLED_ENDPOINTS.has(endpoint)) return null
+
   const key    = `${endpoint}:${address}`
   const cached = cache.get(key)
   if (cached && Date.now() - cached.ts < CACHE_TTL_MS) return cached.data

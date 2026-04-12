@@ -14,7 +14,7 @@
 //   SPIN      — general derivative, weaker connection
 
 const BACKEND_URL  = import.meta.env.VITE_BACKEND_URL || 'http://localhost:3001'
-const MIN_SCORE    = 0.45   // Lower than old threshold — Vector 0 pre-filters noise
+const MIN_SCORE    = 0.55   // Raised from 0.45 — tighter gate, reduces false positives
 const BATCH_SIZE   = 8
 const CACHE_TTL_MS = 10 * 60 * 1000  // 10 min — longer than before, results are stable
 
@@ -31,13 +31,25 @@ const buildClassificationPrompt = (alpha, candidates, relationshipHints = {}) =>
   // candidates in the context of the DESCRIPTION, not the symbol alone.
   // This prevents hallucination like $LANDLORD scoring as a COUNTER for $HUGH
   // (a raccoon) just because "HUGH" superficially resembles "HOUSE".
+  // Add visual context from V0B if available — helps AI understand abstract tokens
+  const visualCtxLines = []
+  if (alpha.visualTerms?.length) {
+    visualCtxLines.push(`Logo depicts: ${alpha.visualTerms.join(', ')}`)
+  }
+  if (alpha.visualCounters?.length) {
+    visualCtxLines.push(`Visual opposites (valid counter-betas): ${alpha.visualCounters.join(', ')}`)
+  }
+  const visualCtxStr = visualCtxLines.length
+    ? '\nVISUAL CONTEXT:\n' + visualCtxLines.map(l => '  ' + l).join('\n')
+    : ''
+
   const alphaContext = alpha.description
     ? [
         `Symbol: ${alpha.symbol}`,
         alpha.name && alpha.name.toLowerCase() !== alpha.symbol.toLowerCase()
           ? `Name: ${alpha.name}` : null,
-        `
-⚠️  NARRATIVE FRAME — evaluate candidates two ways:
+        visualCtxStr || null,
+        `⚠️  NARRATIVE FRAME — evaluate candidates two ways:
 
 1. WORD-BY-WORD: Decompose the description into individual concepts first.
    "${alpha.description}"
@@ -56,6 +68,7 @@ Both evaluations run. The higher score wins.`,
     : [
         `Symbol: ${alpha.symbol}`,
         alpha.name ? `Name: ${alpha.name}` : null,
+        visualCtxStr || null,
       ].filter(Boolean).join('\n')
 
   // Inject hints from Vector 0 — but only when they don't contradict the description.
@@ -138,12 +151,21 @@ INVALID REASONS (always score 0.1):
 - "Both reference the dollar sign / monetary concepts"
 - "Both have similar market structure"
 - "Both relate to finance/currency/wealth" (unless alpha's theme IS explicitly financial)
+- "Both are internet slang / humor tokens" when alpha is a CHARACTER, ANIME, GAMING, or SPORTS token
+- Internet slang tokens ($LOL, $LMAO, $KEK, $ROFL, $HAHA) are NOT valid betas for character/anime/gaming/sports tokens
+- Generic emotion tokens are NOT related to specific narrative tokens unless the alpha IS explicitly humor/meme themed
+- "Both are meme tokens" — this alone is never a valid reason
+
+CROSS-UNIVERSE REJECTION RULE:
+If the alpha is clearly in one universe (anime, gaming, sports, political, animals) and the candidate
+is purely internet slang or humor ($LOL, $KEK, $LMAO, $ROFL, $HAHA, $GG, $AYY) with no connection
+to that universe → score 0.1 UNRELATED regardless of thematic stretch.
 
 DESCRIPTION RULE: If a description contradicts a negative name interpretation,
 the description wins. "Dark Pepe" + description "wholesome frog art" = UNIVERSE not EVIL_TWIN.
 
 Respond ONLY with a JSON array, no markdown:
-[{"index":0,"score":0.92,"relationshipType":"TWIN","reason":"LMAO is the direct escalation of LOL — same humor/laughter narrative"},{"index":1,"score":0.2,"relationshipType":"SPIN","reason":"Unrelated financial token"}]`
+[{"index":0,"score":0.92,"relationshipType":"TWIN","reason":"LMAO is the direct escalation of LOL — same humor/laughter narrative"},{"index":1,"score":0.1,"relationshipType":"UNRELATED","reason":"Internet slang token, alpha is a character token — cross-universe, no connection"}]`
 }
 
 // ─── Call backend /api/score-betas ───────────────────────────────

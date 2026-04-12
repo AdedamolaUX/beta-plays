@@ -110,6 +110,36 @@ const useNarrativeSzn = (liveAlphas) => {
       .map(cat => buildSznCard(cat.key, cat.label, cat.tokens, 'keyword'))
       .sort((a, b) => b.sznScore - a.sznScore)
 
+    // ── P3: Proactive dominant narrative ─────────────────────────
+    // Compute and persist the dominant narrative IMMEDIATELY after
+    // keyword matching — before any async AI or API calls.
+    // useBetas MetaSeed reads this on every scan, so even the very
+    // first scan of a session gets the correct dominant injection.
+    //
+    // Counts tokens per category across ALL runners (not just the
+    // ones that formed full Szn cards). A single dominant runner
+    // with category "political" is enough signal to seed political
+    // terms into every beta scan that complements it.
+    try {
+      const categoryCounts = {}
+      Object.entries(categoryMap).forEach(([catKey, { tokens }]) => {
+        categoryCounts[catKey] = (categoryCounts[catKey] || 0) + tokens.length
+      })
+      const dominantEntry = Object.entries(categoryCounts)
+        .sort((a, b) => b[1] - a[1])
+        .find(([, count]) => count >= 2)  // ≥2 runners in same category = real narrative
+
+      const proactive = dominantEntry
+        ? { category: dominantEntry[0], count: dominantEntry[1], timestamp: Date.now() }
+        : { category: null, count: 0, timestamp: Date.now() }
+
+      localStorage.setItem('betaplays_dominant_narrative', JSON.stringify(proactive))
+
+      if (dominantEntry) {
+        console.log(`[SznNarrative] Dominant narrative: "${dominantEntry[0]}" (${dominantEntry[1]} runners) — written proactively`)
+      }
+    } catch { /* silent — non-fatal */ }
+
     return { keywordCards: cards, unmatched: unmatchedTokens }
   }, [liveAlphas])
 

@@ -97,17 +97,21 @@ const BANNED_GENERIC_TERMS = new Set([
 const isValidSearchTerm = (term) => {
   if (!term || typeof term !== 'string') return false
   const t = term.trim()
-  if (t.length < 3) return false                             // Too short for DEX
+  // Use codepoint count (not .length) for the minimum length check.
+  // JS .length counts UTF-16 code units: emoji like 🚀 = length 2, ⚡ = length 1.
+  // But both are single meaningful characters that DEX indexes as valid tickers.
+  // [...t].length counts actual Unicode codepoints — 🚀 = 1, "abc" = 3.
+  // Rule: allow single emoji as-is; require ≥3 chars for plain text terms.
+  const isEmoji = [...t].length === 1 && /\p{Emoji}/u.test(t)
+  if (!isEmoji && t.length < 3) return false                // Too short for DEX (non-emoji)
   if (/[=<>:]/.test(t)) return false                        // Relationship operator string
   // Allow spaces for multi-word name searches ("shiba inu", "zero sum", "risk all")
   // but block more than 3 words — those are sentences, not token names
   if (/\s/.test(t) && t.split(/\s+/).length > 3) return false
   if (/^[1-9A-HJ-NP-Za-km-z]{40,}$/.test(t)) return false  // Raw Solana address
   // Pure numbers ARE valid — $420, $69, $11 are real tokens
-  // Only block pure numbers that are also in BANNED_GENERIC_TERMS
-  // Emoji are valid search terms — $🐸, $💀 are real tickers on DEX
-  // Hard-block generic terms regardless of what the AI returns
-  if (BANNED_GENERIC_TERMS.has(t.toLowerCase())) return false
+  // Emoji bypass BANNED_GENERIC_TERMS — $🔥 is a real ticker, not a generic term
+  if (!isEmoji && BANNED_GENERIC_TERMS.has(t.toLowerCase())) return false
   return true
 }
 
@@ -192,7 +196,7 @@ const fetchAlphaExpansion = async (alpha) => {
   // If server returned a cached result but we suspect the prompt has been updated
   // (indicated by a PROMPT_VERSION mismatch), force a fresh expansion.
   // This prevents stale cached expansions from bleeding old terms after prompt fixes.
-  const PROMPT_VERSION = 'v5'  // Bump this whenever the expansion prompt changes
+  const PROMPT_VERSION = 'v6'  // Bump this whenever the expansion prompt changes
   const data = res.data || {}
   if (data.fromCache && data.promptVersion && data.promptVersion !== PROMPT_VERSION) {
     console.log(`[Vector0] Prompt version mismatch for $${alpha.symbol} — forcing refresh`)
@@ -749,6 +753,10 @@ const scoreDescKeyword = (kw, symbol, name, description) => {
   if (symWords.includes(kwLower))  return 3.0
   if (nameWords.includes(kwLower)) return 2.0
 
+  // Keyword is component of symbol/name (e.g. "carrot" in "carrotjak")
+  if (kwLower.length >= 4 && symLower.includes(kwLower))  return 2.5
+  if (kwLower.length >= 4 && nameLower.includes(kwLower)) return 1.8
+
   // Description-only: base 1pt + frequency bonus, cap 1.9
   const escaped = kw.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
   const matches  = descLower.match(new RegExp(`\\b${escaped}\\b`, 'g'))
@@ -782,10 +790,15 @@ const filterDescriptionKeywords = (rawKeywords, symbol, name, description) => {
     clusterTotals.set(cluster, (clusterTotals.get(cluster) || 0) + score)
   })
 
-  // Keep keyword if: its own score ≥ 1.3 OR its cluster total ≥ 3.0
-  const survivors = scored.filter(({ score, cluster }) =>
-    score >= 1.3 || (clusterTotals.get(cluster) || 0) >= 3.0
-  )
+  // Keep keyword if: score ≥ 1.3, cluster ≥ 3.0, or keyword IS the ticker/name
+  const symLowerF  = symbol.toLowerCase()
+  const nameLowerF = (name || '').toLowerCase()
+  const survivors = scored.filter(({ kw, score, cluster }) => {
+    if (kw === symLowerF || kw === nameLowerF) return true
+    if (symLowerF.includes(kw) && kw.length >= 4) return true
+    if (nameLowerF.includes(kw) && kw.length >= 4) return true
+    return score >= 1.3 || (clusterTotals.get(cluster) || 0) >= 3.0
+  })
 
   // If nothing survived scoring — same logic: return empty, let V0A carry
   if (survivors.length === 0) {
@@ -910,14 +923,21 @@ const fetchDescriptionKeywords = async (alpha) => {
     // ── Source 6: DEXScreener targeted profile lookup ─────────────
     // Targeted address lookup — more reliable than the rolling list.
     // Finds profiles regardless of when they were claimed.
+    // MUST filter by tokenAddress — the endpoint may return profiles for
+    // other tokens with the same symbol (e.g. a different $ROCKET).
     try {
       const profileRes = await DEX_QUEUE.get(
         `${DEXSCREENER_BASE}/token-profiles/latest/v1?tokenAddress=${alpha.address}`
       )
       const profiles = profileRes.data || []
       const profileDesc = Array.isArray(profiles)
-        ? (profiles.find(p => p.chainId === 'solana')?.description || '')
-        : (profileRes.data?.description || '')
+        ? (profiles.find(p =>
+            p.chainId === 'solana' &&
+            p.tokenAddress === alpha.address
+          )?.description || '')
+        : (profileRes.data?.tokenAddress === alpha.address
+            ? (profileRes.data?.description || '')
+            : '')
 
       if (profileDesc && profileDesc.length > 10) {
         const raw      = extractDescriptionKeywords(profileDesc, alpha.symbol, alpha.name)
@@ -1357,50 +1377,68 @@ const scoreDescriptionMatch = (betas, alphaSymbol, alphaName, alphaKeywords) => 
 }
 
 // ─── Signal 1: Keyword + compound decomposition ──────────────────
-const fetchKeywordBetas = async (alphaSymbol, alphaName = '', extraTerms = []) => {
-  const nameTerms  = getNameTerms(alphaSymbol, alphaName)
-  const terms      = getSearchTerms(alphaSymbol)
-  const decomposed = decomposeSymbol(alphaSymbol)
+// ─── Signals V1 + V1b + V2: Unified DEX search ───────────────────
+// Merges fetchKeywordBetas, fetchDescriptionBetas, fetchLoreBetas into one.
+// Builds a single deduplicated term list tracking provenance per term.
+// One DEX call per unique term — ~40% fewer calls vs three separate functions.
+// Signal source diversity fully preserved: a term from both keyword and lore
+// origins tags hits with sources:['keyword','lore'] — convergence bonus intact.
+//
+// Also incorporates V0B visual terms (direct + counter) as additional
+// search signals with their own source tags.
+const fetchDEXSearchBetas = async (alpha, descKeywords = [], extraTerms = [], visualTerms = [], visualCounters = [], onHit = null) => {
+  const alphaSymbol = alpha.symbol
+  const alphaName   = alpha.name || ''
 
-  const emojiNumTerms = expandTickerForSearch(alphaSymbol)
-  const allTerms = [...new Set([...nameTerms, ...extraTerms, ...terms, ...decomposed, ...emojiNumTerms])]
-    .filter(isValidSearchTerm)
-
-  console.log(`[Vector1] $${alphaSymbol} searching ${allTerms.length} keyword terms: [${allTerms.slice(0,10).join(', ')}${allTerms.length > 10 ? '...' : ''}]`)
-
-  const results    = []
-  for (const term of allTerms) {
-    try {
-      const res = await DEX_QUEUE.get(`${DEXSCREENER_BASE}/latest/dex/search?q=${encodeURIComponent(term)}`)
-      const hits = (res.data?.pairs || [])
-        .filter(p =>
-          p.chainId === 'solana' &&
-          (p.liquidity?.usd || 0) >= MIN_LIQUIDITY &&
-          isHealthyBetaLiquidity(p) &&
-          isActiveBeta(p) &&
-          !['SOL','USDC','USDT'].includes(p.baseToken?.symbol)
-        )
-      if (hits.length > 0) {
-        console.log(`  [V1] "${term}" → ${hits.length} hits: [${hits.slice(0,5).map(p => '$'+p.baseToken?.symbol).join(', ')}${hits.length > 5 ? '...' : ''}]`)
-      }
-      hits.forEach(p => results.push({ pair: p, sources: ['keyword'] }))
-    } catch { /* silent */ }
+  // term → Set<source> provenance map — each unique term tracks ALL origins
+  const termSources = new Map()
+  const addTerms = (terms, source) => {
+    for (const t of terms) {
+      if (!isValidSearchTerm(t)) continue
+      if (!termSources.has(t)) termSources.set(t, new Set())
+      termSources.get(t).add(source)
+    }
   }
-  return results
-}
 
-// ─── Signal 1b: Description-driven search (Vector 1 complete) ────
-const fetchDescriptionBetas = async (alpha, descKeywords, extraTerms = []) => {
-  const allKeywords = [...new Set([...(descKeywords || []), ...extraTerms])]
-    .filter(isValidSearchTerm)
-  if (!allKeywords.length) return []
+  // V1 keyword origins
+  addTerms(getNameTerms(alphaSymbol, alphaName), 'keyword')
+  addTerms(getSearchTerms(alphaSymbol),          'keyword')
+  addTerms(decomposeSymbol(alphaSymbol),         'keyword')
+  addTerms(expandTickerForSearch(alphaSymbol),   'keyword')
+  addTerms(extraTerms,                           'keyword')
 
-  console.log(`[Vector1b/Desc] $${alpha.symbol} description keywords: [${allKeywords.join(', ')}]`)
+  // V1b description origins (cap at 4 unique terms)
+  const descUnique = [...new Set(descKeywords)].filter(isValidSearchTerm).slice(0, 4)
+  addTerms(descUnique, 'description')
+
+  // V2 lore origins
+  const symbolConcepts = getConcepts(alphaSymbol)
+  const nameConcepts   = alphaName.toLowerCase() !== alphaSymbol.toLowerCase()
+    ? getConcepts(alphaName) : []
+  addTerms(symbolConcepts,                       'lore')
+  addTerms(nameConcepts,                         'lore')
+  addTerms(getNameTerms(alphaSymbol, alphaName), 'lore')
+  addTerms(extraTerms,                           'lore')
+
+  // V0B visual terms — proper nouns/animals/characters only (filter generic descriptors)
+  // "panda", "trump", "shiba" → searchable | "red shirt", "blond hair" → skip
+  const VISUAL_NOISE = /^(blond|dark|light|red|blue|green|black|white|hair|shirt|suit|hat|glasses|eyes|face|background|color|colour|big|small|cute|funny|cartoon|anime|style|expression|angry|happy|sad|stoic|evil|good|holding|wearing|standing|sitting|pointing)$/i
+  const searchableVisual = visualTerms.filter(t => t.split(' ').length <= 2 && !VISUAL_NOISE.test(t.trim()))
+  addTerms(searchableVisual, 'visual_term')
+
+  // V0B visual counters (antonyms/opposites of what the logo depicts)
+  const searchableCounters = visualCounters.filter(t => t.split(' ').length <= 2 && !VISUAL_NOISE.test(t.trim()))
+  addTerms(searchableCounters, 'visual_counter')
+
+  const uniqueTerms = Array.from(termSources.keys())
+  console.log(`[V1+V1b+V2] $${alphaSymbol} unified search: ${uniqueTerms.length} unique terms (keyword+desc+lore${searchableVisual.length ? '+visual' : ''})`)
+  console.log(`  [V1+V2] terms: [${uniqueTerms.slice(0,12).join(', ')}${uniqueTerms.length > 12 ? '...' : ''}]`)
 
   const results = []
-  for (const keyword of allKeywords.slice(0, 6)) {
+  for (const term of uniqueTerms) {
     try {
-      const res = await DEX_QUEUE.get(`${DEXSCREENER_BASE}/latest/dex/search?q=${encodeURIComponent(keyword)}`)
+      const res  = await DEX_QUEUE.get(`${DEXSCREENER_BASE}/latest/dex/search?q=${encodeURIComponent(term)}`)
+      const srcs = Array.from(termSources.get(term))
       const hits = (res.data?.pairs || [])
         .filter(p =>
           p.chainId === 'solana' &&
@@ -1411,43 +1449,12 @@ const fetchDescriptionBetas = async (alpha, descKeywords, extraTerms = []) => {
           !['SOL','USDC','USDT'].includes(p.baseToken?.symbol)
         )
       if (hits.length > 0) {
-        console.log(`  [V1b] "${keyword}" → ${hits.length} hits: [${hits.slice(0,5).map(p => '$'+p.baseToken?.symbol).join(', ')}${hits.length > 5 ? '...' : ''}]`)
+        console.log(`  [V1+V2] "${term}" [${srcs.join('+')}] → ${hits.length} hits: [${hits.slice(0,5).map(p => '$'+p.baseToken?.symbol).join(', ')}${hits.length > 5 ? '...' : ''}]`)
+        const newHits = hits.map(p => ({ pair: p, sources: srcs }))
+        newHits.forEach(h => results.push(h))
+        // Approach A: fire callback immediately so UI can show hits as they arrive
+        if (onHit) onHit(newHits)
       }
-      hits.forEach(p => results.push({ pair: p, sources: ['description'] }))
-    } catch { /* silent */ }
-  }
-  return results
-}
-
-// ─── Signal 2: Lore matching ─────────────────────────────────────
-const fetchLoreBetas = async (alphaSymbol, alphaName = '', extraTerms = []) => {
-  const symbolConcepts = getConcepts(alphaSymbol)
-  const nameConcepts   = alphaName && alphaName.toLowerCase() !== alphaSymbol.toLowerCase()
-    ? getConcepts(alphaName)
-    : []
-  const nameTerms = getNameTerms(alphaSymbol, alphaName)
-
-  const concepts = [...new Set([...symbolConcepts, ...nameConcepts, ...nameTerms, ...extraTerms])]
-    .filter(isValidSearchTerm)
-
-  console.log(`[Vector2/Lore] $${alphaSymbol} lore concepts: [${concepts.join(', ')}]`)
-
-  const results   = []
-  for (const concept of concepts) {
-    try {
-      const res = await DEX_QUEUE.get(`${DEXSCREENER_BASE}/latest/dex/search?q=${encodeURIComponent(concept)}`)
-      const hits = (res.data?.pairs || [])
-        .filter(p =>
-          p.chainId === 'solana' &&
-          (p.liquidity?.usd || 0) >= MIN_LIQUIDITY &&
-          isHealthyBetaLiquidity(p) &&
-          isActiveBeta(p) &&
-          !['SOL','USDC','USDT'].includes(p.baseToken?.symbol)
-        )
-      if (hits.length > 0) {
-        console.log(`  [V2] "${concept}" → ${hits.length} hits: [${hits.slice(0,5).map(p => '$'+p.baseToken?.symbol).join(', ')}${hits.length > 5 ? '...' : ''}]`)
-      }
-      hits.forEach(p => results.push({ pair: p, sources: ['lore'] }))
     } catch { /* silent */ }
   }
   return results
@@ -1874,20 +1881,24 @@ const mergeAndScore = (rawResults, alphaSymbol, alphaMcap) => {
       return b.betaRank - a.betaRank
     })
 
+  // Dedup by baseToken.address (contract address) — not pairAddress.
+  // Same token on different pools (Raydium / PumpSwap / Jupiter route) should
+  // collapse to one entry with merged signal sources.
+  // Different tokens with same symbol ($WAR PVP) have different addresses → kept separate.
   const addrSeen = new Map()
   for (const b of classified) {
-    const addr = b.address
+    const addr = b.address  // baseToken.address — permanent, pool-agnostic
     if (!addr) continue
     if (!addrSeen.has(addr)) {
       addrSeen.set(addr, b)
     } else {
-      // Keep whichever has more signal sources (more corroboration)
+      // Same contract, different pool — merge signal sources, keep higher rank
       const existing = addrSeen.get(addr)
-      if ((b.signalSources?.length || 0) > (existing.signalSources?.length || 0)) {
-        addrSeen.set(addr, { ...b, signalSources: [...new Set([...(existing.signalSources || []), ...(b.signalSources || [])])] })
+      const mergedSources = [...new Set([...(existing.signalSources || []), ...(b.signalSources || [])])]
+      if ((b.betaRank || 0) > (existing.betaRank || 0)) {
+        addrSeen.set(addr, { ...b, signalSources: mergedSources })
       } else {
-        // Merge signals from duplicate into keeper
-        addrSeen.set(addr, { ...existing, signalSources: [...new Set([...(existing.signalSources || []), ...(b.signalSources || [])])] })
+        addrSeen.set(addr, { ...existing, signalSources: mergedSources })
       }
     }
   }
@@ -1899,9 +1910,11 @@ const mergeAndScore = (rawResults, alphaSymbol, alphaMcap) => {
 // parentAlpha: if provided, also scans parent's namespace to find siblings
 // Siblings are tagged as RIVAL so they appear in the beta list with correct signal
 const useBetas = (alpha, parentAlpha = null) => {
-  const [betas,   setBetas]   = useState([])
-  const [loading, setLoading] = useState(false)
-  const [error,   setError]   = useState(null)
+  const [betas,     setBetas]     = useState([])
+  const [loading,   setLoading]   = useState(false)
+  const [error,     setError]     = useState(null)
+  const [scanPhase, setScanPhase] = useState(null)
+  // scanPhase: null | 'expanding' | 'searching' | 'scoring' | 'complete'
   // Race condition guard — each fetch gets a unique ID.
   // ── Alpha address signature system ───────────────────────────────
   // Every fetchBetas call is "signed" with the alpha address it was
@@ -1911,8 +1924,13 @@ const useBetas = (alpha, parentAlpha = null) => {
   // If either check fails, the result is discarded silently.
   // This prevents Token A's betas from ever appearing in Token B's panel,
   // regardless of network speed, re-renders, or React batching order.
-  const fetchIdRef     = useRef(0)
-  const activeAlphaRef = useRef(null)  // ground truth: what alpha the UI is showing RIGHT NOW
+  const fetchIdRef      = useRef(0)
+  const activeAlphaRef  = useRef(null)  // ground truth: what alpha the UI is showing RIGHT NOW
+  const parentAlphaRef  = useRef(null)  // always-fresh parentAlpha — read inside fetchBetas without triggering re-run
+
+  // Keep parentAlphaRef always fresh — updated every render
+  // so fetchBetas reads current parentAlpha without it being a useCallback dep
+  parentAlphaRef.current = parentAlpha
 
   // useEffect is the SOLE owner of activeAlphaRef.
   // It updates immediately on alpha change and clears the beta panel.
@@ -1921,6 +1939,7 @@ const useBetas = (alpha, parentAlpha = null) => {
     if (activeAlphaRef.current !== newAddress) {
       activeAlphaRef.current = newAddress
       setBetas([])
+      setScanPhase(null)
       console.log(`[BetaPanel] Switched → ${newAddress ? `$${alpha.symbol}` : 'none'} — cleared`)
     }
   }, [alpha?.address])
@@ -1984,16 +2003,20 @@ const useBetas = (alpha, parentAlpha = null) => {
       // visualTerms must NEVER go to DEX text search — "green" or "cartoon"
       // returns thousands of unrelated tokens. They belong in the vision pipeline
       // where logos are compared image-to-image, not text-to-text.
-      let v0SearchTerms    = []   // → DEX search vectors (1, 1b, 2, 4)
-      let v0VisualTerms    = []   // → vision comparison only (compareLogos)
+      let v0SearchTerms     = []   // → DEX search vectors (1, 1b, 2, 4)
+      let v0VisualTerms     = []   // → vision comparison + filtered DEX search
+      let v0VisualCounters  = []   // → visual antonyms/opposites for counter beta search
       let relationshipHints = {}
+      let v0Category        = []   // AI-inferred categories array from V0A
       try {
         const expansion   = await fetchAlphaExpansion(enrichedAlpha)
         // Expand search terms — each CamelCase compound becomes two entries:
         // "EmptyHand" → ["emptyhand", "empty hand"] to find both tickers and named tokens.
         v0SearchTerms      = expandSearchTerms(expansion.searchTerms || [])
-        v0VisualTerms      = expansion.visualTerms   || []
+        v0VisualTerms      = expansion.visualTerms    || []
+        v0VisualCounters   = expansion.visualCounters || []
         relationshipHints  = expansion.relationshipHints || {}
+        v0Category         = expansion.categories || []  // AI-inferred categories array — drives seeding below
         console.log(
           `[Vector0] $${enrichedAlpha.symbol} → ${v0SearchTerms.length} search terms, ` +
           `${v0VisualTerms.length} visual terms (vision only)` +
@@ -2006,80 +2029,220 @@ const useBetas = (alpha, parentAlpha = null) => {
       }
 
       // ── Category-aware search seeding ────────────────────────────
-      // If a token falls into a known narrative category, inject that
-      // category's keywords into the search pool — even when V0A fails.
-      // This is the "category determines search strategy" principle:
-      // $ROCKET identified as space/emoji → search space AND emoji tokens
-      // $ZEN identified as spiritual → search chaos/disorder as COUNTER
+      // Architecture: AI-first, hardcoded maps as fallback only.
       //
-      // Three detection layers:
-      //   1. Emoji token detection — symbol or name IS an emoji concept
-      //   2. Narrative category from detectCategory() (lore_map.js)
-      //   3. Current events / lore linking — injected via Telegram V10
-      //      (no systematic news API yet — V11 Twitter activation unlocks this)
+      // Priority order:
+      //   1. V0A category (AI-inferred) — handles ANY token, known or future
+      //   2. EMOJI_CONCEPT_MAP — catches emoji tokens when V0A was cached/failed
+      //   3. detectCategory() keyword/regex — catches CT variants, known slang
       //
-      // Detected category seeds are tagged 'category_seed' so they can be
-      // distinguished from V0A terms in downstream logging.
+      // V0A category is the permanent fix. It doesn't need hardcoded lists.
+      // When V0A says "emoji" for $ROCKET, we search the emoji universe.
+      // When V0A says "internet_culture" for $LOL, we search reaction tokens.
+      // No code change needed for future narratives — AI handles them.
 
       let categorySeeds = []
 
-      // ── Layer 1: Emoji token detection ───────────────────────────
-      // If the token IS an emoji concept (rocket, skull, frog, fire etc),
-      // search for actual emoji tickers on DEX alongside text equivalents.
-      // Emoji tokens form their own meta-universe — when $ROCKET runs,
-      // $🚀 $🔥 $💀 etc often follow because degens treat them as a category.
+      // ── EMOJI_CONCEPT_MAP + EMOJI_TEXT_MAP ───────────────────────
+      // Used by Layer 1 (emoji tokens) and by the "emoji" category path.
+      // Defined once here so both the V0A path and the fallback path share them.
       const EMOJI_CONCEPT_MAP = {
-        rocket:    { emoji: '🚀', related: ['moon','launch','blast','orbit','nasa','mars','space'] },
-        skull:     { emoji: '💀', related: ['dead','death','rip','ghost','bones','dark'] },
-        frog:      { emoji: '🐸', related: ['pepe','toad','kermit','ribbit'] },
-        fire:      { emoji: '🔥', related: ['flame','blaze','burn','hot','inferno'] },
-        dog:       { emoji: '🐶', related: ['doge','shiba','puppy','woof','bonk'] },
-        cat:       { emoji: '🐱', related: ['meow','neko','kitty','pepe'] },
-        diamond:   { emoji: '💎', related: ['gem','jewel','crystal','rare','based'] },
-        lightning: { emoji: '⚡', related: ['thunder','bolt','zap','fast','electric'] },
-        moon:      { emoji: '🌙', related: ['luna','lunar','night','dark','space'] },
-        clover:    { emoji: '🍀', related: ['lucky','shamrock','green','irish'] },
-        bear:      { emoji: '🐻', related: ['grizzly','panda','honey','woods'] },
-        alien:     { emoji: '👽', related: ['ufo','extraterrestrial','area51','disclosure'] },
-        money:     { emoji: '💸', related: ['cash','rich','wealth','dollar','bread'] },
-        brain:     { emoji: '🧠', related: ['smart','iq','think','genius','mind'] },
-        poop:      { emoji: '💩', related: ['shit','crap','turd','fart','stink'] },
+        rocket:    { emoji: '🚀', related: ['moon','launch','blast','orbit','nasa','mars','space'], siblingEmojis: ['🌙','🔥','💀','⚡','👽'] },
+        skull:     { emoji: '💀', related: ['dead','death','rip','ghost','bones','dark'],           siblingEmojis: ['🔥','💀','⚡','🌙','💩'] },
+        frog:      { emoji: '🐸', related: ['pepe','toad','kermit','ribbit'],                       siblingEmojis: ['🐸','🐶','🐱','🐻','🦊'] },
+        fire:      { emoji: '🔥', related: ['flame','blaze','burn','hot','inferno'],                siblingEmojis: ['💀','⚡','🚀','🌙','💎'] },
+        dog:       { emoji: '🐶', related: ['doge','shiba','puppy','woof','bonk'],                  siblingEmojis: ['🐸','🐱','🐻','🦊','🐺'] },
+        cat:       { emoji: '🐱', related: ['meow','neko','kitty','pepe'],                          siblingEmojis: ['🐶','🐸','🐻','🦊','🐺'] },
+        diamond:   { emoji: '💎', related: ['gem','jewel','crystal','rare','based'],                siblingEmojis: ['💎','💸','🏆','🔥','⚡'] },
+        lightning: { emoji: '⚡', related: ['thunder','bolt','zap','fast','electric'],              siblingEmojis: ['🔥','💀','🚀','⚡','🌙'] },
+        moon:      { emoji: '🌙', related: ['luna','lunar','night','dark','space'],                 siblingEmojis: ['🚀','⚡','💀','👽','🌙'] },
+        clover:    { emoji: '🍀', related: ['lucky','shamrock','green','irish'],                    siblingEmojis: ['🍀','💎','🏆','🐸','💸'] },
+        bear:      { emoji: '🐻', related: ['grizzly','panda','honey','woods'],                     siblingEmojis: ['🐶','🐸','🐱','🦊','🐺'] },
+        alien:     { emoji: '👽', related: ['ufo','extraterrestrial','area51','disclosure'],        siblingEmojis: ['👽','🚀','🌙','💀','🧠'] },
+        money:     { emoji: '💸', related: ['cash','rich','wealth','dollar','bread'],               siblingEmojis: ['💎','💸','🏆','🔥','🚀'] },
+        brain:     { emoji: '🧠', related: ['smart','iq','think','genius','mind'],                  siblingEmojis: ['🧠','👽','💎','⚡','🔥'] },
+        poop:      { emoji: '💩', related: ['shit','crap','turd','fart','stink'],                   siblingEmojis: ['💩','💀','🤡','🔥','👽'] },
+      }
+      const EMOJI_TEXT_MAP = {
+        '🚀': ['rocket','launch','blast'], '🌙': ['moon','luna','lunar'],
+        '🔥': ['fire','flame','blaze'],    '💀': ['skull','dead','death'],
+        '⚡': ['lightning','thunder','bolt'], '👽': ['alien','ufo','extraterrestrial'],
+        '🐸': ['frog','pepe','toad'],      '🐶': ['dog','doge','shiba'],
+        '🐱': ['cat','kitten','neko'],     '🐻': ['bear','grizzly','panda'],
+        '🦊': ['fox','foxy'],              '🐺': ['wolf','wolfpack'],
+        '💎': ['diamond','gem','crystal'], '💸': ['money','cash','rich'],
+        '🏆': ['trophy','winner','champion'], '🧠': ['brain','smart','genius'],
+        '💩': ['poop','shit','crap'],      '🍀': ['clover','lucky','shamrock'],
+        '🤡': ['clown','joker','honk'],
       }
 
-      const symLowerForCat = enrichedAlpha.symbol.toLowerCase()
-      const nameLowerForCat = (enrichedAlpha.name || '').toLowerCase()
-      const emojiMatch = Object.entries(EMOJI_CONCEPT_MAP).find(([concept]) =>
-        symLowerForCat === concept ||
-        symLowerForCat.includes(concept) ||
-        nameLowerForCat.includes(concept)
-      )
+      // Internet culture / reaction tokens — their own meta-universe.
+      // These run alongside ANY narrative when degens pile into meme phrases.
+      // V0A returns "internet_culture" for tokens like $LOL $LMAO $GG $WAGMI.
+      const INTERNET_CULTURE_SEEDS = [
+        'lol','lmao','gg','wagmi','ngmi','cope','seethe','fud','rekt','wen',
+        'ser','fren','gm','gn','vibes','based','chad','wojak','npc','touch grass',
+        'probably nothing','this is fine','have fun staying poor',
+      ]
 
-      if (emojiMatch) {
-        const [concept, { emoji, related }] = emojiMatch
-        categorySeeds = [...related, emoji]
-        console.log(`[CategorySeed] $${enrichedAlpha.symbol} → emoji concept "${concept}" → seeds: [${categorySeeds.join(', ')}]`)
+      // Helper: build emoji universe seeds from a concept name
+      const buildEmojiSeeds = (conceptName) => {
+        const match = EMOJI_CONCEPT_MAP[conceptName]
+        if (!match) return []
+        const { emoji, related, siblingEmojis } = match
+        const siblingTextNames = siblingEmojis
+          .flatMap(e => EMOJI_TEXT_MAP[e] || [])
+          .filter(t => !related.includes(t))
+        return [...related, emoji, ...siblingEmojis, ...siblingTextNames]
       }
 
-      // ── Layer 2: Narrative category seeding ──────────────────────
-      let detectedCat = null  // captured here — used by MetaSeed below
-      if (categorySeeds.length === 0) {
-        try {
-          detectedCat = detectCategory(
-            enrichedAlpha.symbol,
-            enrichedAlpha.name || '',
-            enrichedAlpha.description || ''
-          )
-          if (detectedCat && NARRATIVE_CATEGORIES[detectedCat]) {
-            const catKeywords = NARRATIVE_CATEGORIES[detectedCat].keywords || []
-            categorySeeds = catKeywords
-              .filter(k => !v0SearchTerms.includes(k) && isValidSearchTerm(k))
+      // ── Layer 0: V0A categories (AI-first, multi-category, future-proof) ──
+      // v0Category is now an ARRAY — a token can belong to multiple universes.
+      // $ChibiElon → ["anime","elon"] | $RocketPepe → ["emoji","frogs"]
+      // We seed from ALL detected categories, not just the dominant one.
+      // Each category's seeds are added additively to the pool.
+      //
+      // detectedCat is still a SINGLE string — used by MetaSeed complement logic.
+      // We pick the most specific / primary category for that purpose.
+      let detectedCat = null
+
+      if (v0Category.length > 0) {
+        console.log(`[CategorySeed] $${enrichedAlpha.symbol} → V0A categories: [${v0Category.join(', ')}]`)
+        detectedCat = v0Category[0]  // primary category for MetaSeed complement
+
+        for (const cat of v0Category) {
+          if (cat === 'emoji') {
+            // Emoji category — find the matching concept and build full emoji seeds
+            const symLower = enrichedAlpha.symbol.toLowerCase()
+            const nameLower = (enrichedAlpha.name || '').toLowerCase()
+            const conceptMatch = Object.keys(EMOJI_CONCEPT_MAP).find(concept =>
+              symLower === concept || symLower.includes(concept) || nameLower.includes(concept)
+            )
+            if (conceptMatch) {
+              const emojiSeeds = buildEmojiSeeds(conceptMatch)
+              categorySeeds = [...categorySeeds, ...emojiSeeds.filter(k => !categorySeeds.includes(k))]
+              console.log(`[CategorySeed] $${enrichedAlpha.symbol} → emoji "${conceptMatch}" → ${emojiSeeds.length} seeds`)
+            } else {
+              // V0A says emoji but no specific concept — seed all emoji tickers
+              const allEmoji = Object.values(EMOJI_CONCEPT_MAP).map(v => v.emoji)
+              categorySeeds = [...categorySeeds, ...allEmoji.filter(k => !categorySeeds.includes(k))]
+              console.log(`[CategorySeed] $${enrichedAlpha.symbol} → emoji (generic) → all emoji tickers`)
+            }
+
+          } else if (cat === 'internet_culture') {
+            const icSeeds = INTERNET_CULTURE_SEEDS.filter(k => isValidSearchTerm(k) && !categorySeeds.includes(k))
+            categorySeeds = [...categorySeeds, ...icSeeds]
+            console.log(`[CategorySeed] $${enrichedAlpha.symbol} → internet_culture → ${icSeeds.length} seeds`)
+
+          } else if (NARRATIVE_CATEGORIES[cat]) {
+            // Known named category — pull from NARRATIVE_CATEGORIES keyword list
+            const catKeywords = NARRATIVE_CATEGORIES[cat].keywords || []
+            const catSeeds = catKeywords
+              .filter(k => !v0SearchTerms.includes(k) && !categorySeeds.includes(k) && isValidSearchTerm(k))
+              .slice(0, 10)
+            if (catSeeds.length > 0) {
+              categorySeeds = [...categorySeeds, ...catSeeds]
+              console.log(`[CategorySeed] $${enrichedAlpha.symbol} → "${cat}" (known) → ${catSeeds.length} seeds`)
+            }
+
+          } else {
+            // Novel category V0A invented — its searchTerms already cover this universe
+            console.log(`[CategorySeed] $${enrichedAlpha.symbol} → "${cat}" (novel — V0A searchTerms carry it)`)
+          }
+        }
+      }
+
+      // ── Layer 1: Symbol decomposition category detection (Approach B) ──────
+      // Structural fallback that works even when V0A fails, AND adds categories
+      // V0A may have missed when a compound name spans multiple known universes.
+      //
+      // How it works:
+      //   1. Decompose symbol/name into component words (CamelCase, compound, space-split)
+      //   2. Run detectCategory() on EACH component independently
+      //   3. Any category not already covered by V0A gets seeded additively
+      //
+      // $ChibiElon → components ["chibi","elon"] → detectCategory("chibi")="anime",
+      //              detectCategory("elon")="elon" → both seeded even if V0A only saw one
+      // $TrumpPepe → ["trump","pepe"] → "political" + "frogs" both seeded
+      // $SpaceDog  → ["space","dog"]  → "space" + "dogs" both seeded
+      //
+      // This is purely additive — never overrides V0A, never removes existing seeds.
+      try {
+        const sym  = enrichedAlpha.symbol
+        const name = enrichedAlpha.name || ''
+
+        // Extract component words from the compound symbol/name
+        // Handles: CamelCase (ChibiElon→Chibi,Elon), ALL_CAPS (TRUMPPEPE→try splits),
+        // space-separated (Trump Pepe→Trump,Pepe), known prefix/suffix stripping
+        const componentWords = new Set()
+
+        // CamelCase split: ChibiElon → ["Chibi","Elon"]
+        const camelParts = sym.replace(/([A-Z][a-z]+)/g, ' $1').trim().split(/\s+/).filter(p => p.length >= 3)
+        camelParts.forEach(p => componentWords.add(p.toLowerCase()))
+
+        // Space-split from name: "Chibi Elon" → ["chibi","elon"]
+        name.toLowerCase().split(/\s+/).filter(w => w.length >= 3).forEach(w => componentWords.add(w))
+
+        // Dictionary-based split for all-caps: TRUMPPEPE → try every cut point
+        // reuse COMPOUND_ROOTS from the existing decomposition logic
+        const symUpper = sym.toUpperCase()
+        if (symUpper.length >= 6) {
+          for (let i = 3; i <= symUpper.length - 3; i++) {
+            const left  = symUpper.slice(0, i).toLowerCase()
+            const right = symUpper.slice(i).toLowerCase()
+            if (left.length >= 3)  componentWords.add(left)
+            if (right.length >= 3) componentWords.add(right)
+          }
+        }
+
+        // Run detectCategory on each component independently
+        const decomposedCats = new Set()
+        for (const word of componentWords) {
+          const wordCat = detectCategory(word, word, '')
+          if (wordCat) decomposedCats.add(wordCat)
+        }
+
+        // Also run on full symbol+name as normal
+        const fullCat = detectCategory(sym, name, enrichedAlpha.description || '')
+        if (fullCat) decomposedCats.add(fullCat)
+
+        // Seed from any category not already handled by V0A
+        const alreadyHandled = new Set(v0Category)
+        for (const dCat of decomposedCats) {
+          if (!detectedCat) detectedCat = dCat  // set primary if V0A was silent
+          if (NARRATIVE_CATEGORIES[dCat]) {
+            const catKeywords = NARRATIVE_CATEGORIES[dCat].keywords || []
+            const newSeeds = catKeywords
+              .filter(k => !v0SearchTerms.includes(k) && !categorySeeds.includes(k) && isValidSearchTerm(k))
               .slice(0, 8)
-            if (categorySeeds.length > 0) {
-              console.log(`[CategorySeed] $${enrichedAlpha.symbol} → category "${detectedCat}" → seeds: [${categorySeeds.join(', ')}]`)
+            if (newSeeds.length > 0) {
+              categorySeeds = [...categorySeeds, ...newSeeds]
+              const isNew = !alreadyHandled.has(dCat)
+              console.log(`[CategorySeed] $${enrichedAlpha.symbol} → decomposed "${dCat}" → ${newSeeds.length} ${isNew ? 'new' : 'additive'} seeds`)
             }
           }
-        } catch (catErr) {
-          console.warn('[CategorySeed] Detection failed (non-fatal):', catErr.message)
+        }
+      } catch (decompErr) {
+        console.warn('[CategorySeed] Decomposition detection failed (non-fatal):', decompErr.message)
+      }
+
+      // ── Layer 2: Emoji concept check (always runs, additive) ─────────
+      // Even if V0A returned categories, check if the symbol/name contains
+      // an emoji concept that wasn't in the V0A list.
+      // This catches e.g. $RocketPepe where V0A returned ["frogs"] but missed "emoji".
+      {
+        const symLowerEmoji = enrichedAlpha.symbol.toLowerCase()
+        const nameLowerEmoji = (enrichedAlpha.name || '').toLowerCase()
+        const emojiConceptMatch = Object.keys(EMOJI_CONCEPT_MAP).find(concept =>
+          symLowerEmoji === concept || symLowerEmoji.includes(concept) || nameLowerEmoji.includes(concept)
+        )
+        if (emojiConceptMatch && !v0Category.includes('emoji')) {
+          const emojiSeeds = buildEmojiSeeds(emojiConceptMatch)
+          const newEmojiSeeds = emojiSeeds.filter(k => !categorySeeds.includes(k))
+          if (newEmojiSeeds.length > 0) {
+            categorySeeds = [...categorySeeds, ...newEmojiSeeds]
+            console.log(`[CategorySeed] $${enrichedAlpha.symbol} → emoji concept "${emojiConceptMatch}" (structural) → ${newEmojiSeeds.length} seeds`)
+          }
         }
       }
 
@@ -2099,18 +2262,32 @@ const useBetas = (alpha, parentAlpha = null) => {
       //     ($Dunald=political should never search animal terms)
       //
       // Zero API cost — reads localStorage only.
+      // META_COMPLEMENTS: which token categories ALLOW a given dominant narrative to inject.
+      // Read as: "dominant X can inject into tokens of category Y"
+      // If a token's category is NOT in the list for the dominant → BLOCKED.
+      // If a token has NO detected category AND has own terms → allowed (ambiguous token).
+      // 'humor' and 'internet_culture' are very specific — only inject into same category.
+      // anime/gaming/sports/food/etc are NEVER complementary to humor — they have own universe.
       const META_COMPLEMENTS = {
-        political:  ['political', 'memes'],
-        animals:    ['animals', 'nature', 'frogs', 'dogs', 'cats', 'bears', 'penguins', 'aliens'],
-        ai:         ['ai', 'tech', 'elon'],
-        memes:      ['memes', 'political'],
-        dogs:       ['dogs', 'animals', 'nature'],
-        cats:       ['cats', 'animals', 'nature'],
-        frogs:      ['frogs', 'animals', 'memes'],
-        bears:      ['bears', 'animals', 'nature'],
-        space:      ['space', 'ai', 'elon', 'aliens'],
-        elon:       ['elon', 'ai', 'space', 'political'],
-        trump:      ['trump', 'political', 'memes'],
+        political:       ['political', 'memes', null],
+        animals:         ['animals', 'nature', 'frogs', 'dogs', 'cats', 'bears', 'penguins', 'aliens', null],
+        ai:              ['ai', 'tech', 'elon', null],
+        memes:           ['memes', 'political', 'humor', 'internet_culture', null],
+        humor:           ['humor', 'internet_culture', 'memes', null],  // strict — only humor tokens
+        internet_culture:['internet_culture', 'humor', 'memes', null],  // strict — only CT culture tokens
+        dogs:            ['dogs', 'animals', 'nature', null],
+        cats:            ['cats', 'animals', 'nature', null],
+        frogs:           ['frogs', 'animals', 'memes', null],
+        bears:           ['bears', 'animals', 'nature', null],
+        space:           ['space', 'ai', 'elon', 'aliens', null],
+        elon:            ['elon', 'ai', 'space', 'political', null],
+        trump:           ['trump', 'political', 'memes', null],
+        // Narrative-specific categories — only complement their own universe
+        anime:           ['anime', 'manga', 'japanese', null],
+        manga:           ['manga', 'anime', 'japanese', null],
+        gaming:          ['gaming', null],
+        sports:          ['sports', null],
+        food:            ['food', null],
       }
       try {
         const sznRaw = localStorage.getItem('betaplays_szn_cache_v1')
@@ -2129,11 +2306,18 @@ const useBetas = (alpha, parentAlpha = null) => {
           if (dominant) {
             const [dominantCat, dominantCount] = dominant
 
-            // Complement check — block if token has its own category that
-            // doesn't complement the dominant narrative
-            const tokenCat = detectedCat  // null if no category detected
+            // Gate: only inject when token has own identity terms
+            const hasOwnTerms = v0SearchTerms.length > 0 || descKeywords.length > 0 || categorySeeds.length > 0
+            if (!hasOwnTerms) {
+              console.log(`[MetaSeed] Skipped — no own identity terms, refusing narrative injection`)
+            } else {
+            // Complement check
+            const tokenCat = detectedCat
+            // null means the token has no detected category — use null sentinel in complement list
+            // Categories listed with null allow injection into unclassified tokens
+            // Niche categories (humor, anime, gaming) do NOT include null — they won't inject into blanks
             const allowedComplements = META_COMPLEMENTS[dominantCat] || [dominantCat]
-            const isComplement = !tokenCat || allowedComplements.includes(tokenCat)
+            const isComplement = allowedComplements.includes(tokenCat)  // null is a valid value in the list
 
             if (!isComplement) {
               console.log(`[MetaSeed] Blocked — token is "${tokenCat}", dominant is "${dominantCat}" (not complementary)`)
@@ -2148,17 +2332,66 @@ const useBetas = (alpha, parentAlpha = null) => {
                 allV0Terms = [...new Set([...allV0Terms, ...metaSeeds])]
               }
             }
+            } // end hasOwnTerms
           }
         }
       } catch { /* silent — meta seeding is non-fatal */ }
 
-      // Run all signals in parallel — seeded with v0SearchTerms ONLY.
-      // v0VisualTerms are reserved for the vision pipeline below.
-      const [keywordRes, descRes, loreRes, morphRes, pumpRes, lpRes, ogRes, telegramRes, twitterRes] =
+      // ── Approach A: Progressive beta population ──────────────────
+      // Signals run in parallel. As each DEX term resolves, hits are pushed
+      // to the UI immediately via pushPartial — users see betas appearing
+      // one by one rather than all at once after 40–80s of silence.
+      //
+      // Architecture:
+      //   - accumulatorRef: shared dedup map (address → raw result)
+      //   - pushPartial: merges new hits, deduplicates, calls setBetas
+      //   - fetchDEXSearchBetas gets onHit callback — fires per term
+      //   - Other signals (morph, LP, OG, telegram) push on completion
+      //   - Vector 8 reorders the final accumulated list at the end
+      //
+      // Dedup is by baseToken.address — same contract from different pools
+      // collapses to one entry with merged signal sources.
+
+      if (!isStale()) setScanPhase('searching')
+      const _t2 = Date.now()
+
+      const accumulator = new Map()  // address → { pair, sources }
+
+      const pushPartial = (newHits) => {
+        if (isStale()) return
+        let changed = false
+        for (const { pair, sources } of newHits) {
+          const addr = pair.baseToken?.address
+          if (!addr) continue
+          if (accumulator.has(addr)) {
+            // Merge sources for existing entry
+            const existing = accumulator.get(addr)
+            const merged = [...new Set([...existing.sources, ...sources])]
+            if (merged.length !== existing.sources.length) {
+              accumulator.set(addr, { pair, sources: merged })
+              changed = true
+            }
+          } else {
+            accumulator.set(addr, { pair, sources })
+            changed = true
+          }
+        }
+        if (!changed) return
+
+        // Build partial beta list and push to UI
+        const partialResults = Array.from(accumulator.values())
+        const partialMerged  = mergeAndScore(partialResults, enrichedAlpha.symbol, enrichedAlpha.marketCap)
+        if (!isStale()) setBetas(partialMerged)
+      }
+
+      // Run all signals in parallel — DEX search fires onHit per term,
+      // others push their full result on completion.
+      const [dexRes, morphRes, pumpRes, lpRes, ogRes, telegramRes, twitterRes] =
         await Promise.allSettled([
-          fetchKeywordBetas(enrichedAlpha.symbol, enrichedAlpha.name, allV0Terms),
-          fetchDescriptionBetas(enrichedAlpha, descKeywords, allV0Terms),
-          fetchLoreBetas(enrichedAlpha.symbol, enrichedAlpha.name, allV0Terms),
+          fetchDEXSearchBetas(
+            enrichedAlpha, descKeywords, allV0Terms, v0VisualTerms, v0VisualCounters,
+            (hits) => pushPartial(hits)  // onHit: stream each term's results immediately
+          ),
           fetchMorphologyBetas(enrichedAlpha.symbol),
           fetchPumpFunBetas(enrichedAlpha.symbol, descKeywords, enrichedAlpha.name, allV0Terms),
           fetchLPPairBetas(enrichedAlpha),
@@ -2167,17 +2400,18 @@ const useBetas = (alpha, parentAlpha = null) => {
           fetchTwitterBetas(enrichedAlpha.symbol),
         ])
 
-      const allResults = [
-        ...(keywordRes.status  === 'fulfilled' ? keywordRes.value  : []),
-        ...(descRes.status     === 'fulfilled' ? descRes.value     : []),
-        ...(loreRes.status     === 'fulfilled' ? loreRes.value     : []),
-        ...(morphRes.status    === 'fulfilled' ? morphRes.value    : []),
-        ...(pumpRes.status     === 'fulfilled' ? pumpRes.value     : []),
-        ...(lpRes.status       === 'fulfilled' ? lpRes.value       : []),
-        ...(ogRes.status       === 'fulfilled' ? ogRes.value       : []),
-        ...(telegramRes.status === 'fulfilled' ? telegramRes.value : []),
-        ...(twitterRes.status  === 'fulfilled' ? twitterRes.value  : []),
-      ]
+      // Push non-DEX signals on completion (they return all at once)
+      if (morphRes.status    === 'fulfilled' && morphRes.value.length)    pushPartial(morphRes.value)
+      if (pumpRes.status     === 'fulfilled' && pumpRes.value.length)     pushPartial(pumpRes.value)
+      if (lpRes.status       === 'fulfilled' && lpRes.value.length)       pushPartial(lpRes.value)
+      if (ogRes.status       === 'fulfilled' && ogRes.value.length)       pushPartial(ogRes.value)
+      if (telegramRes.status === 'fulfilled' && telegramRes.value.length) pushPartial(telegramRes.value)
+      if (twitterRes.status  === 'fulfilled' && twitterRes.value.length)  pushPartial(twitterRes.value)
+
+      console.log(`[Perf] $${alpha.symbol} parallel signals (V1+V1b+V2/V3/V4/V5/V6/V10/V11): ${Date.now()-_t2}ms`)
+
+      // Final deduplicated result from accumulator — source of truth for downstream
+      const allResults = Array.from(accumulator.values())
 
       // Merge signals 1-5 into deduplicated list
       const mergedRaw = mergeAndScore(allResults, enrichedAlpha.symbol, enrichedAlpha.marketCap)
@@ -2201,7 +2435,7 @@ const useBetas = (alpha, parentAlpha = null) => {
 
       // ── Sibling scan: find narrative siblings via parent ─────────
       let siblingResults = []
-      if (parentAlpha) {
+      if (parentAlphaRef.current) {
 
         // ── Step A: Load KNOWN siblings from localStorage ──────────
         // Three sources of already-confirmed sibling addresses:
@@ -2225,14 +2459,14 @@ const useBetas = (alpha, parentAlpha = null) => {
           // Source 1: reverse-read the parent map
           const parentMap = JSON.parse(localStorage.getItem('betaplays_parent_map') || '{}')
           Object.entries(parentMap).forEach(([addr, entry]) => {
-            if (entry?.address === parentAlpha.address && addr !== enrichedAlpha.address) {
+            if (entry?.address === parentAlphaRef.current.address && addr !== enrichedAlpha.address) {
               knownSiblingAddresses.add(addr)
             }
           })
 
           // Source 2: parent's own stored beta scan
           const betaStore = JSON.parse(localStorage.getItem(BETA_STORE_KEY) || '{}')
-          const parentBetas = betaStore[parentAlpha.address] || []
+          const parentBetas = betaStore[parentAlphaRef.current.address] || []
           parentBetas.forEach(b => {
             if (b.address && b.address !== enrichedAlpha.address) {
               knownSiblingAddresses.add(b.address)
@@ -2243,7 +2477,7 @@ const useBetas = (alpha, parentAlpha = null) => {
           const seenAlphas = JSON.parse(localStorage.getItem('betaplays_seen_alphas') || '{}')
           Object.entries(seenAlphas).forEach(([addr, token]) => {
             const confirmedParent = parentMap[addr]
-            if (confirmedParent?.address === parentAlpha.address && addr !== enrichedAlpha.address) {
+            if (confirmedParent?.address === parentAlphaRef.current.address && addr !== enrichedAlpha.address) {
               knownSiblingAddresses.add(addr)
             }
           })
@@ -2292,14 +2526,13 @@ const useBetas = (alpha, parentAlpha = null) => {
           // Also fetch Telegram/Twitter betas for the parent — if $CLAW has Telegram
           // signal, those betas are also valid plays when $CLAWCARD is selected.
           const [sibKeyword, sibLore, sibMorph, sibPump, sibLP, sibOG, sibTelegram, sibTwitter] = await Promise.allSettled([
-            fetchKeywordBetas(parentAlpha.symbol, parentAlpha.name),
-            fetchLoreBetas(parentAlpha.symbol, parentAlpha.name),
-            fetchMorphologyBetas(parentAlpha.symbol),
-            fetchPumpFunBetas(parentAlpha.symbol, [], parentAlpha.name),
-            fetchLPPairBetas(parentAlpha),
-            fetchExactMatchOGs(parentAlpha.symbol, parentAlpha.address),
-            fetchTelegramBetas(parentAlpha.symbol),
-            fetchTwitterBetas(parentAlpha.symbol),
+            fetchDEXSearchBetas({ symbol: parentAlphaRef.current.symbol, name: parentAlphaRef.current.name, address: '' }, [], [], [], []),
+            fetchMorphologyBetas(parentAlphaRef.current.symbol),
+            fetchPumpFunBetas(parentAlphaRef.current.symbol, [], parentAlphaRef.current.name),
+            fetchLPPairBetas(parentAlphaRef.current),
+            fetchExactMatchOGs(parentAlphaRef.current.symbol, parentAlphaRef.current.address),
+            fetchTelegramBetas(parentAlphaRef.current.symbol),
+            fetchTwitterBetas(parentAlphaRef.current.symbol),
           ])
           const sibRaw = [
             // Step A: known siblings from localStorage (address-based, not search-rank dependent)
@@ -2314,7 +2547,7 @@ const useBetas = (alpha, parentAlpha = null) => {
             ...(sibTelegram.status  === 'fulfilled' ? sibTelegram.value  : []),
             ...(sibTwitter.status   === 'fulfilled' ? sibTwitter.value   : []),
           ]
-          const sibMerged    = mergeAndScore(sibRaw, parentAlpha.symbol, parentAlpha.marketCap)
+          const sibMerged    = mergeAndScore(sibRaw, parentAlphaRef.current.symbol, parentAlphaRef.current.marketCap)
           const mergedAddrs  = new Set(merged.map(b => b.address))
           const alphaAddress = enrichedAlpha.address
 
@@ -2341,7 +2574,7 @@ const useBetas = (alpha, parentAlpha = null) => {
           try {
             parentMap = JSON.parse(localStorage.getItem('betaplays_parent_map') || '{}')
           } catch {}
-          const currentParentAddress = parentAlpha.address
+          const currentParentAddress = parentAlphaRef.current.address
 
           siblingResults = sibMerged
             .filter(b => {
@@ -2360,7 +2593,7 @@ const useBetas = (alpha, parentAlpha = null) => {
                   console.log(`[Siblings] Filtered $${b.symbol} — live alpha, unconfirmed co-derivative`)
                   return false
                 }
-                console.log(`[Siblings] Kept $${b.symbol} — live alpha but confirmed co-derivative of $${parentAlpha.symbol}`)
+                console.log(`[Siblings] Kept $${b.symbol} — live alpha but confirmed co-derivative of $${parentAlphaRef.current.symbol}`)
               }
               // Two-way parent confirmation — candidate must share the same
               // confirmed parent address as the current alpha.
@@ -2368,7 +2601,7 @@ const useBetas = (alpha, parentAlpha = null) => {
               // confirm siblinghood — exclude it to avoid false positives.
               const candidateParent = parentMap[b.address]
               if (candidateParent && candidateParent.address !== currentParentAddress) {
-                console.log(`[Siblings] Filtered $${b.symbol} — different parent ($${candidateParent.symbol} vs $${parentAlpha.symbol})`)
+                console.log(`[Siblings] Filtered $${b.symbol} — different parent ($${candidateParent.symbol} vs $${parentAlphaRef.current.symbol})`)
                 return false
               }
               // sibling_stored = came from localStorage (parent's betas / parent_map confirmed).
@@ -2381,7 +2614,7 @@ const useBetas = (alpha, parentAlpha = null) => {
               // variants, it's almost certainly a sibling of $GROKHOUSE under $GROK.
               // No parent map entry needed — morphology is structural, not text-based.
               if (sources.includes('morphology')) {
-                console.log(`[Siblings] Accepted $${b.symbol} — morphology of parent $${parentAlpha.symbol} (probable sibling)`)
+                console.log(`[Siblings] Accepted $${b.symbol} — morphology of parent $${parentAlphaRef.current.symbol} (probable sibling)`)
                 return true
               }
 
@@ -2397,16 +2630,16 @@ const useBetas = (alpha, parentAlpha = null) => {
               ...b,
               signalSources: [...new Set([...(b.signalSources || []), 'sibling'])],
               isSibling:     true,
-              siblingOf:     parentAlpha.symbol,
+              siblingOf:     parentAlphaRef.current.symbol,
             }))
             .map(b => ({
               ...b,
               signalSources: [...new Set([...(b.signalSources || []), 'sibling'])],
               isSibling:     true,
-              siblingOf:     parentAlpha.symbol,
+              siblingOf:     parentAlphaRef.current.symbol,
             }))
 
-          console.log(`[Siblings] Found ${siblingResults.length} siblings of $${enrichedAlpha.symbol} via parent $${parentAlpha.symbol}`)
+          console.log(`[Siblings] Found ${siblingResults.length} siblings of $${enrichedAlpha.symbol} via parent $${parentAlphaRef.current.symbol}`)
         } catch (sibErr) {
           console.warn('[Siblings] Sibling scan failed (non-fatal):', sibErr.message)
         }
@@ -2477,7 +2710,13 @@ const useBetas = (alpha, parentAlpha = null) => {
 
           if (visionCandidates.length > 0) {
             console.log(`[Vision] Comparing ${visionCandidates.length} logos against $${enrichedAlpha.symbol}...`)
-            const visualMatches = await compareLogos(enrichedAlpha, visionCandidates)
+            // Enrich alpha with visual context so backend prompt knows what to look for
+            const alphaWithVisualContext = {
+              ...enrichedAlpha,
+              visualTerms:    v0VisualTerms,    // what the logo depicts ("panda", "trump")
+              visualCounters: v0VisualCounters, // visual antonyms ("wolf", "predator")
+            }
+            const visualMatches = await compareLogos(alphaWithVisualContext, visionCandidates)
 
             if (visualMatches.length > 0) {
               const visualMap = new Map(visualMatches.map(b => [b.address, b]))
@@ -2500,8 +2739,13 @@ const useBetas = (alpha, parentAlpha = null) => {
         }
       }
 
-      // Show candidates to UI while Vector 8 runs (now vision-enriched)
-      if (!isStale()) setBetas(mergedWithVision)
+      // Approach A refresh: list already has partial betas from pushPartial.
+      // This upgrades the visible list with desc_match + vision enrichment
+      // before Vector 8 reorders. Users see quality improve in real time.
+      if (!isStale()) {
+        setBetas(mergedWithVision)
+        setScanPhase('scoring')
+      }
 
       // ── Signal 6: Vector 8 AI scoring ───────────────────────────
       // Runs after Vision — candidates carry visual_match signal so AI
@@ -2644,11 +2888,105 @@ const useBetas = (alpha, parentAlpha = null) => {
       console.error('Beta detection failed:', err)
       if (!isStale()) setError('Detection engine error. Try refreshing.')
     } finally {
-      if (!isStale()) setLoading(false)
+      if (!isStale()) {
+        setLoading(false)
+        setScanPhase('complete')
+      }
     }
-  }, [alpha?.id, parentAlpha?.id])
+  // parentAlpha intentionally NOT in deps — it resolves async and would
+  // trigger a second full scan. Read via parentAlphaRef.current instead.
+  }, [alpha?.address])
 
   useEffect(() => { fetchBetas() }, [fetchBetas])
+
+  // ── Sibling enrichment — fires when parentAlpha resolves ─────────
+  // The main scan runs immediately on alpha selection (parentAlpha = null at that point).
+  // When useParentAlpha resolves, this effect runs a TARGETED sibling-only pass
+  // and merges siblings into the existing beta list — no full rescan.
+  // Guard: only runs if scan is complete (not loading) and parent is real.
+  const prevParentRef = useRef(null)
+  useEffect(() => {
+    const parentAddr = parentAlphaRef.current?.address
+    if (!parentAddr) return
+    if (prevParentRef.current === parentAddr) return  // already ran for this parent
+    if (loading) return  // main scan still running — sibling block inside will handle it
+    if (!alpha?.address) return
+
+    prevParentRef.current = parentAddr
+
+    // Run lightweight sibling-only scan and merge into existing list
+    const runSiblingEnrichment = async () => {
+      try {
+        const parent = parentAlphaRef.current
+        if (!parent) return
+
+        console.log(`[Siblings] Post-scan enrichment — parent $${parent.symbol} resolved`)
+
+        // Reuse stored sibling addresses from localStorage (fast, no API calls)
+        const knownSiblingAddresses = new Set()
+        try {
+          const parentMap  = JSON.parse(localStorage.getItem('betaplays_parent_map') || '{}')
+          const betaStore  = JSON.parse(localStorage.getItem(BETA_STORE_KEY) || '{}')
+          const seenAlphas = JSON.parse(localStorage.getItem('betaplays_seen_alphas') || '{}')
+
+          Object.entries(parentMap).forEach(([addr, entry]) => {
+            if (entry?.address === parent.address && addr !== alpha.address) knownSiblingAddresses.add(addr)
+          })
+          ;(betaStore[parent.address] || []).forEach(b => {
+            if (b.address && b.address !== alpha.address) knownSiblingAddresses.add(b.address)
+          })
+          Object.entries(seenAlphas).forEach(([addr, token]) => {
+            const tokenParent = JSON.parse(localStorage.getItem('betaplays_parent_map') || '{}')?.[addr]
+            if (tokenParent?.address === parent.address && addr !== alpha.address) knownSiblingAddresses.add(addr)
+          })
+        } catch { /* silent */ }
+
+        if (knownSiblingAddresses.size === 0) {
+          console.log(`[Siblings] No stored siblings found for parent $${parent.symbol}`)
+          return
+        }
+
+        console.log(`[Siblings] Post-scan: ${knownSiblingAddresses.size} stored sibling addresses`)
+
+        // Fetch live prices for known siblings
+        const addrs = Array.from(knownSiblingAddresses).slice(0, 20)
+        const res   = await fetch(`${DEXSCREENER_BASE}/latest/dex/tokens/${addrs.join(',')}`)
+        if (!res.ok) return
+        const data  = await res.json()
+        const pairs = data?.pairs || []
+
+        const newSiblings = pairs
+          .filter(p =>
+            p.chainId === 'solana' &&
+            p.baseToken?.address !== alpha.address &&
+            (p.liquidity?.usd || 0) >= 500 &&
+            isHealthyBetaLiquidity(p) &&
+            isActiveBeta(p)
+          )
+          .map(p => ({
+            ...formatBeta(p, ['keyword', 'lore', 'sibling']),
+            siblingOf:     parent.symbol,
+            relationshipType: 'UNIVERSE',
+          }))
+
+        if (newSiblings.length === 0) return
+
+        console.log(`[Siblings] Post-scan: merging ${newSiblings.length} siblings into beta list`)
+
+        setBetas(prev => {
+          if (!prev?.length) return prev
+          const existingAddrs = new Set(prev.map(b => b.address))
+          const fresh = newSiblings.filter(s => !existingAddrs.has(s.address))
+          if (fresh.length === 0) return prev
+          return [...prev, ...fresh].sort((a, b) => (b.betaRank || 0) - (a.betaRank || 0))
+        })
+      } catch (err) {
+        console.warn('[Siblings] Post-scan enrichment failed (non-fatal):', err.message)
+      }
+    }
+
+    runSiblingEnrichment()
+  }, [parentAlpha?.address, loading, alpha?.address])
 
   // ── Interval-based beta price refresh ────────────────────────
   // Keeps beta prices live without triggering a full rescan.
@@ -2679,7 +3017,7 @@ const useBetas = (alpha, parentAlpha = null) => {
     return () => clearInterval(interval)
   }, [alpha?.address, loading])
 
-  return { betas, loading, error, refresh: fetchBetas }
+  return { betas, loading, error, scanPhase, refresh: fetchBetas }
 }
 
 export default useBetas

@@ -813,10 +813,9 @@ const fetchGainersAlphas = async () => {
       `${BACKEND_URL}/api/birdeye?endpoint=trending`,
       { timeout: 10000 }
     )
-    // tokenlist response: { data: { tokens: [...] } }
     // token_trending response: { data: { items: [...] } }
-    // Handle both formats
-    const items = res.data?.data?.tokens || res.data?.data?.items || res.data?.data || []
+    // Each item: { address, symbol, name, v24hChangePercent, v24hUSD, liquidity, logoURI }
+    const items = res.data?.data?.items || res.data?.data?.tokens || res.data?.data || []
     if (!items.length) {
       console.warn('[Source5/Birdeye] Empty response — check API key and endpoint')
       return []
@@ -831,7 +830,7 @@ const fetchGainersAlphas = async () => {
         `${BACKEND_URL}/api/birdeye?endpoint=top_volume`,
         { timeout: 10000 }
       )
-      volumeItems = volRes.data?.data?.tokens || volRes.data?.data?.items || volRes.data?.data || []
+      volumeItems = volRes.data?.data?.items || volRes.data?.data?.tokens || volRes.data?.data || []
       console.log(`[Source5/Birdeye] Top volume items: ${volumeItems.length}`)
     } catch { /* silent */ }
 
@@ -879,6 +878,10 @@ const fetchGainersAlphas = async () => {
       // Enrich with Birdeye data if DEX description is empty
       if (!alpha.description && token.name) {
         alpha.description = token.extensions?.description || ''
+      }
+      // Enrich logo if DEX didn't have it (token_trending provides logoURI)
+      if (!alpha.logoUrl && token.logoURI) {
+        alpha.logoUrl = token.logoURI
       }
       results.push(alpha)
     })
