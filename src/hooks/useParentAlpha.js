@@ -367,7 +367,85 @@ const useParentAlpha = (alpha, liveAlphas = []) => {
           })
       })
 
-      const foundParent = bestMatch ? formatParent(bestMatch) : null
+      // ── Step 4: Semantic alignment gate ──────────────────────────
+      // Prevents cross-universe mismatches like $PANDU → $IRAN.
+      // A candidate can win on string similarity alone even when it's
+      // thematically unrelated (geopolitics vs animals, slang vs anime).
+      // We build identity token sets for both sides and check overlap.
+      // If there's zero thematic overlap AND the score is weak, reject.
+      //
+      // "Identity tokens" = meaningful words extracted from symbol/name/desc.
+      // We tokenise, strip stop words, and compare as sets.
+      // Jaccard overlap of 0 with score < HIGH_CONFIDENCE_FLOOR → reject.
+      //
+      // HIGH_CONFIDENCE_FLOOR (1.10): requires baseSim=1.0 + at least one
+      // non-zero boost (desc match, momentum, or mcap). Pure symbol-pattern
+      // wins with no semantic evidence won't clear this bar.
+
+      const HIGH_CONFIDENCE_FLOOR = 1.10
+
+      const tokenise = (str = '') =>
+        str
+          .toLowerCase()
+          .replace(/[^a-z0-9\s]/g, ' ')
+          .split(/\s+/)
+          .filter(w => w.length >= 3 && !NAME_STOP.has(w))
+
+      // Alpha identity: symbol root candidates + name words + desc words
+      const alphaIdentityTokens = new Set([
+        ...Array.from(symbolQueries).map(q => q.toLowerCase()),
+        ...Array.from(nameQueries).map(q => q.toLowerCase()),
+        ...Array.from(descWordQueries).map(q => q.toLowerCase()),
+        ...Array.from(descTickerQueries).map(q => q.toLowerCase()),
+        symbol.toLowerCase(),
+      ])
+
+      let semanticAlignmentOk = true
+
+      if (bestMatch) {
+        const candidateSym  = (bestMatch.baseToken?.symbol || '').toLowerCase()
+        const candidateName = bestMatch.baseToken?.name   || ''
+        const candidateDesc = bestMatch.info?.description  || ''
+
+        // Candidate identity: symbol + name words + description words
+        const candidateTokens = new Set([
+          candidateSym,
+          ...tokenise(candidateName),
+          ...tokenise(candidateDesc).slice(0, 10),
+          // Also add root candidates of the candidate symbol for partial matches
+          ...extractRootCandidates(candidateSym.toUpperCase()).map(r => r.toLowerCase()),
+        ])
+
+        // Jaccard-style: count shared tokens between both identity sets
+        let sharedCount = 0
+        for (const t of alphaIdentityTokens) {
+          if (candidateTokens.has(t)) sharedCount++
+        }
+
+        const hasOverlap = sharedCount > 0
+
+        if (!hasOverlap && bestScore < HIGH_CONFIDENCE_FLOOR) {
+          console.log(
+            `[ParentSearch] REJECTED $${bestMatch.baseToken?.symbol} — ` +
+            `zero semantic overlap with $${symbol} identity set, score ${bestScore.toFixed(2)} < ${HIGH_CONFIDENCE_FLOOR} threshold. ` +
+            `Alpha tokens: [${Array.from(alphaIdentityTokens).join(', ')}] | ` +
+            `Candidate tokens: [${Array.from(candidateTokens).join(', ')}]`
+          )
+          semanticAlignmentOk = false
+        } else if (hasOverlap) {
+          console.log(
+            `[ParentSearch] Alignment OK for $${bestMatch.baseToken?.symbol} — ` +
+            `${sharedCount} shared token(s), score ${bestScore.toFixed(2)}`
+          )
+        } else {
+          console.log(
+            `[ParentSearch] High-confidence override for $${bestMatch.baseToken?.symbol} — ` +
+            `no overlap but score ${bestScore.toFixed(2)} >= ${HIGH_CONFIDENCE_FLOOR}, accepting`
+          )
+        }
+      }
+
+      const foundParent = (bestMatch && semanticAlignmentOk) ? formatParent(bestMatch) : null
       console.log(
         `[ParentSearch] Winner for $${symbol}: ` +
         `${foundParent ? '$' + foundParent.symbol : 'none'} (score ${bestScore.toFixed(2)})`

@@ -1284,6 +1284,43 @@ const RELATIONSHIP_CONFIG = {
   SPIN:      { emoji: '🌀', label: 'SPIN',      color: 'var(--text-muted)', bg: 'rgba(255,255,255,0.05)', border: 'rgba(255,255,255,0.12)' },
 }
 
+// ─── Badge chip with click-to-reveal tooltip ─────────────────────
+const BadgeChip = ({ emoji, label, className, style: extraStyle = {} }) => {
+  const [open, setOpen] = useState(false)
+  return (
+    <span style={{ position: 'relative', display: 'inline-block' }}>
+      <span
+        className={`badge ${className}`}
+        onClick={e => { e.stopPropagation(); setOpen(v => !v) }}
+        style={{ fontSize: 12, padding: '2px 5px', cursor: 'pointer', userSelect: 'none', lineHeight: 1.4, ...extraStyle }}
+        title={label}
+      >
+        {emoji}
+      </span>
+      {open && (
+        <>
+          <span
+            style={{ position: 'fixed', inset: 0, zIndex: 999 }}
+            onClick={e => { e.stopPropagation(); setOpen(false) }}
+          />
+          <span style={{
+            position: 'absolute', bottom: 'calc(100% + 6px)', left: '50%',
+            transform: 'translateX(-50%)',
+            background: '#1a1f2e', border: '1px solid rgba(0,212,255,0.3)',
+            borderRadius: 5, padding: '4px 9px', zIndex: 1000,
+            fontFamily: 'var(--font-mono)', fontSize: 9, fontWeight: 700,
+            color: 'var(--text-primary)', whiteSpace: 'nowrap',
+            boxShadow: '0 4px 16px rgba(0,0,0,0.6)',
+            pointerEvents: 'none',
+          }}>
+            {label}
+          </span>
+        </>
+      )}
+    </span>
+  )
+}
+
 const SignalBadge = ({ beta }) => {
   const signal = getSignal(beta)
   const relType = beta.relationshipType && RELATIONSHIP_CONFIG[beta.relationshipType]
@@ -1302,36 +1339,48 @@ const SignalBadge = ({ beta }) => {
     TELEGRAM: 'badge-telegram',
     TWITTER:  'badge-twitter',
   }
+
+  const signalEmoji =  {
+    CABAL: '🕵️', TRENDING: '🔥', LP_PAIR: '🔗', AI: '🤖',
+    KEYWORD: '🔍', VISUAL: '👁️', TELEGRAM: '📡', TWITTER: '🐦',
+    STRONG: '💪', OG: '👑', WEAK: '〰️',
+  }
+  const signalLabel = {
+    CABAL:    '🕵️ CABAL — Multi-signal',
+    TRENDING: '🔥 TRENDING',
+    LP_PAIR:  '🔗 LP PAIR — Direct pair',
+    AI:       '🤖 AI MATCH',
+    KEYWORD:  '🔍 KEYWORD MATCH',
+    VISUAL:   '👁️ VISUAL — Logo match',
+    TELEGRAM: '📡 TELEGRAM — Social signal',
+    TWITTER:  '🐦 TWITTER — Social signal',
+    STRONG:   '💪 STRONG',
+    OG:       '👑 OG — Original',
+    WEAK:     '〰️ WEAK',
+  }
+
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 3, alignItems: 'flex-start', justifyContent: 'center', width: '100%' }}>
+    <div style={{ display: 'flex', flexDirection: 'row', gap: 4, alignItems: 'center', flexWrap: 'wrap' }}>
       {beta.tokenClass && (
-        <span
-          className={`badge ${beta.tokenClass === 'OG' ? 'badge-verified' : beta.tokenClass === 'RIVAL' ? 'badge-cabal' : 'badge-weak'}`}
-          style={{ fontSize: 8, padding: '2px 6px' }}
-        >
-          {beta.tokenClass === 'OG' ? '👑 OG' : beta.tokenClass === 'RIVAL' ? '⚔️ RIVAL' : '🌀 SPIN'}
-        </span>
+        <BadgeChip
+          emoji={beta.tokenClass === 'OG' ? '👑' : beta.tokenClass === 'RIVAL' ? '⚔️' : '🌀'}
+          label={beta.tokenClass === 'OG' ? '👑 OG — Original' : beta.tokenClass === 'RIVAL' ? '⚔️ RIVAL — Challenging throne' : '🌀 SPIN — Riding narrative'}
+          className={beta.tokenClass === 'OG' ? 'badge-verified' : beta.tokenClass === 'RIVAL' ? 'badge-cabal' : 'badge-weak'}
+        />
       )}
-      {/* Relationship type badge — AI classified */}
       {relType && (
-        <span style={{
-          fontFamily: 'var(--font-mono)', fontSize: 8, padding: '2px 6px',
-          borderRadius: 3, border: `1px solid ${relType.border}`,
-          background: relType.bg, color: relType.color, whiteSpace: 'nowrap',
-        }}>
-          {relType.emoji} {relType.label}
-        </span>
+        <BadgeChip
+          emoji={relType.emoji}
+          label={`${relType.emoji} ${relType.label}`}
+          className=""
+          style={{ background: relType.bg, color: relType.color, border: `1px solid ${relType.border}` }}
+        />
       )}
-      <span className={`badge ${classMap[signal.label] || 'badge-weak'}`} style={{ fontSize: 8, padding: '2px 6px' }}>
-        {signal.label === 'CABAL'    ? '🕵️ CABAL'   :
-         signal.label === 'TRENDING' ? '🔥 TRENDING' :
-         signal.label === 'LP_PAIR'  ? '🔗 LP PAIR'  :
-         signal.label === 'AI'       ? '🤖 AI MATCH' :
-         signal.label === 'KEYWORD'  ? '🔍 KEYWORD MATCH'  :
-         signal.label === 'VISUAL'   ? '👁️ VISUAL'   :
-         signal.label === 'TELEGRAM' ? '📡 TELEGRAM' :
-         signal.label === 'TWITTER'  ? '🐦 TWITTER'  : signal.label}
-      </span>
+      <BadgeChip
+        emoji={signalEmoji[signal.label] || signal.label}
+        label={signalLabel[signal.label] || signal.label}
+        className={classMap[signal.label] || 'badge-weak'}
+      />
     </div>
   )
 }
@@ -1668,7 +1717,7 @@ const ParentAlphaCard = ({ parent }) => {
       <div style={{
         fontFamily: 'var(--font-mono)', fontSize: 9, fontWeight: 700,
         color: 'var(--cyan)', letterSpacing: 1.5, textTransform: 'uppercase',
-        marginBottom: 10, display: 'flex', alignItems: 'center', gap: 8,
+        marginBottom: 10, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8,
       }}>
         🧬 Parent Alpha — Root of this narrative
         {isCooling && (
@@ -2007,11 +2056,12 @@ const BetaPanel = ({ alpha, liveAlphas, onListBeta, onOpenDrawer, onScrollToAlph
             {/* ── Scan phase indicator — progressive population UX ── */}
             {alpha && betasLoading && (
               <div style={{
-                display: 'flex', alignItems: 'center', gap: 8,
-                padding: '6px 12px', marginBottom: 4,
-                background: 'rgba(0,229,255,0.04)',
-                border: '1px solid rgba(0,229,255,0.10)',
-                borderRadius: 6, fontSize: 11, color: 'var(--text-muted)',
+                display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8,
+                padding: '8px 14px', marginBottom: 6,
+                background: 'rgba(0,212,255,0.10)',
+                border: '1px solid rgba(0,212,255,0.30)',
+                borderRadius: 8, fontFamily: 'var(--font-mono)',
+                fontSize: 11, fontWeight: 600, color: 'var(--cyan)',
               }}>
                 <span style={{ animation: 'pulse 1s ease-in-out infinite', display: 'inline-block' }}>⟳</span>
                 {scanPhase === 'expanding'  && <span>🔍 Expanding concept...</span>}
@@ -2054,8 +2104,11 @@ const BetaPanel = ({ alpha, liveAlphas, onListBeta, onOpenDrawer, onScrollToAlph
             {/* Complete status */}
             {!betasLoading && scanPhase === 'complete' && filteredBetas.length > 0 && (
               <div style={{
-                textAlign: 'center', padding: '8px', fontSize: 10,
-                color: 'var(--text-muted)', opacity: 0.6,
+                textAlign: 'center', padding: '10px 8px', fontSize: 11,
+                fontFamily: 'var(--font-mono)', fontWeight: 700,
+                color: 'var(--neon-green)',
+                borderTop: '1px solid rgba(0,255,136,0.15)',
+                marginTop: 4,
               }}>
                 ✅ {betas.length} beta{betas.length !== 1 ? 's' : ''} found
               </div>
