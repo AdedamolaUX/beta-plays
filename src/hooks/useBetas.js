@@ -1113,26 +1113,26 @@ const classifyTokens = (betas) => {
 export const getSignal = (beta) => {
   const s = beta.signalSources || []
   // LP pair is the strongest possible signal — direct pairing
-  if (s.includes('lp_pair'))                                     return { label: 'CABAL',    tier: 6 }
+  if (s.includes('lp_pair'))                                     return { label: 'MULTI',    tier: 6 }
   // AI + visual = highest text-based tier — two independent systems agree
-  if (s.includes('ai_match')   && s.includes('visual_match'))    return { label: 'CABAL',    tier: 5 }
-  // AI + any other signal = CABAL tier
-  if (s.includes('ai_match')   && s.includes('keyword'))         return { label: 'CABAL',    tier: 5 }
-  if (s.includes('ai_match')   && s.includes('morphology'))      return { label: 'CABAL',    tier: 5 }
-  if (s.includes('ai_match')   && s.includes('og_match'))        return { label: 'CABAL',    tier: 5 }
-  // Telegram/Twitter + any mechanical signal = CABAL tier
+  if (s.includes('ai_match')   && s.includes('visual_match'))    return { label: 'MULTI',    tier: 5 }
+  // AI + any other signal = MULTI tier
+  if (s.includes('ai_match')   && s.includes('keyword'))         return { label: 'MULTI',    tier: 5 }
+  if (s.includes('ai_match')   && s.includes('morphology'))      return { label: 'MULTI',    tier: 5 }
+  if (s.includes('ai_match')   && s.includes('og_match'))        return { label: 'MULTI',    tier: 5 }
+  // Telegram/Twitter + any mechanical signal = MULTI tier
   if (s.includes('telegram_signal') && (s.includes('keyword') || s.includes('ai_match') || s.includes('morphology') || s.includes('og_match')))
-                                                                  return { label: 'CABAL',    tier: 5 }
+                                                                  return { label: 'MULTI',    tier: 5 }
   if (s.includes('twitter_signal')  && (s.includes('keyword') || s.includes('ai_match') || s.includes('morphology') || s.includes('og_match')))
-                                                                  return { label: 'CABAL',    tier: 5 }
+                                                                  return { label: 'MULTI',    tier: 5 }
   // Visual match alone = STRONG (image comparison, not just text)
   if (s.includes('visual_match'))                                 return { label: 'VISUAL',   tier: 3 }
-  if (s.includes('pumpfun')    && s.includes('keyword'))         return { label: 'CABAL',    tier: 4 }
-  if (s.includes('morphology') && s.includes('keyword'))         return { label: 'CABAL',    tier: 4 }
-  if (s.includes('desc_match') && s.includes('keyword'))          return { label: 'CABAL',    tier: 5 }
-  if (s.includes('desc_match') && s.includes('ai_match'))         return { label: 'CABAL',    tier: 5 }
-  if (s.includes('desc_match') && s.includes('morphology'))       return { label: 'CABAL',    tier: 5 }
-  if (s.includes('description')&& s.includes('keyword'))         return { label: 'CABAL',    tier: 4 }
+  if (s.includes('pumpfun')    && s.includes('keyword'))         return { label: 'MULTI',    tier: 4 }
+  if (s.includes('morphology') && s.includes('keyword'))         return { label: 'MULTI',    tier: 4 }
+  if (s.includes('desc_match') && s.includes('keyword'))          return { label: 'MULTI',    tier: 5 }
+  if (s.includes('desc_match') && s.includes('ai_match'))         return { label: 'MULTI',    tier: 5 }
+  if (s.includes('desc_match') && s.includes('morphology'))       return { label: 'MULTI',    tier: 5 }
+  if (s.includes('description')&& s.includes('keyword'))         return { label: 'MULTI',    tier: 4 }
   if (s.includes('desc_match'))                                   return { label: 'NAMED',    tier: 4 }
   if (s.includes('og_match'))                                    return { label: 'OG',       tier: 4 }
   if (s.includes('pumpfun'))                                     return { label: 'TRENDING', tier: 3 }
@@ -1516,10 +1516,11 @@ const MIN_LIQUIDITY_OG = 250  // OGs go dormant — they won't have $1K+ liquidi
 // Note: $OO had $908M mcap / $3.6M liq = 0.4% which PASSES the $100M tier.
 // We also check freezable flag from DEX to block scam tokens.
 const getBetaMinLiqRatio = (mcap) => {
+  // Relaxed mid/large cap ratios (Review 22 — mid-cap betas were being filtered out)
   if (mcap < 100_000)     return 0.005
   if (mcap < 1_000_000)   return 0.010
-  if (mcap < 10_000_000)  return 0.008
-  if (mcap < 100_000_000) return 0.003
+  if (mcap < 10_000_000)  return 0.005  // was 0.8%, now 0.5% — allows more mid-caps
+  if (mcap < 100_000_000) return 0.002  // was 0.3%, now 0.2% — allows large-caps
   return 0.001
 }
 
@@ -1583,11 +1584,13 @@ const isActiveBeta = (p) => {
   }
 
   // Tiered transaction minimum
+  // Relaxed mid/large cap floors (Review 22 — betas not only small-caps)
+  // $1M–$10M: 15→10, >$10M: 30→20
   const getMinTxns = (mcap) => {
     if (mcap < 100_000)    return 3
     if (mcap < 1_000_000)  return 8
-    if (mcap < 10_000_000) return 15
-    return 30
+    if (mcap < 10_000_000) return 10
+    return 20
   }
 
   const minTxns = getMinTxns(mcap)

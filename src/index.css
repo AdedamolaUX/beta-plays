@@ -1,4 +1,4 @@
-@import url('https://fonts.googleapis.com/css2?family=Space+Mono:ital,wght@0,400;0,700;1,400&family=Syne:wght@400;600;700;800&family=DM+Sans:wght@300;400;500&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Space+Mono:ital,wght@0,400;0,700;1,400&family=Syne:wght@400;600;700;800&family=DM+Sans:wght@300;400;500&family=Inter:wght@400;500;600;700;800;900&display=swap');
 
 /* ============================================
    BETA PLAYS — DESIGN SYSTEM
@@ -26,6 +26,7 @@
 
   --font-display: 'Syne', sans-serif;
   --font-mono:    'Space Mono', monospace;
+  --font-number:  'Inter', 'DM Sans', sans-serif;
   --font-body:    'DM Sans', sans-serif;
 
   --text-primary:   #e8edf5;
@@ -59,6 +60,9 @@ body {
   line-height: 1.6;
   height: 100%;
   overflow-x: hidden;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  text-rendering: optimizeLegibility;
   background-image: repeating-linear-gradient(
     0deg,
     transparent,
@@ -123,9 +127,9 @@ body {
 .brand-name {
   font-family: var(--font-display);
   font-size: 18px;
-  font-weight: 800;
+  font-weight: 700;
   color: var(--text-primary);
-  letter-spacing: -0.3px;
+  letter-spacing: -0.2px;
 }
 
 .brand-name span { color: var(--neon-green); }
@@ -289,14 +293,24 @@ body {
   border: none;
   background: transparent;
   color: var(--text-secondary);
-  font-family: var(--font-mono);
-  font-size: 8px;
+  font-family: var(--font-display);
+  font-size: 9px;
   font-weight: 700;
   letter-spacing: 0.3px;
   text-transform: uppercase;
   cursor: pointer;
   transition: all 0.15s ease;
   white-space: nowrap;
+}
+
+.tab-btn.mixed-case {
+  text-transform: capitalize !important;
+  letter-spacing: normal !important;
+}
+
+/* Ticker strip */
+.narrative-ticker {
+  font-family: 'Syne', var(--font-display), sans-serif !important;
 }
 
 .tab-btn.active {
@@ -372,12 +386,16 @@ body {
 
 .token-address {
   font-family: var(--font-mono);
+  letter-spacing: 0.02em;
   font-size: 10px;
   color: var(--text-muted);
 }
 
 .token-change {
-  font-family: var(--font-mono);
+  font-family: var(--font-number);
+  font-variant-numeric: tabular-nums;
+  font-size: 12px;
+  font-weight: 600;
   font-size: 13px;
   font-weight: 700;
 }
@@ -409,7 +427,10 @@ body {
 }
 
 .metric-value {
-  font-family: var(--font-mono);
+  font-family: var(--font-number);
+  font-variant-numeric: tabular-nums;
+  font-size: 12px;
+  font-weight: 600;
   font-size: 12px;
   font-weight: 700;
   color: var(--text-primary);
@@ -557,6 +578,19 @@ body {
   border: 1px solid var(--cyan);
   color: var(--cyan);
   animation: glow-pulse 2s infinite;
+}
+
+.badge-multi {
+  background: rgba(255, 184, 0, 0.12);
+  border: 1px solid rgba(255, 184, 0, 0.6);
+  color: var(--amber);
+  font-weight: 800;
+  animation: multi-pulse 2s infinite;
+}
+
+@keyframes multi-pulse {
+  0%, 100% { box-shadow: 0 0 4px rgba(255, 184, 0, 0.3); border-color: rgba(255, 184, 0, 0.5); }
+  50%       { box-shadow: 0 0 10px rgba(255, 184, 0, 0.7); border-color: rgba(255, 184, 0, 1.0); }
 }
 
 .badge-new {

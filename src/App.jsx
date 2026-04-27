@@ -1,3 +1,4 @@
+import betaplaysLogo from './assets/betaplays-logo.png'
 import { useState, useMemo, useCallback, useRef, useEffect } from 'react'
 import { createPortal } from 'react-dom'
 import useAlphas from './hooks/useAlphas'
@@ -36,6 +37,146 @@ const formatPrice = (price) => {
 
 const shortAddress = (addr) =>
   addr ? `${addr.slice(0, 4)}...${addr.slice(-4)}` : ''
+
+// ─── Copy CA Button ───────────────────────────────────────────────
+// Renders the shortened address + a clipboard icon.
+// Click the icon: full CA copied, brief "✓" flash shown.
+const CopyAddress = ({ address, style = {} }) => {
+  const [copied, setCopied] = useState(false)
+  const [hovered, setHovered] = useState(false)
+  if (!address) return null
+  const handleCopy = (e) => {
+    e.stopPropagation()
+    navigator.clipboard.writeText(address).then(() => {
+      setCopied(true)
+      setTimeout(() => setCopied(false), 1500)
+    }).catch(() => {
+      const el = document.createElement('textarea')
+      el.value = address
+      document.body.appendChild(el)
+      el.select()
+      document.execCommand('copy')
+      document.body.removeChild(el)
+      setCopied(true)
+      setTimeout(() => setCopied(false), 1500)
+    })
+  }
+  return (
+    <span style={{ position: 'relative', display: 'inline-flex', alignItems: 'center', ...style }}>
+      <span
+        onClick={handleCopy}
+        onMouseEnter={() => setHovered(true)}
+        onMouseLeave={() => setHovered(false)}
+        style={{
+          display: 'inline-flex', alignItems: 'center', gap: 4,
+          fontFamily: 'var(--font-mono)', fontSize: 10, fontWeight: 600,
+          color: copied ? 'var(--neon-green)' : hovered ? 'var(--cyan)' : 'var(--text-muted)',
+          background: copied
+            ? 'rgba(0,255,136,0.08)'
+            : hovered ? 'rgba(0,212,255,0.08)' : 'rgba(255,255,255,0.04)',
+          border: `1px solid ${copied
+            ? 'rgba(0,255,136,0.3)'
+            : hovered ? 'rgba(0,212,255,0.25)' : 'rgba(255,255,255,0.08)'}`,
+          borderRadius: 4, padding: '2px 6px',
+          cursor: 'pointer', userSelect: 'none',
+          transition: 'all 0.15s ease',
+          letterSpacing: '0.03em',
+        }}
+      >
+        {copied ? '✓' : '⎘'} {copied ? 'Copied!' : shortAddress(address)}
+      </span>
+      {hovered && !copied && (
+        <span style={{
+          position: 'absolute', bottom: 'calc(100% + 6px)', left: '50%',
+          transform: 'translateX(-50%)',
+          background: 'var(--surface-2, #0d1117)',
+          border: '1px solid rgba(0,212,255,0.35)',
+          borderRadius: 4, padding: '5px 10px', zIndex: 1000,
+          fontFamily: 'var(--font-mono)', fontSize: 10, fontWeight: 700,
+          letterSpacing: '0.05em', textTransform: 'uppercase',
+          color: 'var(--cyan)', whiteSpace: 'nowrap',
+          boxShadow: '0 0 12px rgba(0,212,255,0.15), 0 4px 16px rgba(0,0,0,0.7)',
+          pointerEvents: 'none',
+        }}>
+          Copy CA
+        </span>
+      )}
+    </span>
+  )
+}
+
+
+// ─── Shared Styled Tooltip ────────────────────────────────────────
+// Wraps any element. On hover shows a styled popup matching the app
+// font/theme. Replaces all native browser title= attributes.
+// Usage: <Tooltip text="Open on DEXScreener"><span>DEX ↗</span></Tooltip>
+const TOOLTIP_STYLE = {
+  position: 'fixed',
+  background: '#0d1117',
+  border: '1px solid rgba(0,212,255,0.35)',
+  borderRadius: 4, padding: '5px 10px', zIndex: 9999,
+  fontFamily: 'var(--font-mono)', fontSize: 10, fontWeight: 700,
+  letterSpacing: '0.05em', textTransform: 'uppercase',
+  color: 'var(--cyan)', whiteSpace: 'nowrap',
+  boxShadow: '0 0 12px rgba(0,212,255,0.15), 0 4px 16px rgba(0,0,0,0.7)',
+  pointerEvents: 'none',
+  transform: 'translate(-50%, -100%)',
+}
+
+const Tooltip = ({ text, children }) => {
+  const ref = useRef(null)
+  const [pos, setPos] = useState(null)
+  if (!text) return children
+
+  const show = () => {
+    if (ref.current) {
+      const r = ref.current.getBoundingClientRect()
+      setPos({ left: r.left + r.width / 2, top: r.top - 6 })
+    }
+  }
+  const hide = () => setPos(null)
+
+  return (
+    <span
+      ref={ref}
+      style={{ display: 'inline-flex', alignItems: 'center' }}
+      onMouseEnter={show}
+      onMouseLeave={hide}
+    >
+      {children}
+      {pos && createPortal(
+        <span style={{ ...TOOLTIP_STYLE, left: pos.left, top: pos.top }}>{text}</span>,
+        document.body
+      )}
+    </span>
+  )
+}
+
+// ─── X / Twitter Search Button ───────────────────────────────────
+// Opens a Twitter/X search for the token symbol in a new tab.
+// Placed next to the DEX button on alpha cards, beta rows, and drawer.
+const XSearchButton = ({ symbol, onClick, style = {} }) => {
+  if (!symbol) return null
+  const query = encodeURIComponent(`$${symbol}`)
+  const url   = `https://twitter.com/search?q=${query}&f=live`
+  return (
+    <Tooltip text="Search on X / Twitter">
+      <span
+        onClick={e => { e.stopPropagation(); if (onClick) onClick(e); window.open(url, '_blank') }}
+        style={{
+          fontFamily: 'var(--font-mono)', fontSize: 8,
+          color: 'var(--text-muted)', cursor: 'pointer',
+          padding: '1px 4px', borderRadius: 3,
+          border: '1px solid rgba(255,255,255,0.08)',
+          transition: 'color 0.15s', userSelect: 'none',
+          ...style,
+        }}
+        onMouseEnter={e => { e.currentTarget.style.color = '#1d9bf0'; e.currentTarget.style.borderColor = 'rgba(29,155,240,0.4)' }}
+        onMouseLeave={e => { e.currentTarget.style.color = 'var(--text-muted)'; e.currentTarget.style.borderColor = 'rgba(255,255,255,0.08)' }}
+      >𝕏</span>
+    </Tooltip>
+  )
+}
 
 // ─── Derivative Detection ────────────────────────────────────────
 
@@ -79,17 +220,196 @@ const matchesSearch = (alpha, query) => {
   )
 }
 
+// ─── Data Source Status ──────────────────────────────────────────
+// Shows which of the 5 alpha feed sources are currently live.
+// Reads from the liveAlphas + coolingAlphas arrays — zero extra API calls.
+const DataSourceStatus = ({ liveAlphas = [], coolingAlphas = [] }) => {
+  const all = [...liveAlphas, ...coolingAlphas]
+  const sources = [
+    { key: 'boost',          label: 'Boosted',   short: 'BST' },
+    { key: 'profile',        label: 'Profiles',  short: 'PRF' },
+    { key: 'pumpfun_bonded', label: 'PumpFun',   short: 'PMP' },
+    { key: 'new_pair',       label: 'New Pairs', short: 'NEW' },
+    { key: 'birdeye',        label: 'Birdeye',   short: 'BRD' },
+  ]
+  const activeSources = new Set(all.map(a => a.source).filter(Boolean))
+  const deadSources = sources.filter(s => !activeSources.has(s.key)).map(s => s.label)
+  const liveCount = sources.length - deadSources.length
+  const tipText = liveCount === 5
+    ? '5/5 data sources live — all good'
+    : liveCount + '/5 sources live — offline: ' + deadSources.join(', ')
+
+  return (
+    <Tooltip text={tipText}>
+      <div style={{ display: "flex", alignItems: "center", gap: 3, cursor: "default" }}>
+        {sources.map(({ key, short }) => {
+          const live = activeSources.has(key)
+          return (
+            <span key={key} style={{
+              fontFamily: "var(--font-mono)", fontSize: 7, fontWeight: 700,
+              padding: "1px 4px", borderRadius: 3,
+              background: live ? "rgba(0,255,136,0.1)" : "rgba(255,68,102,0.1)",
+              border: "1px solid " + (live ? "rgba(0,255,136,0.3)" : "rgba(255,68,102,0.3)"),
+              color: live ? "var(--neon-green)" : "var(--red)",
+              letterSpacing: 0.3,
+            }}>
+              {short}
+            </span>
+          )
+        })}
+      </div>
+    </Tooltip>
+  )
+}
+
+// ─── Latency Indicator ───────────────────────────────────────────
+const BACKEND_URL_LATENCY = import.meta.env.VITE_BACKEND_URL || 'http://localhost:3001'
+
+const LatencyDot = () => {
+  const [ms,     setMs]     = useState(null)
+  const [status, setStatus] = useState('idle')
+
+  const ping = async () => {
+    const start = Date.now()
+    try {
+      await fetch(`${BACKEND_URL_LATENCY}/api/telegram-betas`, { method: 'GET', signal: AbortSignal.timeout(5000) })
+      const elapsed = Date.now() - start
+      setMs(elapsed)
+      setStatus(elapsed < 300 ? 'good' : elapsed < 800 ? 'warn' : 'bad')
+    } catch {
+      setMs(null)
+      setStatus('offline')
+    }
+  }
+
+  useEffect(() => {
+    ping()
+    const id = setInterval(ping, 30000)
+    return () => clearInterval(id)
+  }, [])
+
+  const colorMap = { good: 'var(--neon-green)', warn: 'var(--amber)', bad: 'var(--red)', offline: 'var(--text-muted)', idle: 'var(--text-muted)' }
+  const color = colorMap[status]
+  const tipText = status === 'offline' ? 'Server offline' : status === 'idle' ? 'Checking connection...' : `${ms}ms — ${status === 'good' ? 'Good' : status === 'warn' ? 'Slow' : 'Very slow'}`
+
+  return (
+    <Tooltip text={tipText}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 4, cursor: 'default' }}>
+        <span style={{
+          width: 6, height: 6, borderRadius: '50%',
+          background: color,
+          boxShadow: status === 'good' ? `0 0 6px ${color}` : 'none',
+          display: 'inline-block',
+        }} />
+        <span style={{ fontFamily: 'var(--font-number)', fontSize: 9, color, letterSpacing: 0 }}>
+          {ms !== null ? `${ms}ms` : '···'}
+        </span>
+      </div>
+    </Tooltip>
+  )
+}
+
+// ─── Narrative + Runner Ticker ────────────────────────────────────
+// Scrolling marquee strip showing live runners and active narratives.
+// Runners: symbol + 24h% change. Narratives: emoji + label + total vol.
+// Auto-scrolls, pauses on hover.
+const NarrativeTicker = ({ liveAlphas = [], sznCards = [] }) => {
+  if (!liveAlphas.length && !sznCards.length) return null
+
+  // Build ticker items — runners first, then narratives
+  const runnerItems = liveAlphas.slice(0, 20).map(a => {
+    const chg = parseFloat(a.priceChange24h) || 0
+    const isPos = chg >= 0
+    return (
+      <span key={`r-${a.address}`} style={{ display: 'inline-flex', alignItems: 'center', gap: 5, marginRight: 32 }}>
+        {a.logoUrl && <img src={a.logoUrl} alt="" style={{ width: 13, height: 13, borderRadius: '50%', objectFit: 'cover' }} />}
+        <span style={{ fontSize: 11, fontWeight: 800, letterSpacing: '0.03em', color: 'var(--text-primary)' }}>
+          ${a.symbol}
+        </span>
+        <span style={{ fontSize: 10, color: isPos ? 'var(--neon-green)' : 'var(--red)', fontWeight: 700 }}>
+          {isPos ? '+' : ''}{chg.toFixed(1)}%
+        </span>
+      </span>
+    )
+  })
+
+  const narrativeItems = sznCards.slice(0, 8).map(szn => (
+    <span key={`n-${szn.key}`} style={{ display: 'inline-flex', alignItems: 'center', gap: 5, marginRight: 32 }}>
+      <span style={{ fontSize: 11 }}>{szn.heat?.emoji || '📈'}</span>
+      <span style={{ fontSize: 11, fontWeight: 800, letterSpacing: '0.03em', color: 'var(--cyan)' }}>
+        {szn.label}
+      </span>
+      <span style={{ fontSize: 9, color: 'var(--text-muted)', letterSpacing: '0.02em' }}>
+        ${(szn.totalVolume / 1_000_000).toFixed(1)}M vol
+      </span>
+    </span>
+  ))
+
+  // Separator between runners and narratives sections
+  const separator = (
+    <span style={{ marginRight: 32, color: 'rgba(0,212,255,0.25)', fontSize: 10, letterSpacing: 4 }}>···</span>
+  )
+
+  const items = [...runnerItems, separator, ...narrativeItems]
+  // Duplicate for seamless loop
+  const allItems = [...items, ...items]
+
+  return (
+    <div
+      className="narrative-ticker"
+      style={{
+        width: '100%',
+        background: 'rgba(0,0,0,0.5)',
+        borderBottom: '1px solid rgba(0,212,255,0.12)',
+        borderTop: '1px solid rgba(0,212,255,0.06)',
+        overflow: 'hidden',
+        height: 30,
+        display: 'flex',
+        alignItems: 'center',
+        cursor: 'default',
+        fontFamily: "'Syne', var(--font-display), sans-serif",
+      }}
+    >
+      <div style={{
+        display: 'inline-flex',
+        alignItems: 'center',
+        whiteSpace: 'nowrap',
+        animation: 'tickerScroll 70s linear infinite',
+        paddingLeft: '2rem',
+      }}>
+        {allItems}
+      </div>
+      <style>{`
+        @keyframes tickerScroll {
+          0%   { transform: translateX(0); }
+          100% { transform: translateX(-50%); }
+        }
+      `}</style>
+    </div>
+  )
+}
+
 // ─── Navbar ─────────────────────────────────────────────────────
 
-const Navbar = ({ onListBeta, newRunners }) => (
+const Navbar = ({ onListBeta, newRunners, liveAlphas, coolingAlphas }) => (
   <nav className="navbar">
-    <div className="navbar-brand">
-      <div className="brand-logo">β</div>
-      <span className="brand-name">Beta<span>Plays</span></span>
-    </div>
-    <div className={`navbar-status${newRunners ? ' navbar-status--flash' : ''}`}>
-      <span className={`status-dot${newRunners ? ' status-dot--flash' : ''}`}></span>
-      LIVE · SOLANA
+  <div className="navbar-brand">
+    <img
+      src={betaplaysLogo}
+      alt="BetaPlays"
+      style={{ height: 44, width: 44, objectFit: 'contain' }}
+    />
+    <span className="brand-name">Beta<span>Plays</span></span>
+  </div>
+    <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+      <div className={`navbar-status${newRunners ? ' navbar-status--flash' : ''}`}>
+        <span className={`status-dot${newRunners ? ' status-dot--flash' : ''}`}></span>
+        <span style={{ fontFamily: 'var(--font-number)', fontSize: 11, fontWeight: 700, letterSpacing: '0.08em' }}>
+          LIVE · SOLANA
+        </span>
+      </div>
+      <DataSourceStatus liveAlphas={liveAlphas} coolingAlphas={coolingAlphas} />
+      <LatencyDot />
     </div>
     <div className="navbar-actions">
       <button className="btn btn-amber btn-sm" onClick={onListBeta}>
@@ -135,7 +455,7 @@ const SznCard = ({ szn, isSelected, onClick }) => {
                 <span className="badge badge-verified" style={{ fontSize: 7, padding: '1px 4px' }}>🤖 +{szn.aiEnriched}</span>
               )}
             </div>
-            <div style={{ fontFamily: 'var(--font-mono)', fontSize: 8, color: 'var(--text-muted)' }}>
+            <div style={{ fontFamily: 'var(--font-number)', fontSize: 8, color: 'var(--text-muted)' }}>
               {szn.tokenCount} tokens · {formatNum(szn.totalVolume)} vol
             </div>
           </div>
@@ -181,7 +501,7 @@ const SznCard = ({ szn, isSelected, onClick }) => {
           <span style={{ fontFamily: 'var(--font-display)', fontWeight: 700, fontSize: 10, color: 'var(--text-primary)' }}>
             ${leader.symbol}
           </span>
-          <span style={{ fontFamily: 'var(--font-mono)', fontSize: 9, fontWeight: 700, color: 'var(--neon-green)' }}>
+          <span style={{ fontFamily: 'var(--font-number)', fontSize: 9, fontWeight: 700, color: 'var(--neon-green)' }}>
             +{(parseFloat(leader.priceChange24h) || 0).toFixed(0)}%
           </span>
         </div>
@@ -249,7 +569,7 @@ const PositioningCard = ({ alpha, isSelected, onClick, isWatched, onToggleWatch 
               </span>
             </div>
             <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
-              <div className="token-address">{shortAddress(alpha.address)}</div>
+              <CopyAddress address={alpha.address} />
               <span style={{ fontFamily: 'var(--font-mono)', fontSize: 8, color: 'var(--text-muted)' }}>
                 {alpha.ageDays}d ago
               </span>
@@ -258,9 +578,9 @@ const PositioningCard = ({ alpha, isSelected, onClick, isWatched, onToggleWatch 
         </div>
         {/* Actions: star + DEX link */}
         <div style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
+          <Tooltip text={isWatched ? 'Remove from watchlist' : 'Add to watchlist'}>
           <button
             onClick={e => { e.stopPropagation(); onToggleWatch?.(alpha) }}
-            title={isWatched ? 'Remove from watchlist' : 'Add to watchlist'}
             style={{
               background: isWatched ? 'rgba(255,184,0,0.12)' : 'rgba(255,255,255,0.06)',
               border: `1px solid ${isWatched ? 'rgba(255,184,0,0.4)' : 'rgba(255,255,255,0.12)'}`,
@@ -271,12 +591,16 @@ const PositioningCard = ({ alpha, isSelected, onClick, isWatched, onToggleWatch 
             onMouseEnter={e => { e.currentTarget.style.background = 'rgba(255,184,0,0.15)'; e.currentTarget.style.borderColor = 'rgba(255,184,0,0.5)' }}
             onMouseLeave={e => { e.currentTarget.style.background = isWatched ? 'rgba(255,184,0,0.12)' : 'rgba(255,255,255,0.06)'; e.currentTarget.style.borderColor = isWatched ? 'rgba(255,184,0,0.4)' : 'rgba(255,255,255,0.12)' }}
           >{isWatched ? '⭐' : '☆'}</button>
+          </Tooltip>
+          <Tooltip text="Open on DEXScreener">
           <span
             onClick={e => { e.stopPropagation(); window.open(alpha.dexUrl || `https://dexscreener.com/solana/${alpha.address}`, '_blank') }}
             style={{ fontFamily: 'var(--font-mono)', fontSize: 8, color: 'var(--text-muted)', cursor: 'pointer', padding: '1px 4px', borderRadius: 3, border: '1px solid rgba(255,255,255,0.08)' }}
             onMouseEnter={e => e.currentTarget.style.color = 'var(--cyan)'}
             onMouseLeave={e => e.currentTarget.style.color = 'var(--text-muted)'}
           >DEX ↗</span>
+          </Tooltip>
+          <XSearchButton symbol={alpha.symbol} onClick={e => e.stopPropagation()} />
         </div>
       </div>
 
@@ -440,14 +764,14 @@ const AlphaCard = ({ alpha, isSelected, onClick, isWatched, onToggleWatch }) => 
               )}
             </div>
             <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
-              <div className="token-address">{shortAddress(alpha.address)}</div>
+              <CopyAddress address={alpha.address} />
               {alpha.coolingLabel && (
                 <span style={{ fontFamily: 'var(--font-mono)', fontSize: 8, color: alpha.isDumped ? 'var(--red)' : 'var(--cyan)' }}>
                   {alpha.coolingLabel}
                 </span>
               )}
               {alpha.volumeRising && (
-                <span style={{ fontFamily: 'var(--font-mono)', fontSize: 8, color: 'rgb(0,255,150)' }}>
+                <span style={{ fontFamily: 'var(--font-number)', fontSize: 8, color: 'rgb(0,255,150)' }}>
                   📈 vol↑
                 </span>
               )}
@@ -470,9 +794,9 @@ const AlphaCard = ({ alpha, isSelected, onClick, isWatched, onToggleWatch }) => 
           </div>
           {/* Actions: star + DEX link */}
           <div style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
+            <Tooltip text={isWatched ? 'Remove from watchlist' : 'Add to watchlist'}>
             <button
               onClick={e => { e.stopPropagation(); onToggleWatch?.(alpha) }}
-              title={isWatched ? 'Remove from watchlist' : 'Add to watchlist'}
               style={{
                 background: isWatched ? 'rgba(255,184,0,0.12)' : 'rgba(255,255,255,0.06)',
                 border: `1px solid ${isWatched ? 'rgba(255,184,0,0.4)' : 'rgba(255,255,255,0.12)'}`,
@@ -483,6 +807,8 @@ const AlphaCard = ({ alpha, isSelected, onClick, isWatched, onToggleWatch }) => 
               onMouseEnter={e => { e.currentTarget.style.background = 'rgba(255,184,0,0.15)'; e.currentTarget.style.borderColor = 'rgba(255,184,0,0.5)' }}
               onMouseLeave={e => { e.currentTarget.style.background = isWatched ? 'rgba(255,184,0,0.12)' : 'rgba(255,255,255,0.06)'; e.currentTarget.style.borderColor = isWatched ? 'rgba(255,184,0,0.4)' : 'rgba(255,255,255,0.12)' }}
             >{isWatched ? '⭐' : '☆'}</button>
+            </Tooltip>
+            <Tooltip text="Open on DEXScreener">
             <span
               onClick={e => {
                 e.stopPropagation()
@@ -498,10 +824,11 @@ const AlphaCard = ({ alpha, isSelected, onClick, isWatched, onToggleWatch }) => 
               }}
               onMouseEnter={e => e.currentTarget.style.color = 'var(--cyan)'}
               onMouseLeave={e => e.currentTarget.style.color = 'var(--text-muted)'}
-              title="Open on DEXScreener"
             >
               DEX ↗
             </span>
+            </Tooltip>
+            <XSearchButton symbol={alpha.symbol} onClick={e => e.stopPropagation()} />
           </div>
         </div>
       </div>
@@ -580,7 +907,7 @@ const AdminNominationPanel = ({ onClose }) => {
       }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
           <div>
-            <span style={{ fontFamily: 'var(--font-mono)', fontSize: 11, color: 'var(--text-primary)', fontWeight: 700 }}>
+            <span style={{ fontFamily: 'var(--font-number)', fontSize: 12, color: 'var(--text-primary)', fontWeight: 600 }}>
               ${nom.symbol}
             </span>
             <span style={{ fontFamily: 'var(--font-mono)', fontSize: 9, color: 'var(--text-muted)', marginLeft: 6 }}>
@@ -651,7 +978,7 @@ const AdminNominationPanel = ({ onClose }) => {
       }} onClick={e => e.stopPropagation()}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
           <div>
-            <div style={{ fontFamily: 'var(--font-mono)', fontSize: 13, color: 'var(--amber)', fontWeight: 700 }}>
+            <div style={{ fontFamily: 'var(--font-number)', fontSize: 14, color: 'var(--amber)', fontWeight: 600, letterSpacing: '-0.3px' }}>
               ⭐ OG NOMINATION REVIEW
             </div>
             {authed && (
@@ -720,9 +1047,12 @@ const AdminNominationPanel = ({ onClose }) => {
   )
 }
 
-const AlphaBoard = ({ selectedAlpha, onSelect, onNewRunners, onLiveAlphas, alphaListRef }) => {
+const AlphaBoard = ({ selectedAlpha, onSelect, onNewRunners, onLiveAlphas, onSznCards, onCoolingAlphas, onCustomSearch, customAlphaLoading, onRegisterClearSearch, alphaListRef }) => {
   const [activeTab,        setActiveTab]        = useState('live')
   const [searchQuery,      setSearchQuery]      = useState('')
+  useEffect(() => {
+    if (onRegisterClearSearch) onRegisterClearSearch(() => setSearchQuery(''))
+  }, [])
   const [showAdminPanel,   setShowAdminPanel]   = useState(false)
   const [coolingTimeframe, setCoolingTimeframe] = useState('24h')
   const [volumeRising,     setVolumeRising]     = useState(false)
@@ -885,6 +1215,8 @@ const AlphaBoard = ({ selectedAlpha, onSelect, onNewRunners, onLiveAlphas, alpha
 
     // Feed liveAlphas up to App so BetaPanel can use for momentum-weighted parent detection
     if (onLiveAlphas) onLiveAlphas(liveAlphas)
+    if (onSznCards)      onSznCards(sznCards)
+    if (onCoolingAlphas) onCoolingAlphas(coolingAlphas)
 
     // Only snap back to selected alpha if user is NOT actively scrolling.
     if (selectedAlpha?.address && !userIsScrolling.current) {
@@ -943,36 +1275,69 @@ const AlphaBoard = ({ selectedAlpha, onSelect, onNewRunners, onLiveAlphas, alpha
 
   const rawList =
     activeTab === 'live'        ? liveAlphas         :
+    activeTab === 'narratives'  ? []                 :
     activeTab === 'cooling'     ? filteredCooling     :
     activeTab === 'positioning' ? positioningAlphas   :
     activeTab === 'watch'       ? watchlist           :
+    activeTab === 'history'     ? []                 :
     legends
 
-  // Apply search filter across all tabs
-  const displayList = useMemo(() =>
-    searchQuery ? rawList.filter(a => matchesSearch(a, searchQuery)) : rawList,
-    [rawList, searchQuery]
-  )
+  // Apply search filter across all tabs — guard against malformed entries
+  const displayList = useMemo(() => {
+    const valid = rawList.filter(a => a && a.symbol && a.address)
+    return searchQuery ? valid.filter(a => matchesSearch(a, searchQuery)) : valid
+  }, [rawList, searchQuery])
 
   // Also filter szn cards
+  // Deduplicate tokens across szn cards — a token should only appear
+  // in the highest-scoring szn card it belongs to, not multiple.
+  const dedupedSznCards = useMemo(() => {
+    const seen = new Set()
+    return sznCards.map(szn => ({
+      ...szn,
+      tokens: szn.tokens.filter(t => {
+        if (!t.address || seen.has(t.address)) return false
+        seen.add(t.address)
+        return true
+      })
+    })).filter(szn => szn.tokens.length >= 2)
+  }, [sznCards])
+
   const filteredSzn = useMemo(() =>
     searchQuery
-      ? sznCards.filter(s =>
+      ? dedupedSznCards.filter(s =>
           s.label.toLowerCase().includes(searchQuery.toLowerCase()) ||
           s.tokens.some(t => matchesSearch(t, searchQuery))
         )
-      : sznCards,
-    [sznCards, searchQuery]
+      : dedupedSznCards,
+    [dedupedSznCards, searchQuery]
   )
 
   const isEmpty = !loading && displayList.length === 0
 
+  // ── History tab — runners seen in last 7 days from localStorage ──
+  const historyAlphas = useMemo(() => {
+    try {
+      const seen = JSON.parse(localStorage.getItem('betaplays_seen_alphas') || '{}')
+      const cutoff = Date.now() - 7 * 24 * 60 * 60 * 1000
+      const liveSet = new Set(liveAlphas.map(a => a.address))
+      return Object.values(seen)
+        .filter(a => a && typeof a === 'object' && a.symbol && a.address &&
+          !liveSet.has(a.address) &&
+          ((a.lastSeen && a.lastSeen > cutoff) || (a.timestamp && a.timestamp > cutoff)))
+        .sort((a, b) => (b.lastSeen || b.timestamp || 0) - (a.lastSeen || a.timestamp || 0))
+        .slice(0, 50)
+    } catch { return [] }
+  }, [liveAlphas])
+
   const tabs = [
-    { key: 'live',        label: '🔥 Live',     count: liveAlphas.length        },
-    { key: 'cooling',     label: '❄️ Cooling',  count: null                     },
-    { key: 'positioning', label: '🎯 Position', count: null                     },
-    { key: 'watch',       label: '⭐ Watchlist', count: watchlist.length         },
-    { key: 'legends',     label: '🏆 OGs',      count: legends.length, noUppercase: true },
+    { key: 'live',        label: '🔥 Live',       count: liveAlphas.length        },
+    { key: 'narratives',  label: '🌊 ACTIVE NARRATIVES', count: sznCards.length },
+    { key: 'cooling',     label: '❄️ Cooling',    count: null                     },
+    { key: 'positioning', label: '🎯 Position',   count: null                     },
+    { key: 'watch',       label: '⭐ Watchlist',   count: watchlist.length         },
+    { key: 'history',     label: '🕓 History',    count: historyAlphas.length     },
+    { key: 'legends',     label: '🏆 OGs',        count: legends.length },
   ]
 
   return (
@@ -990,21 +1355,42 @@ const AlphaBoard = ({ selectedAlpha, onSelect, onNewRunners, onLiveAlphas, alpha
           borderRadius: 'var(--radius-md)', padding: '5px 10px',
           transition: 'border-color 0.15s',
         }}>
-          <span style={{ fontSize: 11, color: 'var(--text-muted)' }}>🔍</span>
+          <span style={{ fontSize: 11, color: customAlphaLoading ? 'var(--cyan)' : 'var(--text-muted)' }}>
+            {customAlphaLoading ? '⟳' : '🔍'}
+          </span>
           <input
             type="text"
-            placeholder="Search runners..."
+            placeholder="Search runners or any token..."
             value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
+            onChange={(e) => {
+              setSearchQuery(e.target.value)
+              // Clear custom alpha when user starts typing again
+              // so the pinned card doesn't linger
+            }}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter' && searchQuery.trim()) {
+                // Only trigger DEX if no local results exist
+                if (displayList.length === 0 && !customAlphaLoading && onCustomSearch) {
+                  onCustomSearch(searchQuery.trim())
+                  // Don't clear searchQuery yet — keep showing what was searched
+                }
+              }
+              if (e.key === 'Escape') setSearchQuery('')
+            }}
             style={{
               background: 'transparent', border: 'none', outline: 'none',
-              fontFamily: 'var(--font-mono)', fontSize: 11,
-              color: 'var(--text-primary)', width: '100%',
+              fontFamily: 'var(--font-display)', fontSize: 11, fontWeight: 600,
+              color: 'var(--text-primary)', width: '100%', letterSpacing: '0.02em',
             }}
           />
-          {searchQuery && (
+          {customAlphaLoading && (
+            <span style={{ fontSize: 9, color: 'var(--cyan)', whiteSpace: 'nowrap', fontFamily: 'var(--font-mono)' }}>
+              Searching DEX...
+            </span>
+          )}
+          {searchQuery && !customAlphaLoading && (
             <button
-              onClick={() => setSearchQuery('')}
+              onClick={() => { setSearchQuery(''); }}
               style={{
                 background: 'none', border: 'none', cursor: 'pointer',
                 color: 'var(--text-muted)', fontSize: 12, padding: 0, lineHeight: 1,
@@ -1024,15 +1410,16 @@ const AlphaBoard = ({ selectedAlpha, onSelect, onNewRunners, onLiveAlphas, alpha
         {tabs.map(({ key, label, count, noUppercase }) => (
           <button
             key={key}
-            className={`tab-btn ${activeTab === key ? 'active' : ''}`}
+            className={`tab-btn ${activeTab === key ? 'active' : ''} ${noUppercase ? 'mixed-case' : ''}`}
             onClick={() => { setActiveTab(key); setSearchQuery('') }}
-            style={{ flex: '0 0 auto', textAlign: 'center', ...(noUppercase ? { textTransform: 'none' } : {}) }}
+            style={{ flex: '0 0 auto', textAlign: 'center' }}
           >
             {label}
             {count > 0 && (
               <span style={{
-                marginLeft: 2, fontSize: 7,
+                marginLeft: 3, fontSize: 8,
                 color: activeTab === key ? 'var(--neon-green)' : 'var(--text-muted)',
+                fontWeight: 700,
               }}>{count}</span>
             )}
           </button>
@@ -1073,7 +1460,7 @@ const AlphaBoard = ({ selectedAlpha, onSelect, onNewRunners, onLiveAlphas, alpha
               flexShrink: 0,
               padding: '3px 8px',
               fontSize: 9,
-              fontFamily: 'var(--font-mono)',
+              fontFamily: 'var(--font-number)',
               background: volumeRising ? 'rgba(0,255,150,0.15)' : 'var(--surface-2)',
               border: `1px solid ${volumeRising ? 'rgba(0,255,150,0.5)' : 'var(--border)'}`,
               borderRadius: 'var(--radius-md)',
@@ -1096,7 +1483,7 @@ const AlphaBoard = ({ selectedAlpha, onSelect, onNewRunners, onLiveAlphas, alpha
             </p>
           )}
           {activeTab === 'cooling' && (
-            <p style={{ fontFamily: 'var(--font-mono)', fontSize: 9, color: 'var(--cyan)', lineHeight: 1.5 }}>
+            <p style={{ fontFamily: 'var(--font-number)', fontSize: 9, color: 'var(--cyan)', lineHeight: 1.5 }}>
               {volumeRising
                 ? `📈 ${filteredCooling.length} tokens with rising volume despite negative price — accumulation signal. Gold in the rough.`
                 : `Tokens retracing or consolidating — ${filteredCooling.length} in the last ${coolingTimeframe}. Sorted by recency. Gold in the rough.`
@@ -1104,10 +1491,20 @@ const AlphaBoard = ({ selectedAlpha, onSelect, onNewRunners, onLiveAlphas, alpha
             </p>
           )}
           {activeTab === 'positioning' && (
-            <p style={{ fontFamily: 'var(--font-mono)', fontSize: 9, color: 'var(--amber)', lineHeight: 1.5 }}>
+            <p style={{ fontFamily: 'var(--font-number)', fontSize: 9, color: 'var(--amber)', lineHeight: 1.5 }}>
               Big peak. Big drawdown. Volume still alive. These are the second-leg setups degens hunt.
               {positioningAlphas.length === 0 && ' Populates as tokens peak and retrace — check back after the next wave.'}
             </p>
+          )}
+          {activeTab === 'history' && (
+            <div style={{
+              fontFamily: 'var(--font-mono)', fontSize: 8, color: 'var(--text-muted)',
+              padding: '3px 4px', letterSpacing: 0.5,
+              display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+            }}>
+              <span>🕓 {historyAlphas.length} runners · last 7 days · device only</span>
+              <span style={{ opacity: 0.6 }}>prices may be stale</span>
+            </div>
           )}
           {activeTab === 'watch' && (
             <p style={{ fontFamily: 'var(--font-mono)', fontSize: 9, color: 'var(--amber)', lineHeight: 1.5 }}>
@@ -1157,6 +1554,30 @@ const AlphaBoard = ({ selectedAlpha, onSelect, onNewRunners, onLiveAlphas, alpha
       )}
 
       <div className="alpha-list" ref={alphaListRef}>
+        {/* Custom search result — pinned at top, shows as real AlphaCard */}
+        {selectedAlpha?.isCustomSearch && !displayList.some(a => a.address === selectedAlpha.address) && (
+          <div style={{ flexShrink: 0 }}>
+            <div style={{
+              fontFamily: 'var(--font-mono)', fontSize: 7, color: 'var(--cyan)',
+              letterSpacing: 1, padding: '3px 4px', opacity: 0.8,
+              display: 'flex', justifyContent: 'space-between',
+            }}>
+              <span>🔍 FROM DEX SEARCH</span>
+              <span
+                onClick={() => onSelect(null)}
+                style={{ cursor: 'pointer', opacity: 0.6 }}
+              >✕ clear</span>
+            </div>
+            <AlphaCard
+              alpha={selectedAlpha}
+              isSelected={true}
+              onClick={() => onSelect(selectedAlpha)}
+              isWatched={watchedAddresses.has(selectedAlpha.address)}
+              onToggleWatch={handleToggleWatch}
+            />
+          </div>
+        )}
+
         {loading && activeTab === 'live' && !searchQuery && (
           <>
             <div className="skeleton loading-row" />
@@ -1202,27 +1623,48 @@ const AlphaBoard = ({ selectedAlpha, onSelect, onNewRunners, onLiveAlphas, alpha
             <div className="empty-state-sub">Tap ☆ on any runner, cooling token, or positioning play to add it here.</div>
           </div>
         )}
+        {!loading && historyAlphas.length === 0 && !searchQuery && activeTab === 'history' && (
+          <div className="empty-state">
+            <div className="empty-state-icon">🕓</div>
+            <div className="empty-state-title">No history yet.</div>
+            <div className="empty-state-sub">Runners from the last 7 days appear here once they leave the live feed.</div>
+          </div>
+        )}
 
-        {!loading && isEmpty && searchQuery && (
+        {!loading && isEmpty && searchQuery && activeTab !== 'history' && (
           <div className="empty-state">
             <div className="empty-state-icon">🔍</div>
-            <div className="empty-state-title">No results for "{searchQuery}"</div>
-            <div className="empty-state-sub">Try a different symbol or name.</div>
-            <button className="btn btn-ghost btn-sm" onClick={() => setSearchQuery('')} style={{ marginTop: 12 }}>
-              Clear Search
+            <div className="empty-state-title">"{searchQuery}" not in feed</div>
+            <div className="empty-state-sub">
+              {customAlphaLoading
+                ? '⟳ Searching DEX for this token...'
+                : <>Press <strong>Enter</strong> to search all Solana tokens on DEX.</>}
+            </div>
+            {!customAlphaLoading && (
+              <button
+                className="btn btn-ghost btn-sm"
+                onClick={() => onCustomSearch?.(searchQuery)}
+                style={{ marginTop: 10 }}
+              >
+                Search DEX ↗
+              </button>
+            )}
+            <button className="btn btn-ghost btn-sm" onClick={() => setSearchQuery('')} style={{ marginTop: 6, opacity: 0.6 }}>
+              Clear
             </button>
           </div>
         )}
 
-        {/* Szn cards — live tab only, hidden when searching */}
-        {!loading && activeTab === 'live' && !searchQuery && filteredSzn.length > 0 && (
-          <>
-            <div style={{
-              fontFamily: 'var(--font-mono)', fontSize: 9, fontWeight: 700,
-              color: 'var(--text-muted)', textTransform: 'uppercase',
-              letterSpacing: 1, padding: '4px 0 6px',
-            }}>🌊 Active Narratives</div>
-            {filteredSzn.map((szn) => (
+        {/* Szn cards — Narratives tab */}
+        {activeTab === 'narratives' && (
+          <div style={{ overflowY: 'auto', flex: 1 }}>
+            {filteredSzn.length === 0 ? (
+              <div className="empty-state">
+                <div className="empty-state-icon">🌊</div>
+                <div className="empty-state-title">No active narratives yet.</div>
+                <div className="empty-state-sub">Narratives form when 2+ runners share a theme. Refresh the feed.</div>
+              </div>
+            ) : filteredSzn.map((szn) => (
               <SznCard
                 key={szn.id}
                 szn={szn}
@@ -1230,16 +1672,11 @@ const AlphaBoard = ({ selectedAlpha, onSelect, onNewRunners, onLiveAlphas, alpha
                 onClick={() => onSelect(szn)}
               />
             ))}
-            <div style={{
-              fontFamily: 'var(--font-mono)', fontSize: 9, fontWeight: 700,
-              color: 'var(--text-muted)', textTransform: 'uppercase',
-              letterSpacing: 1, padding: '10px 0 6px',
-              borderTop: '1px solid var(--border)',
-            }}>🔥 Individual Runners</div>
-          </>
+          </div>
         )}
 
         {!loading && displayList.map((alpha) => {
+          if (!alpha?.address || !alpha?.symbol) return null
           const watched = watchedAddresses.has(alpha.address)
           if (activeTab === 'positioning' || alpha.isPositioning) {
             return (
@@ -1266,6 +1703,39 @@ const AlphaBoard = ({ selectedAlpha, onSelect, onNewRunners, onLiveAlphas, alpha
             </div>
           )
         })}
+
+        {/* History tab — renders inside alpha-list so it scrolls correctly */}
+        {activeTab === 'history' && historyAlphas.map(a => {
+          const enriched = {
+            id:             a.address,
+            address:        a.address,
+            symbol:         a.symbol         || '?',
+            name:           a.name           || a.symbol || '?',
+            logoUrl:        a.logoUrl         || null,
+            dexUrl:         a.dexUrl          || `https://dexscreener.com/solana/${a.address}`,
+            priceUsd:       a.priceUsd        || 0,
+            priceChange24h: a.priceChange24h  || 0,
+            volume24h:      a.volume24h        || 0,
+            marketCap:      a.marketCap        || a.mcap || 0,
+            liquidity:      a.liquidity        || 0,
+            ageDays:        a.ageDays          || '?',
+            source:         a.source           || 'history',
+            isHistorical:   true,
+            ...a,
+          }
+          const watched = watchedAddresses.has(enriched.address)
+          return (
+            <div key={enriched.address} data-address={enriched.address}>
+              <AlphaCard
+                alpha={enriched}
+                isSelected={selectedAlpha?.address === enriched.address}
+                onClick={() => onSelect(enriched)}
+                isWatched={watched}
+                onToggleWatch={handleToggleWatch}
+              />
+            </div>
+          )
+        })}
       </div>
     </aside>
   )
@@ -1286,36 +1756,29 @@ const RELATIONSHIP_CONFIG = {
 
 // ─── Badge chip with click-to-reveal tooltip ─────────────────────
 const BadgeChip = ({ emoji, label, className, style: extraStyle = {} }) => {
-  const [open, setOpen] = useState(false)
+  const ref = useRef(null)
+  const [pos, setPos] = useState(null)
+
+  const show = () => {
+    if (ref.current) {
+      const r = ref.current.getBoundingClientRect()
+      setPos({ left: r.left + r.width / 2, top: r.top - 6 })
+    }
+  }
+  const hide = () => setPos(null)
+
   return (
-    <span style={{ position: 'relative', display: 'inline-block' }}>
+    <span ref={ref} style={{ display: 'inline-block' }} onMouseEnter={show} onMouseLeave={hide}>
       <span
         className={`badge ${className}`}
-        onClick={e => { e.stopPropagation(); setOpen(v => !v) }}
-        style={{ fontSize: 12, padding: '2px 5px', cursor: 'pointer', userSelect: 'none', lineHeight: 1.4, ...extraStyle }}
-        title={label}
+        onClick={e => e.stopPropagation()}
+        style={{ fontSize: 10, padding: '2px 7px', cursor: 'default', userSelect: 'none', lineHeight: 1.4, display: 'inline-flex', alignItems: 'center', gap: 4, fontFamily: 'var(--font-mono)', fontWeight: 700, letterSpacing: '0.03em', ...extraStyle }}
       >
         {emoji}
       </span>
-      {open && (
-        <>
-          <span
-            style={{ position: 'fixed', inset: 0, zIndex: 999 }}
-            onClick={e => { e.stopPropagation(); setOpen(false) }}
-          />
-          <span style={{
-            position: 'absolute', bottom: 'calc(100% + 6px)', left: '50%',
-            transform: 'translateX(-50%)',
-            background: '#1a1f2e', border: '1px solid rgba(0,212,255,0.3)',
-            borderRadius: 5, padding: '4px 9px', zIndex: 1000,
-            fontFamily: 'var(--font-mono)', fontSize: 9, fontWeight: 700,
-            color: 'var(--text-primary)', whiteSpace: 'nowrap',
-            boxShadow: '0 4px 16px rgba(0,0,0,0.6)',
-            pointerEvents: 'none',
-          }}>
-            {label}
-          </span>
-        </>
+      {pos && createPortal(
+        <span style={{ ...TOOLTIP_STYLE, left: pos.left, top: pos.top }}>{label}</span>,
+        document.body
       )}
     </span>
   )
@@ -1328,7 +1791,8 @@ const SignalBadge = ({ beta }) => {
     : null
 
   const classMap = {
-    CABAL:    'badge-cabal',
+    CABAL:    'badge-multi',
+    MULTI:    'badge-multi',
     TRENDING: 'badge-strong',
     KEYWORD:  'badge-strong',
     VISUAL:   'badge-visual',
@@ -1340,47 +1804,67 @@ const SignalBadge = ({ beta }) => {
     TWITTER:  'badge-twitter',
   }
 
-  const signalEmoji =  {
-    CABAL: '🕵️', TRENDING: '🔥', LP_PAIR: '🔗', AI: '🤖',
-    KEYWORD: '🔍', VISUAL: '👁️', TELEGRAM: '📡', TWITTER: '🐦',
-    STRONG: '💪', OG: '👑', WEAK: '〰️',
+  // Emoji-only in badge, full description in tooltip
+  const signalEmoji = {
+    CABAL:    '⚡', MULTI:    '⚡', TRENDING: '🔥', LP_PAIR:  '🔗',
+    AI:       '🤖', KEYWORD:  '🔍', VISUAL:   '👁', TELEGRAM: '📡',
+    TWITTER:  '🐦', STRONG:   '💪', OG:       '👑', WEAK:     '〰️',
   }
   const signalLabel = {
-    CABAL:    '🕵️ CABAL — Multi-signal',
-    TRENDING: '🔥 TRENDING',
-    LP_PAIR:  '🔗 LP PAIR — Direct pair',
-    AI:       '🤖 AI MATCH',
-    KEYWORD:  '🔍 KEYWORD MATCH',
-    VISUAL:   '👁️ VISUAL — Logo match',
-    TELEGRAM: '📡 TELEGRAM — Social signal',
-    TWITTER:  '🐦 TWITTER — Social signal',
-    STRONG:   '💪 STRONG',
-    OG:       '👑 OG — Original',
-    WEAK:     '〰️ WEAK',
+    CABAL:    'Multi-Signal — found by 2 or more detection methods simultaneously. Highest confidence.',
+    MULTI:    'Multi-Signal — found by 2 or more detection methods simultaneously. Highest confidence.',
+    TRENDING: 'Trending — currently gaining traction on PumpFun or DEX.',
+    LP_PAIR:  'LP Pair — directly paired with the alpha in a liquidity pool. Hard on-chain link.',
+    AI:       'AI Match — our AI confirmed a thematic or conceptual relationship to the alpha.',
+    KEYWORD:  'Keyword Match — shares key terms, themes, or ticker patterns with the alpha.',
+    VISUAL:   "Visual Match — logo visually mirrors or references the alpha's logo.",
+    TELEGRAM: 'Telegram Signal — spotted in degen channels being discussed alongside the alpha.',
+    TWITTER:  'Twitter Signal — mentioned on CT in context with the alpha.',
+    STRONG:   'Strong — high-confidence match from multiple text-based signals.',
+    OG:       'OG — this is the original token of its concept. The narrative starter.',
+    WEAK:     'Weak — low-confidence match. Worth watching but treat with caution.',
   }
 
   return (
     <div style={{ display: 'flex', flexDirection: 'row', gap: 4, alignItems: 'center', flexWrap: 'wrap' }}>
       {beta.tokenClass && (
         <BadgeChip
-          emoji={beta.tokenClass === 'OG' ? '👑' : beta.tokenClass === 'RIVAL' ? '⚔️' : '🌀'}
-          label={beta.tokenClass === 'OG' ? '👑 OG — Original' : beta.tokenClass === 'RIVAL' ? '⚔️ RIVAL — Challenging throne' : '🌀 SPIN — Riding narrative'}
+          emoji={
+            beta.tokenClass === 'OG'    ? '👑' :
+            beta.tokenClass === 'RIVAL' ? '⚔️' : '🌀'
+          }
+          label={
+            beta.tokenClass === 'OG'    ? 'OG — this token started the narrative. The original of its concept.' :
+            beta.tokenClass === 'RIVAL' ? 'Rival — directly competing with the alpha for the same throne. Highly correlated.' :
+                                          'Spin — riding the same narrative wave as the alpha. Looser connection than a Rival.'
+          }
           className={beta.tokenClass === 'OG' ? 'badge-verified' : beta.tokenClass === 'RIVAL' ? 'badge-cabal' : 'badge-weak'}
         />
       )}
       {relType && (
         <BadgeChip
           emoji={relType.emoji}
-          label={`${relType.emoji} ${relType.label}`}
+          label={{
+            TWIN:      'Twin — near-identical concept to the alpha. Moves in lockstep.',
+            COUNTER:   'Counter — opposite or contrarian play to the alpha. May move inversely.',
+            ECHO:      'Echo — delayed version of the alpha narrative. Usually follows with a lag.',
+            UNIVERSE:  'Universe — exists in the same broader narrative world as the alpha.',
+            SECTOR:    'Sector — same market category or niche as the alpha.',
+            EVIL_TWIN: "Evil Twin — dark or villainous counterpart to the alpha's concept.",
+            SPIN:      "Spin — a derivative take on the alpha's narrative. Looser connection.",
+          }[beta.relationshipType] || relType.label}
           className=""
           style={{ background: relType.bg, color: relType.color, border: `1px solid ${relType.border}` }}
         />
       )}
-      <BadgeChip
-        emoji={signalEmoji[signal.label] || signal.label}
-        label={signalLabel[signal.label] || signal.label}
-        className={classMap[signal.label] || 'badge-weak'}
-      />
+      {/* MULTI badge intentionally removed — appears on almost all betas, adds noise */}
+      {signal.label !== 'MULTI' && signal.label !== 'CABAL' && (
+        <BadgeChip
+          emoji={signalEmoji[signal.label] || signal.label}
+          label={signalLabel[signal.label] || signal.label}
+          className={classMap[signal.label] || 'badge-weak'}
+        />
+      )}
     </div>
   )
 }
@@ -1405,7 +1889,7 @@ const McapRatioBadge = ({ ratio }) => {
   if (!ratio || ratio < 2) return null
   const color = ratio >= 100 ? 'var(--neon-green)' : ratio >= 20 ? 'var(--amber)' : 'var(--text-secondary)'
   return (
-    <span style={{ fontFamily: 'var(--font-mono)', fontSize: 8, fontWeight: 700, color, letterSpacing: 0.5 }}>
+    <span style={{ fontFamily: 'var(--font-mono)', fontSize: 8, fontWeight: 400, color, opacity: 0.65 }}>
       {ratio >= 1000 ? `${(ratio / 1000).toFixed(1)}Kx` : `${ratio}x`} room
     </span>
   )
@@ -1591,7 +2075,7 @@ const NominateSearchBar = () => {
             )}
             <div>
               <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                <span style={{ fontFamily: 'var(--font-mono)', fontSize: 11, color: 'var(--text-primary)', fontWeight: 700 }}>
+                <span style={{ fontFamily: 'var(--font-number)', fontSize: 12, color: 'var(--text-primary)', fontWeight: 600 }}>
                   ${result.symbol}
                 </span>
                 {result.isAlreadyOG && (
@@ -1602,12 +2086,12 @@ const NominateSearchBar = () => {
             </div>
             <div style={{ marginLeft: 'auto', display: 'flex', gap: 12 }}>
               <div style={{ textAlign: 'right' }}>
-                <div style={{ fontFamily: 'var(--font-mono)', fontSize: 8, color: 'var(--text-muted)' }}>MCAP</div>
-                <div style={{ fontFamily: 'var(--font-mono)', fontSize: 10, color: 'var(--text-primary)' }}>{formatNum(result.marketCap)}</div>
+                <div style={{ fontFamily: 'var(--font-number)', fontSize: 8, color: 'var(--text-muted)' }}>MCAP</div>
+                <div style={{ fontFamily: 'var(--font-number)', fontSize: 10, color: 'var(--text-primary)' }}>{formatNum(result.marketCap)}</div>
               </div>
               <div style={{ textAlign: 'right' }}>
-                <div style={{ fontFamily: 'var(--font-mono)', fontSize: 8, color: 'var(--text-muted)' }}>LIQ</div>
-                <div style={{ fontFamily: 'var(--font-mono)', fontSize: 10, color: 'var(--text-primary)' }}>{formatNum(result.liquidity)}</div>
+                <div style={{ fontFamily: 'var(--font-number)', fontSize: 8, color: 'var(--text-muted)' }}>LIQ</div>
+                <div style={{ fontFamily: 'var(--font-number)', fontSize: 10, color: 'var(--text-primary)' }}>{formatNum(result.liquidity)}</div>
               </div>
             </div>
           </div>
@@ -1661,13 +2145,13 @@ const BetaRow = ({ beta, alpha, isPinned, trenchOnly, onOpenDrawer }) => {
             {isTelegramSig  && <span className="badge" style={{ fontSize: 7, padding: '1px 4px', background: 'rgba(0,212,180,0.15)', borderColor: 'rgba(0,212,180,0.4)', color: 'rgb(0,212,180)', animation: 'pulse 2s infinite' }}>📡 TELEGRAM</span>}
             {isTwitterSig   && <span className="badge" style={{ fontSize: 7, padding: '1px 4px', background: 'rgba(29,161,242,0.15)', borderColor: 'rgba(29,161,242,0.4)', color: 'rgb(29,161,242)', animation: 'pulse 2s infinite' }}>🐦 TWITTER</span>}
             {isTied         && <span className="badge badge-strong"   style={{ fontSize: 7, padding: '1px 4px' }}>⚡ TIED</span>}
-            {isTrench       && <span className="badge badge-new"      style={{ fontSize: 7, padding: '1px 4px' }}>⛏️ TRENCHES</span>}
+            {isTrench       && <Tooltip text="Trenches — market cap under $30K. Very high risk, very high reward."><span className="badge badge-new" style={{ fontSize: 9, padding: '1px 5px', cursor: 'default' }}>⛏️</span></Tooltip>}
             <FlagWarningBadge address={beta.address} />
             {isPinned       && <span className="badge badge-verified" style={{ fontSize: 7, padding: '1px 4px' }}>DEV VERIFIED</span>}
             {beta.isSibling && <span className="badge badge-cabal"    style={{ fontSize: 7, padding: '1px 4px', opacity: 0.85 }}>👥 SIBLING</span>}
           </div>
           <div style={{ display: 'flex', gap: 6, alignItems: 'center', marginTop: 1 }}>
-            <span className="token-address">{shortAddress(beta.address)}</span>
+            <CopyAddress address={beta.address} />
             {beta.isHistorical && <span style={{ fontFamily: 'var(--font-mono)', fontSize: 7, color: 'var(--text-muted)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: 3, padding: '0 3px' }}>📦 stored</span>}
             <WaveBadge phase={wave} />
           </div>
@@ -1689,7 +2173,7 @@ const BetaRow = ({ beta, alpha, isPinned, trenchOnly, onOpenDrawer }) => {
              : 'var(--red)',
       }}>{formatNum(beta.liquidity)}</span>
 
-      <span className={`mono token-change ${isPositive ? 'positive' : 'negative'}`} style={{ fontSize: 12 }}>
+      <span className={`token-change ${isPositive ? 'positive' : 'negative'}`} style={{ fontSize: 12 }}>
         {isPositive ? '+' : ''}{change.toFixed(1)}%
       </span>
       <span className="mono" style={{ fontSize: 11, color: 'var(--text-muted)' }}>{beta.ageLabel}</span>
@@ -1735,7 +2219,18 @@ const ParentAlphaCard = ({ parent }) => {
             <div style={{ fontFamily: 'var(--font-display)', fontWeight: 800, fontSize: 16, color: 'var(--text-primary)' }}>
               ${parent.symbol}
             </div>
-            <div className="token-address">{shortAddress(parent.address)}</div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 5, marginTop: 3 }}>
+              <CopyAddress address={parent.address} />
+              <Tooltip text="Open on DEXScreener">
+                <span
+                  onClick={e => { e.stopPropagation(); window.open(parent.dexUrl || `https://dexscreener.com/solana/${parent.address}`, '_blank') }}
+                  style={{ fontFamily: 'var(--font-mono)', fontSize: 8, color: 'var(--text-muted)', cursor: 'pointer', padding: '1px 4px', borderRadius: 3, border: '1px solid rgba(255,255,255,0.08)', transition: 'color 0.15s' }}
+                  onMouseEnter={e => e.currentTarget.style.color = 'var(--cyan)'}
+                  onMouseLeave={e => e.currentTarget.style.color = 'var(--text-muted)'}
+                >DEX ↗</span>
+              </Tooltip>
+              <XSearchButton symbol={parent.symbol} onClick={e => e.stopPropagation()} />
+            </div>
           </div>
         </div>
         <div style={{ display: 'flex', gap: 20, alignItems: 'center' }}>
@@ -1837,7 +2332,7 @@ const SznPanel = ({ szn, onListBeta, onOpenDrawer }) => {
               </div>
               <span className="mono" style={{ fontSize: 12, color: 'var(--text-primary)' }}>{formatNum(token.marketCap)}</span>
               <span className="mono" style={{ fontSize: 12, color: 'var(--text-secondary)' }}>{formatNum(token.volume24h)}</span>
-              <span className={`mono token-change ${isPositive ? 'positive' : 'negative'}`} style={{ fontSize: 12 }}>
+              <span className={`token-change ${isPositive ? 'positive' : 'negative'}`} style={{ fontSize: 12 }}>
                 {isPositive ? '+' : ''}{change.toFixed(1)}%
               </span>
               <span className="mono" style={{ fontSize: 11, color: 'var(--text-muted)' }}>—</span>
@@ -1852,7 +2347,7 @@ const SznPanel = ({ szn, onListBeta, onOpenDrawer }) => {
 
 // ─── Beta Panel ──────────────────────────────────────────────────
 
-const BetaPanel = ({ alpha, liveAlphas, onListBeta, onOpenDrawer, onScrollToAlpha }) => {
+const BetaPanel = ({ alpha, liveAlphas, onListBeta, onOpenDrawer, onScrollToAlpha, onCustomSearch, customAlphaLoading, customAlphaError }) => {
   const { parent, loading: parentLoading }               = useParentAlpha(alpha, liveAlphas)
   const { betas, loading: betasLoading, error, scanPhase, refresh } = useBetas(alpha, parent)
   const { birdeye }                                       = useBirdeye(alpha?.address)
@@ -1906,7 +2401,6 @@ const BetaPanel = ({ alpha, liveAlphas, onListBeta, onOpenDrawer, onScrollToAlph
             className="beta-panel-title"
             onClick={alpha && onScrollToAlpha ? onScrollToAlpha : undefined}
             style={alpha && onScrollToAlpha ? { cursor: 'pointer', userSelect: 'none' } : {}}
-            title={alpha ? `Scroll to $${alpha.symbol} in runner list` : undefined}
           >
             {alpha ? `Beta Plays for $${alpha.symbol}` : 'Select a Runner'}
           </h1>
@@ -1990,15 +2484,16 @@ const BetaPanel = ({ alpha, liveAlphas, onListBeta, onOpenDrawer, onScrollToAlph
         <div className="empty-state">
           <div className="empty-state-icon">👈</div>
           <div className="empty-state-title">No runner selected</div>
-          <div className="empty-state-sub">Select a runner from the left panel to surface its beta plays.</div>
+          <div className="empty-state-sub">Pick a runner from the left panel, or search any token in the search bar above.</div>
         </div>
       ) : (
         <>
           {parentLoading && <div className="skeleton" style={{ height: 100, borderRadius: 10, marginBottom: 8 }} />}
           {!parentLoading && parent && <ParentAlphaCard parent={parent} />}
 
-          {/* Filters */}
+          {/* Filters + Timing — single combined row */}
           <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center', flexShrink: 0 }}>
+            {/* Mcap filter tabs */}
             <div style={{ display: 'flex', gap: 4, background: 'var(--surface-2)', padding: 3, borderRadius: 8, border: '1px solid var(--border)' }}>
               {[['all','All'],['large','>$10M'],['mid','$1M-10M'],['small','$100K-1M'],['micro','<$100K']].map(([key, label]) => (
                 <button key={key} className={`tab-btn ${mcapFilter === key ? 'active' : ''}`} onClick={() => setMcapFilter(key)}>
@@ -2006,45 +2501,46 @@ const BetaPanel = ({ alpha, liveAlphas, onListBeta, onOpenDrawer, onScrollToAlph
                 </button>
               ))}
             </div>
+            {/* Trenches toggle */}
             <button
               className={`btn btn-sm ${trenchOnly ? 'btn-primary' : 'btn-ghost'}`}
               onClick={() => setTrenchOnly(!trenchOnly)}
             >
               ⛏️ TRENCHES {trenchCount > 0 && `(${trenchCount})`}
             </button>
-          </div>
-
-          {/* Legend */}
-          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center', flexShrink: 0 }}>
-            <span className="badge badge-verified" style={{ fontSize: 8, padding: '2px 6px' }}>👑 OG</span>
-            <span className="mono text-muted" style={{ fontSize: 10 }}>=original</span>
-            <span className="badge badge-cabal"    style={{ fontSize: 8, padding: '2px 6px', marginLeft: 6 }}>⚔️ RIVAL</span>
-            <span className="mono text-muted" style={{ fontSize: 10 }}>=challenging throne</span>
-            <span className="badge badge-weak"     style={{ fontSize: 8, padding: '2px 6px', marginLeft: 6 }}>🌀 SPIN</span>
-            <span className="mono text-muted" style={{ fontSize: 10 }}>=riding narrative</span>
-            <span className="badge badge-cabal"    style={{ fontSize: 8, padding: '2px 6px', marginLeft: 6 }}>🕵️ CABAL</span>
-            <span className="mono text-muted" style={{ fontSize: 10 }}>=multi-signal</span>
-            <span className="badge badge-cabal"    style={{ fontSize: 8, padding: '2px 6px', marginLeft: 6 }}>🔗 LP PAIR</span>
-            <span className="mono text-muted" style={{ fontSize: 10 }}>=direct pair</span>
-            <span className="badge badge-verified"  style={{ fontSize: 8, padding: '2px 6px', marginLeft: 6 }}>🤖 AI MATCH</span>
-            <span className="mono text-muted" style={{ fontSize: 10 }}>=semantic match</span>
-            <span className="badge badge-visual"    style={{ fontSize: 8, padding: '2px 6px', marginLeft: 6 }}>👁️ VISUAL</span>
-            <span className="mono text-muted" style={{ fontSize: 10 }}>=logo match</span>
-          </div>
-
-          {/* Wave timing legend */}
-          <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', alignItems: 'center', flexShrink: 0 }}>
-            <span style={{ fontFamily: 'var(--font-mono)', fontSize: 9, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: 1 }}>Timing:</span>
-            <span style={{ fontFamily: 'var(--font-mono)', fontSize: 9, color: 'var(--neon-green)',     fontWeight: 700 }}>🌊 WAVE &lt;6h</span>
-            <span style={{ fontFamily: 'var(--font-mono)', fontSize: 9, color: 'var(--amber)',          fontWeight: 700 }}>📈 2ND LEG 6-24h</span>
-            <span style={{ fontFamily: 'var(--font-mono)', fontSize: 9, color: 'var(--text-secondary)', fontWeight: 700 }}>🕐 LATE 1-7d</span>
-            <span style={{ fontFamily: 'var(--font-mono)', fontSize: 9, color: 'var(--text-muted)',     fontWeight: 700 }}>🧊 COLD 7d+</span>
+            {/* Timing group — same pill container as mcap filters */}
+            <div style={{ display: 'flex', gap: 4, background: 'var(--surface-2)', padding: '3px', borderRadius: 8, border: '1px solid var(--border)', alignItems: 'center' }}>
+              <span style={{ fontFamily: 'var(--font-number)', fontSize: 7, color: 'var(--text-muted)', letterSpacing: 1, padding: '2px 4px', opacity: 0.6, borderRight: '1px solid var(--border)', marginRight: 2 }}>TIMING</span>
+              {[
+                { emoji: '🌊', label: 'WAVE',    sub: '<6h',    color: 'var(--neon-green)'     },
+                { emoji: '📈', label: '2ND LEG', sub: '6-24h',  color: 'var(--amber)'          },
+                { emoji: '🕐', label: 'LATE',    sub: '1-7d',   color: 'var(--text-secondary)' },
+                { emoji: '🧊', label: 'COLD',    sub: '7d+',    color: 'var(--text-muted)'     },
+              ].map(({ emoji, label, sub, color }) => (
+                <Tooltip key={label} text={`${emoji} ${label} — entered ${sub} ago`}>
+                  <span style={{
+                    display: 'inline-flex', alignItems: 'center', gap: 3,
+                    fontFamily: 'var(--font-mono)', fontSize: 8, fontWeight: 700,
+                    color, cursor: 'default', whiteSpace: 'nowrap',
+                    padding: '2px 5px', borderRadius: 4,
+                    border: `1px solid ${color}33`,
+                  }}>
+                    {emoji} {label} <span style={{ opacity: 0.65, fontSize: '0.85em' }}>{sub}</span>
+                  </span>
+                </Tooltip>
+              ))}
+            </div>
           </div>
 
           {/* Beta table */}
           <div className="beta-table">
             <div className="beta-table-header">
-              <span>Token</span>
+              <span style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                TOKEN
+                <Tooltip text="Tap any row to open full token details">
+                  <span style={{ fontSize: 9, color: 'var(--text-muted)', cursor: 'default', opacity: 0.7 }}>ⓘ</span>
+                </Tooltip>
+              </span>
               <span onClick={() => handleSort('mcap')}   style={{ cursor: 'pointer', userSelect: 'none' }}>MCAP / Room <SortIcon col="mcap" /></span>
               <span onClick={() => handleSort('volume')} style={{ cursor: 'pointer', userSelect: 'none' }}>24h Vol <SortIcon col="volume" /></span>
               <span onClick={() => handleSort('liq')}    style={{ cursor: 'pointer', userSelect: 'none' }}>Liquidity <SortIcon col="liq" /></span>
@@ -2213,9 +2709,9 @@ const FlagButton = ({ address, symbol }) => {
       {/* Current counts */}
       {total > 0 && (
         <div style={{ display: 'flex', gap: 10, marginBottom: 8, flexWrap: 'wrap' }}>
-          {(counts?.rug      || 0) > 0 && <span style={{ fontFamily: 'var(--font-mono)', fontSize: 10, color: 'var(--red)'        }}>🪤 Rug: {counts.rug}</span>}
-          {(counts?.honeypot || 0) > 0 && <span style={{ fontFamily: 'var(--font-mono)', fontSize: 10, color: 'var(--amber)'      }}>🍯 Honeypot: {counts.honeypot}</span>}
-          {(counts?.not_beta || 0) > 0 && <span style={{ fontFamily: 'var(--font-mono)', fontSize: 10, color: 'var(--text-muted)' }}>❌ Not a beta: {counts.not_beta}</span>}
+          {(counts?.rug      || 0) > 0 && <span style={{ fontFamily: 'var(--font-number)', fontSize: 10, color: 'var(--red)'        }}>🪤 Rug: {counts.rug}</span>}
+          {(counts?.honeypot || 0) > 0 && <span style={{ fontFamily: 'var(--font-number)', fontSize: 10, color: 'var(--amber)'      }}>🍯 Honeypot: {counts.honeypot}</span>}
+          {(counts?.not_beta || 0) > 0 && <span style={{ fontFamily: 'var(--font-number)', fontSize: 10, color: 'var(--text-muted)' }}>❌ Not a beta: {counts.not_beta}</span>}
         </div>
       )}
 
@@ -2248,7 +2744,7 @@ const FlagButton = ({ address, symbol }) => {
               {OPTIONS.map(([type, label, color]) => (
                 <button key={type} onClick={e => handleFlag(e, type)} style={{
                   background: 'none', border: 'none', cursor: 'pointer', textAlign: 'left',
-                  fontFamily: 'var(--font-mono)', fontSize: 10, color, padding: '5px 8px',
+                  fontFamily: 'var(--font-number)', fontSize: 10, color, padding: '5px 8px',
                   borderRadius: 5, transition: 'background 0.1s',
                 }}
                 onMouseEnter={e => e.currentTarget.style.background = 'rgba(255,255,255,0.08)'}
@@ -2329,9 +2825,10 @@ const TokenDrawer = ({ token, alpha, onClose }) => {
             <div style={{ fontFamily: 'var(--font-display)', fontWeight: 800, fontSize: 18 }}>
               ${token.symbol}
             </div>
-            <div style={{ fontFamily: 'var(--font-mono)', fontSize: 9, color: 'var(--text-muted)' }}>
+            <div style={{ fontFamily: 'var(--font-mono)', fontSize: 9, color: 'var(--text-muted)', marginBottom: 2 }}>
               {token.name}
             </div>
+            <CopyAddress address={token.address} />
           </div>
         </div>
         <button
@@ -2345,7 +2842,7 @@ const TokenDrawer = ({ token, alpha, onClose }) => {
 
         {/* Price + changes */}
         <div style={{ background: 'var(--surface-2)', borderRadius: 8, padding: '12px 14px' }}>
-          <div style={{ fontFamily: 'var(--font-mono)', fontSize: 8, color: 'var(--text-muted)', marginBottom: 8, letterSpacing: 1 }}>PRICE ACTION</div>
+          <div style={{ fontFamily: 'var(--font-number)', fontSize: 8, color: 'var(--text-muted)', marginBottom: 8, letterSpacing: 1 }}>PRICE ACTION</div>
           <div style={{ fontFamily: 'var(--font-display)', fontWeight: 700, fontSize: 22, color: isPositive ? 'var(--neon-green)' : 'var(--red)', marginBottom: 10 }}>
             {formatPrice(token.priceUsd)}
           </div>
@@ -2357,7 +2854,7 @@ const TokenDrawer = ({ token, alpha, onClose }) => {
             ].map(([label, val, color]) => val != null && (
               <div key={label} style={{ background: 'var(--surface-3)', borderRadius: 5, padding: '4px 8px' }}>
                 <div style={{ fontFamily: 'var(--font-mono)', fontSize: 8, color: 'var(--text-muted)' }}>{label}</div>
-                <div style={{ fontFamily: 'var(--font-mono)', fontSize: 11, fontWeight: 700, color }}>
+                <div style={{ fontFamily: 'var(--font-number)', fontSize: 11, fontWeight: 700, color }}>
                   {val >= 0 ? '+' : ''}{Number(val).toFixed(1)}%
                 </div>
               </div>
@@ -2377,7 +2874,7 @@ const TokenDrawer = ({ token, alpha, onClose }) => {
             ].map(([label, val]) => (
               <div key={label}>
                 <div style={{ fontFamily: 'var(--font-mono)', fontSize: 8, color: 'var(--text-muted)' }}>{label}</div>
-                <div style={{ fontFamily: 'var(--font-mono)', fontSize: 11, color: 'var(--text-primary)', fontWeight: 600 }}>{val}</div>
+                <div style={{ fontFamily: 'var(--font-number)', fontSize: 11, color: 'var(--text-primary)', fontWeight: 600 }}>{val}</div>
               </div>
             ))}
           </div>
@@ -2391,13 +2888,13 @@ const TokenDrawer = ({ token, alpha, onClose }) => {
               {birdeye.holderCount != null && (
                 <div>
                   <div style={{ fontFamily: 'var(--font-mono)', fontSize: 8, color: 'var(--text-muted)' }}>HOLDERS</div>
-                  <div style={{ fontFamily: 'var(--font-mono)', fontSize: 11, color: 'var(--cyan)', fontWeight: 700 }}>{birdeye.holderCount.toLocaleString()}</div>
+                  <div style={{ fontFamily: 'var(--font-number)', fontSize: 11, color: 'var(--cyan)', fontWeight: 700 }}>{birdeye.holderCount.toLocaleString()}</div>
                 </div>
               )}
               {birdeye.concentration && (
                 <div>
                   <div style={{ fontFamily: 'var(--font-mono)', fontSize: 8, color: 'var(--text-muted)' }}>TOP 10 OWN</div>
-                  <div style={{ fontFamily: 'var(--font-mono)', fontSize: 11, color: birdeye.concentration.riskColor, fontWeight: 700 }}>
+                  <div style={{ fontFamily: 'var(--font-number)', fontSize: 11, color: birdeye.concentration.riskColor, fontWeight: 700 }}>
                     {birdeye.concentration.top10Pct}% <span style={{ fontSize: 8 }}>({birdeye.concentration.risk})</span>
                   </div>
                 </div>
@@ -2405,7 +2902,7 @@ const TokenDrawer = ({ token, alpha, onClose }) => {
               {birdeye.buyRatio != null && (
                 <div>
                   <div style={{ fontFamily: 'var(--font-mono)', fontSize: 8, color: 'var(--text-muted)' }}>BUY PRESSURE</div>
-                  <div style={{ fontFamily: 'var(--font-mono)', fontSize: 11, fontWeight: 700,
+                  <div style={{ fontFamily: 'var(--font-number)', fontSize: 11, fontWeight: 700,
                     color: birdeye.buyRatio >= 0.6 ? 'var(--neon-green)' : birdeye.buyRatio <= 0.4 ? 'var(--red)' : 'var(--amber)' }}>
                     {Math.round(birdeye.buyRatio * 100)}%
                   </div>
@@ -2414,7 +2911,7 @@ const TokenDrawer = ({ token, alpha, onClose }) => {
               {birdeye.uniqueMakers != null && (
                 <div>
                   <div style={{ fontFamily: 'var(--font-mono)', fontSize: 8, color: 'var(--text-muted)' }}>MAKERS 24H</div>
-                  <div style={{ fontFamily: 'var(--font-mono)', fontSize: 11, color: 'var(--text-primary)', fontWeight: 600 }}>
+                  <div style={{ fontFamily: 'var(--font-number)', fontSize: 11, color: 'var(--text-primary)', fontWeight: 600 }}>
                     {birdeye.uniqueMakers.toLocaleString()}
                   </div>
                 </div>
@@ -2451,6 +2948,41 @@ const TokenDrawer = ({ token, alpha, onClose }) => {
           </div>
         )}
 
+        {/* Addresses — DEXScreener style copyable rows */}
+        <div style={{ background: 'var(--surface-2)', borderRadius: 8, padding: '12px 14px' }}>
+          <div style={{ fontFamily: 'var(--font-mono)', fontSize: 8, color: 'var(--text-muted)', marginBottom: 10, letterSpacing: 1 }}>ADDRESSES</div>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+            {/* Token CA */}
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+              <span style={{ fontFamily: 'var(--font-mono)', fontSize: 9, color: 'var(--text-muted)', minWidth: 60 }}>TOKEN</span>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                <CopyAddress address={token.address} />
+                <a
+                  href={token.dexUrl || `https://dexscreener.com/solana/${token.address}`}
+                  target="_blank" rel="noreferrer"
+                  style={{ fontFamily: 'var(--font-mono)', fontSize: 9, color: 'var(--cyan)', textDecoration: 'none', border: '1px solid rgba(0,212,255,0.25)', borderRadius: 3, padding: '1px 5px' }}
+                  onClick={e => e.stopPropagation()}
+                >DEX ↗</a>
+              </div>
+            </div>
+            {/* Alpha CA if available */}
+            {alpha?.address && alpha.address !== token.address && (
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                <span style={{ fontFamily: 'var(--font-mono)', fontSize: 9, color: 'var(--text-muted)', minWidth: 60 }}>ALPHA</span>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                  <CopyAddress address={alpha.address} />
+                  <a
+                    href={alpha.dexUrl || `https://dexscreener.com/solana/${alpha.address}`}
+                    target="_blank" rel="noreferrer"
+                    style={{ fontFamily: 'var(--font-mono)', fontSize: 9, color: 'var(--cyan)', textDecoration: 'none', border: '1px solid rgba(0,212,255,0.25)', borderRadius: 3, padding: '1px 5px' }}
+                    onClick={e => e.stopPropagation()}
+                  >DEX ↗</a>
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+
         {/* Community flags — FlagButton handles counts + voting UI */}
         <div style={{ background: 'var(--surface-2)', borderRadius: 8, padding: '12px 14px' }}>
           <div style={{ fontFamily: 'var(--font-mono)', fontSize: 8, color: 'var(--text-muted)', marginBottom: 8, letterSpacing: 1 }}>🚩 COMMUNITY FLAGS</div>
@@ -2485,6 +3017,17 @@ const TokenDrawer = ({ token, alpha, onClose }) => {
             onMouseLeave={e => e.currentTarget.style.background = 'none'}
             >{label} ↗</a>
           ))}
+          <a
+            href={`https://twitter.com/search?q=${encodeURIComponent('$' + token.symbol)}&f=live`}
+            target="_blank" rel="noreferrer"
+            style={{
+              fontFamily: 'var(--font-mono)', fontSize: 9, color: 'var(--cyan)',
+              border: '1px solid rgba(0,212,255,0.3)', borderRadius: 5,
+              padding: '5px 10px', textDecoration: 'none', transition: 'all 0.15s',
+            }}
+            onMouseEnter={e => e.currentTarget.style.background = 'rgba(0,212,255,0.1)'}
+            onMouseLeave={e => e.currentTarget.style.background = 'none'}
+          >𝕏 Search ↗</a>
         </div>
 
       </div>
@@ -2494,12 +3037,110 @@ const TokenDrawer = ({ token, alpha, onClose }) => {
 
 // ─── Main App ────────────────────────────────────────────────────
 
+// ─── Footer ──────────────────────────────────────────────────────
+const AppFooter = () => (
+  <footer style={{
+    display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+    padding: '8px 20px',
+    background: 'rgba(0,0,0,0.4)',
+    borderTop: '1px solid rgba(0,212,255,0.08)',
+    fontFamily: 'var(--font-mono)',
+    fontSize: 9, color: 'var(--text-muted)',
+    flexShrink: 0,
+  }}>
+    <span style={{ letterSpacing: 1 }}>BETAPLAYS · SOLANA · BETA</span>
+    <div style={{ display: 'flex', gap: 16, alignItems: 'center' }}>
+      {[
+        { label: '𝕏 Twitter',  url: 'https://twitter.com/betaplays'  },
+        { label: '✈️ Telegram', url: 'https://t.me/betaplays'          },
+        { label: '💻 GitHub',   url: 'https://github.com/AdedamolaUX/beta-plays' },
+      ].map(({ label, url }) => (
+        <a key={label} href={url} target="_blank" rel="noreferrer"
+          style={{ color: 'var(--text-muted)', textDecoration: 'none', letterSpacing: 0.5 }}
+          onMouseEnter={e => e.currentTarget.style.color = 'var(--cyan)'}
+          onMouseLeave={e => e.currentTarget.style.color = 'var(--text-muted)'}
+        >{label}</a>
+      ))}
+    </div>
+    <span style={{ opacity: 0.5 }}>Not financial advice · DYOR</span>
+  </footer>
+)
+
 export default function App() {
   const [selectedAlpha, setSelectedAlpha] = useState(null)
+  const [customAlphaQuery, setCustomAlphaQuery] = useState('')
+  const [customAlphaLoading, setCustomAlphaLoading] = useState(false)
+  const [customAlphaError, setCustomAlphaError] = useState('')
+  const clearAlphaBoardSearch = useRef(null) // set by AlphaBoard
+
+  const handleSearchCustomAlpha = async (query) => {
+    if (!query.trim()) return
+    setCustomAlphaLoading(true)
+    setCustomAlphaError('')
+    try {
+      const BACKEND = import.meta.env.VITE_BACKEND_URL || 'http://localhost:3001'
+      // Try DEXScreener search
+      const res = await fetch(`https://api.dexscreener.com/latest/dex/search?q=${encodeURIComponent(query.trim())}`)
+      const data = await res.json()
+      const solanaPairs = (data.pairs || []).filter(p => p.chainId === 'solana')
+      const q = query.trim().toLowerCase()
+
+      // Priority 1: exact symbol match — pick highest liquidity among exact matches
+      const exactSymbol = solanaPairs
+        .filter(p => p.baseToken?.symbol?.toLowerCase() === q)
+        .sort((a, b) => (b.liquidity?.usd || 0) - (a.liquidity?.usd || 0))
+
+      // Priority 2: exact address match
+      const exactAddress = solanaPairs.filter(p => p.baseToken?.address === query.trim())
+
+      // Priority 3: name contains query — highest liquidity
+      const nameMatch = solanaPairs
+        .filter(p => p.baseToken?.name?.toLowerCase().includes(q))
+        .sort((a, b) => (b.liquidity?.usd || 0) - (a.liquidity?.usd || 0))
+
+      // Priority 4: any solana pair — highest liquidity
+      const fallback = [...solanaPairs].sort((a, b) => (b.liquidity?.usd || 0) - (a.liquidity?.usd || 0))
+
+      const pair = exactAddress[0] || exactSymbol[0] || nameMatch[0] || fallback[0] || null
+
+      if (!pair) {
+        setCustomAlphaError(`No Solana token found for "${query}"`)
+        return
+      }
+
+      const customAlpha = {
+        id:            pair.baseToken.address,
+        address:       pair.baseToken.address,
+        symbol:        pair.baseToken.symbol,
+        name:          pair.baseToken.name,
+        logoUrl:       pair.info?.imageUrl || null,
+        dexUrl:        pair.url || `https://dexscreener.com/solana/${pair.baseToken.address}`,
+        priceUsd:      parseFloat(pair.priceUsd) || 0,
+        priceChange24h: parseFloat(pair.priceChange?.h24) || 0,
+        volume24h:     pair.volume?.h24 || 0,
+        marketCap:     pair.marketCap || pair.fdv || 0,
+        liquidity:     pair.liquidity?.usd || 0,
+        ageDays:       pair.pairCreatedAt ? Math.floor((Date.now() - pair.pairCreatedAt) / 86400000) : '?',
+        source:        'custom_search',
+        isCustomSearch: true,
+      }
+      setSelectedAlpha(customAlpha)
+      setCustomAlphaQuery('')
+      // Clear the search bar so the pinned card shows clean
+      if (clearAlphaBoardSearch.current) clearAlphaBoardSearch.current()
+    } catch (err) {
+      setCustomAlphaError('Search failed — check connection')
+      console.warn('[CustomSearch]', err.message)
+    } finally {
+      setCustomAlphaLoading(false)
+    }
+  }
   const [showListModal, setShowListModal]  = useState(false)
   const [drawerToken,   setDrawerToken]    = useState(null)
   const [newRunners,    setNewRunners]     = useState(false)
-  const [appLiveAlphas, setAppLiveAlphas] = useState([])  // fed by AlphaBoard via onLiveAlphas
+  const [appLiveAlphas, setAppLiveAlphas] = useState([])
+  const [appSznCards,     setAppSznCards]     = useState([])
+  const [appCoolingAlphas, setAppCoolingAlphas] = useState([])  // fed by AlphaBoard via onLiveAlphas
   const alphaListRef = useRef(null)
   const isSzn = selectedAlpha?.isSzn === true
 
@@ -2521,12 +3162,13 @@ export default function App() {
 
   return (
     <div className="app-wrapper">
-      <Navbar onListBeta={() => setShowListModal(true)} newRunners={newRunners} />
-      <div className="main-layout">
-        <AlphaBoard selectedAlpha={selectedAlpha} onSelect={handleSelectAlpha} onNewRunners={handleNewRunners} onLiveAlphas={setAppLiveAlphas} alphaListRef={alphaListRef} />
+      <Navbar onListBeta={() => setShowListModal(true)} newRunners={newRunners} liveAlphas={appLiveAlphas} coolingAlphas={appCoolingAlphas} />
+      <NarrativeTicker liveAlphas={appLiveAlphas} sznCards={appSznCards} />
+      <div className="main-layout" style={{ flex: 1, overflow: 'hidden' }}>
+        <AlphaBoard selectedAlpha={selectedAlpha} onSelect={handleSelectAlpha} onNewRunners={handleNewRunners} onLiveAlphas={setAppLiveAlphas} onSznCards={setAppSznCards} onCoolingAlphas={setAppCoolingAlphas} onCustomSearch={handleSearchCustomAlpha} customAlphaLoading={customAlphaLoading} onRegisterClearSearch={fn => { clearAlphaBoardSearch.current = fn }} alphaListRef={alphaListRef} />
         {isSzn
           ? <SznPanel  szn={selectedAlpha}   onListBeta={() => setShowListModal(true)} onOpenDrawer={setDrawerToken} />
-          : <BetaPanel alpha={selectedAlpha} liveAlphas={appLiveAlphas} onListBeta={() => setShowListModal(true)} onOpenDrawer={setDrawerToken} onScrollToAlpha={handleScrollToAlpha} />
+          : <BetaPanel alpha={selectedAlpha} liveAlphas={appLiveAlphas} onListBeta={() => setShowListModal(true)} onOpenDrawer={setDrawerToken} onScrollToAlpha={handleScrollToAlpha} onCustomSearch={handleSearchCustomAlpha} customAlphaLoading={customAlphaLoading} customAlphaError={customAlphaError} />
         }
       </div>
 
@@ -2556,6 +3198,7 @@ export default function App() {
         </>,
         document.body
       )}
+      <AppFooter />
     </div>
   )
 }
