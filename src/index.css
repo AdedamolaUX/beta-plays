@@ -352,6 +352,9 @@ body {
   display: flex;
   align-items: center;
   gap: 10px;
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
 }
 
 .token-icon {
@@ -394,10 +397,9 @@ body {
 .token-change {
   font-family: var(--font-number);
   font-variant-numeric: tabular-nums;
-  font-size: 12px;
-  font-weight: 600;
   font-size: 13px;
   font-weight: 700;
+  flex-shrink: 0;
 }
 
 .token-change.positive { color: var(--neon-green); }

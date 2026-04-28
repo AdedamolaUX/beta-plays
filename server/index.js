@@ -826,6 +826,141 @@ app.post('/api/clear-expansion-cache', (req, res) => {
   }
 })
 
+// ─── Warmup endpoint ──────────────────────────────────────────────
+// Called on startup (and optionally by frontend) to pre-expand a list
+// of tokens so the server-side cache is warm before the first user scan.
+// Without this, cold Render starts hit Groq with 10+ simultaneous V0
+// requests the moment the first user lands — causing rate limit cascades.
+//
+// Usage:
+// ─── Shared background expansion helper ──────────────────────────
+// Expands a single token's V0A terms and stores in expansionCache.
+// Returns true if cached successfully, false otherwise.
+// Used by both /api/warmup and /api/report-alphas.
+const expandTokenToCache = async (token) => {
+  if (!token.address || !token.symbol) return false
+
+  const cached = expansionCache.get(token.address)
+  if (isExpansionCacheValid(cached, token.marketCap, false)) return false // already warm
+
+  const OR_KEY = process.env.OPENROUTER_API_KEY
+  const expansionPrompt = buildExpansionPrompt(token)
+  const expansionSystem = 'You are a crypto narrative analyst. Always respond with valid JSON only — no explanation, no markdown.'
+  let textResult = null
+
+  if (isGroq70bAvailable()) {
+    try {
+      textResult = await callGroq(expansionPrompt, expansionSystem)
+    } catch (e) {
+      if (e.message?.includes('429') || e.message?.includes('daily')) markGroq70bDailyLimitHit()
+    }
+  }
+
+  if (!textResult && OR_KEY) {
+    try {
+      const r = await fetch('https://openrouter.ai/api/v1/chat/completions', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${OR_KEY}`, 'HTTP-Referer': 'https://betaplays.app', 'X-Title': 'BetaPlays' },
+        body: JSON.stringify({ model: 'google/gemma-4-26b-a4b-it', max_tokens: 1200, temperature: 0.1, messages: [{ role: 'system', content: expansionSystem }, { role: 'user', content: expansionPrompt }] }),
+      })
+      if (r.ok) {
+        const d = await r.json()
+        textResult = JSON.parse((d.choices?.[0]?.message?.content || '').replace(/```json|```/g, '').trim())
+      }
+    } catch { /* fall through to Gemini */ }
+  }
+
+  if (!textResult) {
+    try { textResult = await callGeminiText(expansionSystem, expansionPrompt) } catch { /* silent */ }
+  }
+
+  if (textResult) {
+    const cacheData = {
+      searchTerms:       textResult.searchTerms       || [],
+      relationshipHints: textResult.relationshipHints || {},
+      detectedCategory:  textResult.category          || null,
+      visualTerms: [], visualCounters: [], visualHints: {}, mood: null,
+      promptVersion: 'v6',
+    }
+    expansionCache.set(token.address, { data: cacheData, timestamp: Date.now(), mcap: token.marketCap || 0 })
+    console.log(`[Warmup] $${token.symbol} → ${cacheData.searchTerms.length} terms cached`)
+    return true
+  }
+
+  console.warn(`[Warmup] $${token.symbol} — all models failed`)
+  return false
+}
+
+// ─── Background warmup queue ──────────────────────────────────────
+// Prevents report-alphas from firing 30 simultaneous expansions.
+// Tokens queue here and are processed one at a time with 400ms spacing.
+let warmupRunning = false
+const warmupQueue = []
+
+const drainWarmupQueue = async () => {
+  if (warmupRunning) return
+  warmupRunning = true
+  while (warmupQueue.length > 0) {
+    const token = warmupQueue.shift()
+    try { await expandTokenToCache(token) } catch { /* non-fatal */ }
+    if (warmupQueue.length > 0) await new Promise(r => setTimeout(r, 400))
+  }
+  warmupRunning = false
+}
+
+// ─── Cache status (debug) ─────────────────────────────────────────
+// GET /api/cache-status
+// Returns a summary of what's in the server-side expansion cache.
+// Useful for diagnosing Review 29 (deployed vs localhost discrepancy).
+app.get('/api/cache-status', (req, res) => {
+  const entries = []
+  for (const [address, cached] of expansionCache.entries()) {
+    const ageMin = Math.round((Date.now() - cached.timestamp) / 60000)
+    entries.push({
+      address: address.slice(0, 8) + '...',
+      terms:   cached.data?.searchTerms?.length || 0,
+      ageMin,
+      valid:   isExpansionCacheValid(cached, null, false),
+    })
+  }
+  res.json({
+    cacheSize:          expansionCache.size,
+    queueLength:        warmupQueue.length,
+    warmupRunning,
+    groq70bLimitActive: groq70bDailyLimitHit,
+    pumpFunDown:        isPumpFunDown(),
+    entries,
+  })
+})
+
+// ─── Warmup endpoint ──────────────────────────────────────────────
+// POST /api/warmup — accepts { tokens: [...] } or no body.
+// Processes sequentially via shared expandTokenToCache.
+app.post('/api/warmup', async (req, res) => {
+  const tokens = req.body?.tokens?.length ? req.body.tokens : []
+  if (tokens.length === 0) {
+    return res.json({ ok: true, message: 'No tokens provided — warmup happens automatically via report-alphas', cacheSize: expansionCache.size })
+  }
+
+  let warmed = 0, skipped = 0, failed = 0
+  console.log(`[Warmup] Manual warmup of ${tokens.length} tokens...`)
+
+  for (const token of tokens) {
+    if (!token.address || !token.symbol) { failed++; continue }
+    const cached = expansionCache.get(token.address)
+    if (isExpansionCacheValid(cached, token.marketCap, false)) { skipped++; continue }
+    const ok = await expandTokenToCache(token)
+    ok ? warmed++ : failed++
+    if (warmed + failed < tokens.length) await new Promise(r => setTimeout(r, 400))
+  }
+
+  console.log(`[Warmup] Manual warmup done — warmed: ${warmed}, skipped: ${skipped}, failed: ${failed}`)
+  res.json({ ok: true, warmed, skipped, failed, cacheSize: expansionCache.size })
+})
+
+// ─── Vector 0 — Alpha expansion ──────────────────────────────────
+// POST /api/expand-alpha
+// Body: { address, symbol, name, description, logoUrl, marketCap, forceRefresh }
 app.post('/api/expand-alpha', async (req, res) => {
   try {
     const { address, symbol, name, description, logoUrl, marketCap, forceRefresh } = req.body
@@ -1611,13 +1746,37 @@ app.get('/api/twitter-betas', (req, res) => {
 // POST /api/report-alphas
 // Frontend posts its current alpha list so telegramService knows what to
 // match against during polling. Called automatically on each alpha refresh.
-// Body: { alphas: [{ symbol, name, address }, ...] }
+// Also queues any uncached alphas for background V0 expansion — this is
+// the primary warmup mechanism. Static seed lists removed in Session 24.
+// Body: { alphas: [{ symbol, name, address, description, logoUrl, marketCap }, ...] }
 app.post('/api/report-alphas', (req, res) => {
   const { alphas } = req.body
   if (!Array.isArray(alphas)) return res.status(400).json({ error: 'alphas array required' })
+
   telegramService.updateKnownAlphas(alphas)
-  twitterService.updateKnownAlphas(alphas)  // Twitter gets same list, ready for when activated
-  return res.json({ ok: true, count: alphas.length })
+  twitterService.updateKnownAlphas(alphas)
+
+  // Queue uncached tokens for background V0 expansion.
+  // Already-cached tokens are skipped inside expandTokenToCache.
+  // Queue deduplication: don't add if already queued.
+  const queuedAddresses = new Set(warmupQueue.map(t => t.address))
+  let queued = 0
+  for (const alpha of alphas) {
+    if (!alpha.address || !alpha.symbol) continue
+    const cached = expansionCache.get(alpha.address)
+    if (isExpansionCacheValid(cached, alpha.marketCap, false)) continue
+    if (queuedAddresses.has(alpha.address)) continue
+    warmupQueue.push(alpha)
+    queuedAddresses.add(alpha.address)
+    queued++
+  }
+
+  if (queued > 0) {
+    console.log(`[Warmup] ${queued} new alphas queued for background expansion (queue size: ${warmupQueue.length})`)
+    drainWarmupQueue() // non-blocking — runs in background
+  }
+
+  return res.json({ ok: true, count: alphas.length, queued })
 })
 
 const PORT = process.env.PORT || 3001
@@ -1631,4 +1790,9 @@ app.listen(PORT, () => {
   twitterService.init().catch(err =>
     console.error('[TwitterService] Init failed:', err.message)
   )
+  // Expansion cache warmup is now driven by /api/report-alphas.
+  // Frontend calls report-alphas on every alpha refresh (every 30s).
+  // Any alpha not in cache gets queued for background V0 expansion automatically.
+  // No static seed list needed — cache always mirrors the live feed.
+  console.log('[Warmup] Cache warming driven by live feed via report-alphas')
 })

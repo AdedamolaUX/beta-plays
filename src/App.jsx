@@ -39,12 +39,12 @@ const shortAddress = (addr) =>
   addr ? `${addr.slice(0, 4)}...${addr.slice(-4)}` : ''
 
 // ─── Copy CA Button ───────────────────────────────────────────────
-// Renders the shortened address + a clipboard icon.
-// Click the icon: full CA copied, brief "✓" flash shown.
 const CopyAddress = ({ address, style = {} }) => {
   const [copied, setCopied] = useState(false)
-  const [hovered, setHovered] = useState(false)
+  const [pos, setPos] = useState(null)
+  const ref = useRef(null)
   if (!address) return null
+
   const handleCopy = (e) => {
     e.stopPropagation()
     navigator.clipboard.writeText(address).then(() => {
@@ -61,22 +61,33 @@ const CopyAddress = ({ address, style = {} }) => {
       setTimeout(() => setCopied(false), 1500)
     })
   }
+
+  const showTip = () => {
+    if (ref.current && !copied) {
+      const r = ref.current.getBoundingClientRect()
+      const rawLeft = r.left + r.width / 2
+      const clamped = Math.min(Math.max(rawLeft, 50), window.innerWidth - 50)
+      setPos({ left: clamped, top: r.top - 6 })
+    }
+  }
+  const hideTip = () => setPos(null)
+
   return (
-    <span style={{ position: 'relative', display: 'inline-flex', alignItems: 'center', ...style }}>
+    <span ref={ref} style={{ position: 'relative', display: 'inline-flex', alignItems: 'center', ...style }}>
       <span
         onClick={handleCopy}
-        onMouseEnter={() => setHovered(true)}
-        onMouseLeave={() => setHovered(false)}
+        onMouseEnter={showTip}
+        onMouseLeave={hideTip}
         style={{
           display: 'inline-flex', alignItems: 'center', gap: 4,
           fontFamily: 'var(--font-mono)', fontSize: 10, fontWeight: 600,
-          color: copied ? 'var(--neon-green)' : hovered ? 'var(--cyan)' : 'var(--text-muted)',
+          color: copied ? 'var(--neon-green)' : pos ? 'var(--cyan)' : 'var(--text-muted)',
           background: copied
             ? 'rgba(0,255,136,0.08)'
-            : hovered ? 'rgba(0,212,255,0.08)' : 'rgba(255,255,255,0.04)',
+            : pos ? 'rgba(0,212,255,0.08)' : 'rgba(255,255,255,0.04)',
           border: `1px solid ${copied
             ? 'rgba(0,255,136,0.3)'
-            : hovered ? 'rgba(0,212,255,0.25)' : 'rgba(255,255,255,0.08)'}`,
+            : pos ? 'rgba(0,212,255,0.25)' : 'rgba(255,255,255,0.08)'}`,
           borderRadius: 4, padding: '2px 6px',
           cursor: 'pointer', userSelect: 'none',
           transition: 'all 0.15s ease',
@@ -85,21 +96,22 @@ const CopyAddress = ({ address, style = {} }) => {
       >
         {copied ? '✓' : '⎘'} {copied ? 'Copied!' : shortAddress(address)}
       </span>
-      {hovered && !copied && (
+      {pos && !copied && createPortal(
         <span style={{
-          position: 'absolute', bottom: 'calc(100% + 6px)', left: '50%',
-          transform: 'translateX(-50%)',
-          background: 'var(--surface-2, #0d1117)',
+          position: 'fixed', left: pos.left, top: pos.top,
+          transform: 'translate(-50%, -100%)',
+          background: '#0d1117',
           border: '1px solid rgba(0,212,255,0.35)',
-          borderRadius: 4, padding: '5px 10px', zIndex: 1000,
+          borderRadius: 4, padding: '4px 10px', zIndex: 9999,
           fontFamily: 'var(--font-mono)', fontSize: 10, fontWeight: 700,
           letterSpacing: '0.05em', textTransform: 'uppercase',
           color: 'var(--cyan)', whiteSpace: 'nowrap',
           boxShadow: '0 0 12px rgba(0,212,255,0.15), 0 4px 16px rgba(0,0,0,0.7)',
-          pointerEvents: 'none',
+          pointerEvents: 'none', textAlign: 'center',
         }}>
           Copy CA
-        </span>
+        </span>,
+        document.body
       )}
     </span>
   )
@@ -116,8 +128,9 @@ const TOOLTIP_STYLE = {
   border: '1px solid rgba(0,212,255,0.35)',
   borderRadius: 4, padding: '5px 10px', zIndex: 9999,
   fontFamily: 'var(--font-mono)', fontSize: 10, fontWeight: 700,
-  letterSpacing: '0.05em', textTransform: 'uppercase',
-  color: 'var(--cyan)', whiteSpace: 'nowrap',
+  letterSpacing: '0.03em', textTransform: 'uppercase',
+  color: 'var(--cyan)',
+  whiteSpace: 'normal', maxWidth: 260, lineHeight: 1.5,
   boxShadow: '0 0 12px rgba(0,212,255,0.15), 0 4px 16px rgba(0,0,0,0.7)',
   pointerEvents: 'none',
   transform: 'translate(-50%, -100%)',
@@ -131,7 +144,14 @@ const Tooltip = ({ text, children }) => {
   const show = () => {
     if (ref.current) {
       const r = ref.current.getBoundingClientRect()
-      setPos({ left: r.left + r.width / 2, top: r.top - 6 })
+      // Clamp so tooltip never overflows viewport edges
+      const rawLeft = r.left + r.width / 2
+      const TOOLTIP_HALF = 130 // ~half of maxWidth:260
+      const clamped = Math.min(
+        Math.max(rawLeft, TOOLTIP_HALF + 8),
+        window.innerWidth - TOOLTIP_HALF - 8
+      )
+      setPos({ left: clamped, top: r.top - 6 })
     }
   }
   const hide = () => setPos(null)
@@ -221,44 +241,86 @@ const matchesSearch = (alpha, query) => {
 }
 
 // ─── Data Source Status ──────────────────────────────────────────
-// Shows which of the 5 alpha feed sources are currently live.
-// Reads from the liveAlphas + coolingAlphas arrays — zero extra API calls.
 const DataSourceStatus = ({ liveAlphas = [], coolingAlphas = [] }) => {
+  const [hovered, setHovered] = useState(null) // { source, pos }
   const all = [...liveAlphas, ...coolingAlphas]
   const sources = [
-    { key: 'boost',          label: 'Boosted',   short: 'BST' },
-    { key: 'profile',        label: 'Profiles',  short: 'PRF' },
-    { key: 'pumpfun_bonded', label: 'PumpFun',   short: 'PMP' },
-    { key: 'new_pair',       label: 'New Pairs', short: 'NEW' },
-    { key: 'birdeye',        label: 'Birdeye',   short: 'BRD' },
+    { key: 'boost',          label: 'DEX Boosted',  short: 'BST', desc: 'Paid promoted tokens on DEXScreener. High visibility, may include non-organic projects.' },
+    { key: 'profile',        label: 'DEX Profiles', short: 'PRF', desc: 'Tokens with DEXScreener profile pages. Indicates some project legitimacy and curation.' },
+    { key: 'pumpfun_bonded', label: 'PumpFun',      short: 'PMP', desc: 'Tokens that graduated from PumpFun bonding curve. High degen activity signal.' },
+    { key: 'new_pair',       label: 'New Pairs',    short: 'NEW', desc: 'Freshly created trading pairs on Solana DEXes. Earliest possible entry signals.' },
+    { key: 'birdeye',        label: 'Birdeye',      short: 'BRD', desc: 'Organic trending tokens from Birdeye — ranked by real 24h volume and price action.' },
   ]
   const activeSources = new Set(all.map(a => a.source).filter(Boolean))
-  const deadSources = sources.filter(s => !activeSources.has(s.key)).map(s => s.label)
-  const liveCount = sources.length - deadSources.length
-  const tipText = liveCount === 5
-    ? '5/5 data sources live — all good'
-    : liveCount + '/5 sources live — offline: ' + deadSources.join(', ')
+
+  const showTip = (e, s) => {
+    const r = e.currentTarget.getBoundingClientRect()
+    // anchor below the pill, clamped so it never overflows right edge
+    const rawLeft = r.left + r.width / 2
+    const clamped = Math.min(rawLeft, window.innerWidth - 150)
+    setHovered({ source: s, pos: { left: clamped, top: r.bottom + 6 } })
+  }
+  const hideTip = () => setHovered(null)
 
   return (
-    <Tooltip text={tipText}>
-      <div style={{ display: "flex", alignItems: "center", gap: 3, cursor: "default" }}>
-        {sources.map(({ key, short }) => {
-          const live = activeSources.has(key)
+    <>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 3 }}>
+        {sources.map((s) => {
+          const live = activeSources.has(s.key)
           return (
-            <span key={key} style={{
-              fontFamily: "var(--font-mono)", fontSize: 7, fontWeight: 700,
-              padding: "1px 4px", borderRadius: 3,
-              background: live ? "rgba(0,255,136,0.1)" : "rgba(255,68,102,0.1)",
-              border: "1px solid " + (live ? "rgba(0,255,136,0.3)" : "rgba(255,68,102,0.3)"),
-              color: live ? "var(--neon-green)" : "var(--red)",
-              letterSpacing: 0.3,
-            }}>
-              {short}
+            <span
+              key={s.key}
+              onMouseEnter={(e) => showTip(e, s)}
+              onMouseLeave={hideTip}
+              style={{
+                fontFamily: 'var(--font-mono)', fontSize: 7, fontWeight: 700,
+                padding: '1px 4px', borderRadius: 3, cursor: 'default',
+                background: live ? 'rgba(0,255,136,0.1)' : 'rgba(255,68,102,0.1)',
+                border: '1px solid ' + (live ? 'rgba(0,255,136,0.3)' : 'rgba(255,68,102,0.3)'),
+                color: live ? 'var(--neon-green)' : 'var(--red)',
+                letterSpacing: 0.3,
+              }}
+            >
+              {s.short}
             </span>
           )
         })}
       </div>
-    </Tooltip>
+
+      {hovered && createPortal(
+        <div style={{
+          position: 'fixed',
+          left: hovered.pos.left,
+          top: hovered.pos.top,
+          transform: 'translateX(-50%)',
+          background: 'var(--surface-2)',
+          border: `1px solid ${activeSources.has(hovered.source.key) ? 'rgba(0,255,136,0.3)' : 'rgba(255,68,102,0.3)'}`,
+          borderRadius: 8, padding: '10px 14px', zIndex: 9999,
+          minWidth: 200, maxWidth: 260,
+          boxShadow: '0 8px 32px rgba(0,0,0,0.7)',
+          pointerEvents: 'none',
+        }}>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 6, gap: 10 }}>
+            <span style={{ fontFamily: 'var(--font-display)', fontSize: 12, fontWeight: 700, color: 'var(--text-primary)' }}>
+              {hovered.source.label}
+            </span>
+            <span style={{
+              fontFamily: 'var(--font-mono)', fontSize: 8, fontWeight: 700,
+              padding: '2px 5px', borderRadius: 3, flexShrink: 0,
+              background: activeSources.has(hovered.source.key) ? 'rgba(0,255,136,0.15)' : 'rgba(255,68,102,0.15)',
+              color: activeSources.has(hovered.source.key) ? 'var(--neon-green)' : 'var(--red)',
+              border: `1px solid ${activeSources.has(hovered.source.key) ? 'rgba(0,255,136,0.3)' : 'rgba(255,68,102,0.3)'}`,
+            }}>
+              {activeSources.has(hovered.source.key) ? '● LIVE' : '● OFFLINE'}
+            </span>
+          </div>
+          <p style={{ fontFamily: 'var(--font-mono)', fontSize: 10, color: 'var(--text-muted)', lineHeight: 1.6, margin: 0 }}>
+            {hovered.source.desc}
+          </p>
+        </div>,
+        document.body
+      )}
+    </>
   )
 }
 
@@ -440,35 +502,43 @@ const SznCard = ({ szn, isSelected, onClick }) => {
       }}
     >
       {/* Header row */}
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 6 }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 7 }}>
-          <span style={{ fontSize: 17 }}>{szn.label.split(' ')[0]}</span>
-          <div>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
+      <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', marginBottom: 6 }}>
+        <div style={{ display: 'flex', alignItems: 'flex-start', gap: 7, flex: 1, minWidth: 0 }}>
+          <span style={{ fontSize: 17, flexShrink: 0 }}>{szn.label.split(' ')[0]}</span>
+          <div style={{ minWidth: 0 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 5, flexWrap: 'wrap' }}>
               <div style={{ fontFamily: 'var(--font-display)', fontWeight: 800, fontSize: 13, color: 'var(--cyan)' }}>
                 {szn.label.split(' ').slice(1).join(' ')} Szn
               </div>
               {szn.source === 'ai' && (
-                <span className="badge badge-verified" style={{ fontSize: 7, padding: '1px 4px' }}>🤖 AI</span>
+                <Tooltip text="AI-grouped — this entire narrative was identified and categorised by AI.">
+                  <span className="badge badge-verified" style={{ fontSize: 7, padding: '1px 4px', cursor: 'default', gap: 3 }}>🤖 AI</span>
+                </Tooltip>
               )}
               {szn.source === 'mixed' && (
-                <span className="badge badge-verified" style={{ fontSize: 7, padding: '1px 4px' }}>🤖 +{szn.aiEnriched}</span>
+                <Tooltip text={`AI-enriched — ${szn.aiEnriched} token${szn.aiEnriched !== 1 ? 's' : ''} in this narrative were added by AI classification, on top of keyword matches.`}>
+                  <span className="badge badge-verified" style={{ fontSize: 7, padding: '1px 6px', cursor: 'default', display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+                    <span>🤖</span><span>+{szn.aiEnriched}</span>
+                  </span>
+                </Tooltip>
               )}
             </div>
-            <div style={{ fontFamily: 'var(--font-number)', fontSize: 8, color: 'var(--text-muted)' }}>
+            <div style={{ fontFamily: 'var(--font-number)', fontSize: 8, color: 'var(--text-muted)', marginTop: 4 }}>
               {szn.tokenCount} tokens · {formatNum(szn.totalVolume)} vol
             </div>
           </div>
         </div>
         {/* Heat badge + score */}
-        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 2 }}>
+        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 2, flexShrink: 0 }}>
           <span style={{
-            fontFamily: 'var(--font-mono)', fontSize: 8, fontWeight: 700,
-            color: heat.color, letterSpacing: 0.5,
+            fontFamily: 'var(--font-display)', fontSize: 8, fontWeight: 700,
+            color: heat.color, letterSpacing: 0.3,
           }}>{heat.emoji} {heat.label}</span>
-          <span style={{ fontFamily: 'var(--font-mono)', fontSize: 8, color: 'var(--text-muted)' }}>
-            score {sznScore}/100
-          </span>
+          <Tooltip text="Narrative score (0–100): combines total volume, number of tokens, avg price change, and momentum. Higher = more active narrative right now.">
+            <span style={{ fontFamily: 'var(--font-mono)', fontSize: 8, color: 'var(--text-muted)', cursor: 'default', borderBottom: '1px dotted rgba(255,255,255,0.2)' }}>
+              score {sznScore}/100
+            </span>
+          </Tooltip>
         </div>
       </div>
 
@@ -501,7 +571,7 @@ const SznCard = ({ szn, isSelected, onClick }) => {
           <span style={{ fontFamily: 'var(--font-display)', fontWeight: 700, fontSize: 10, color: 'var(--text-primary)' }}>
             ${leader.symbol}
           </span>
-          <span style={{ fontFamily: 'var(--font-number)', fontSize: 9, fontWeight: 700, color: 'var(--neon-green)' }}>
+          <span style={{ fontFamily: 'var(--font-number)', fontSize: 9, fontWeight: 700, color: 'var(--neon-green)', fontVariantNumeric: 'tabular-nums' }}>
             +{(parseFloat(leader.priceChange24h) || 0).toFixed(0)}%
           </span>
         </div>
@@ -515,12 +585,12 @@ const SznCard = ({ szn, isSelected, onClick }) => {
             <div key={t.id || t.symbol} style={{
               flex: 1, background: 'rgba(255,255,255,0.04)',
               borderRadius: 5, padding: '3px 5px',
-              fontFamily: 'var(--font-mono)', fontSize: 8, overflow: 'hidden',
+              overflow: 'hidden',
             }}>
-              <div style={{ color: 'var(--text-secondary)', fontWeight: 700, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+              <div style={{ fontFamily: 'var(--font-mono)', fontSize: 8, color: 'var(--text-secondary)', fontWeight: 700, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
                 ${t.symbol}
               </div>
-              <div style={{ color: c >= 0 ? 'var(--neon-green)' : 'var(--red)', fontSize: 7 }}>
+              <div style={{ fontFamily: 'var(--font-number)', fontVariantNumeric: 'tabular-nums', fontSize: 9, fontWeight: 700, color: c >= 0 ? 'var(--neon-green)' : 'var(--red)' }}>
                 {c >= 0 ? '+' : ''}{c.toFixed(0)}%
               </div>
             </div>
@@ -746,7 +816,9 @@ const AlphaCard = ({ alpha, isSelected, onClick, isWatched, onToggleWatch }) => 
                 <span className="badge badge-weak" style={{ fontSize: 7, padding: '1px 5px' }}>❄️</span>
               )}
               {alpha.isDumped && (
-                <span className="badge badge-weak" style={{ fontSize: 7, padding: '1px 5px', background: 'rgba(255,68,102,0.15)', borderColor: 'rgba(255,68,102,0.4)', color: 'var(--red)' }}>💀 DUMPED</span>
+                <Tooltip text="Dumped — price collapsed 75%+ from peak. Treat as dead unless volume returns.">
+                  <span className="badge badge-weak" style={{ fontSize: 9, padding: '1px 5px', background: 'rgba(255,68,102,0.15)', borderColor: 'rgba(255,68,102,0.4)', color: 'var(--red)', cursor: 'default' }}>💀</span>
+                </Tooltip>
               )}
               {alpha.source === 'pumpfun_bonded' && (
                 <span className="badge badge-new" style={{ fontSize: 7, padding: '1px 5px' }}>🎓 BONDED</span>
@@ -1242,9 +1314,12 @@ const AlphaBoard = ({ selectedAlpha, onSelect, onNewRunners, onLiveAlphas, onSzn
     if (!liveAlphas.length) return
 
     const allAlphas = [...liveAlphas, ...coolingAlphas].map(a => ({
-      symbol:  a.symbol,
-      name:    a.name,
-      address: a.address,
+      symbol:      a.symbol,
+      name:        a.name,
+      address:     a.address,
+      description: a.description || '',
+      logoUrl:     a.logoUrl     || a.info?.imageUrl || '',
+      marketCap:   a.marketCap   || 0,
     }))
 
     // Add parent alphas from the parent map (deduped by address)
@@ -1460,7 +1535,7 @@ const AlphaBoard = ({ selectedAlpha, onSelect, onNewRunners, onLiveAlphas, onSzn
               flexShrink: 0,
               padding: '3px 8px',
               fontSize: 9,
-              fontFamily: 'var(--font-number)',
+              fontFamily: 'var(--font-display)',
               background: volumeRising ? 'rgba(0,255,150,0.15)' : 'var(--surface-2)',
               border: `1px solid ${volumeRising ? 'rgba(0,255,150,0.5)' : 'var(--border)'}`,
               borderRadius: 'var(--radius-md)',
@@ -1478,12 +1553,12 @@ const AlphaBoard = ({ selectedAlpha, onSelect, onNewRunners, onLiveAlphas, onSzn
       {!searchQuery && (
         <div style={{ flexShrink: 0, paddingBottom: 4 }}>
           {activeTab === 'live' && (
-            <p style={{ fontFamily: 'var(--font-mono)', fontSize: 9, color: 'var(--text-muted)', lineHeight: 1.5 }}>
+            <p style={{ fontFamily: 'var(--font-mono)', fontSize: 10, color: 'var(--text-muted)', lineHeight: 1.6, margin: 0 }}>
               Tokens with positive price action right now.
             </p>
           )}
           {activeTab === 'cooling' && (
-            <p style={{ fontFamily: 'var(--font-number)', fontSize: 9, color: 'var(--cyan)', lineHeight: 1.5 }}>
+            <p style={{ fontFamily: 'var(--font-mono)', fontSize: 10, color: 'var(--text-muted)', lineHeight: 1.6, margin: 0, borderLeft: '2px solid var(--cyan)', paddingLeft: 8 }}>
               {volumeRising
                 ? `📈 ${filteredCooling.length} tokens with rising volume despite negative price — accumulation signal. Gold in the rough.`
                 : `Tokens retracing or consolidating — ${filteredCooling.length} in the last ${coolingTimeframe}. Sorted by recency. Gold in the rough.`
@@ -1491,15 +1566,15 @@ const AlphaBoard = ({ selectedAlpha, onSelect, onNewRunners, onLiveAlphas, onSzn
             </p>
           )}
           {activeTab === 'positioning' && (
-            <p style={{ fontFamily: 'var(--font-number)', fontSize: 9, color: 'var(--amber)', lineHeight: 1.5 }}>
+            <p style={{ fontFamily: 'var(--font-mono)', fontSize: 10, color: 'var(--text-muted)', lineHeight: 1.6, margin: 0, borderLeft: '2px solid var(--amber)', paddingLeft: 8 }}>
               Big peak. Big drawdown. Volume still alive. These are the second-leg setups degens hunt.
               {positioningAlphas.length === 0 && ' Populates as tokens peak and retrace — check back after the next wave.'}
             </p>
           )}
           {activeTab === 'history' && (
             <div style={{
-              fontFamily: 'var(--font-mono)', fontSize: 8, color: 'var(--text-muted)',
-              padding: '3px 4px', letterSpacing: 0.5,
+              fontFamily: 'var(--font-mono)', fontSize: 10, color: 'var(--text-muted)',
+              padding: '3px 4px', letterSpacing: 0.3,
               display: 'flex', justifyContent: 'space-between', alignItems: 'center',
             }}>
               <span>🕓 {historyAlphas.length} runners · last 7 days · device only</span>
@@ -1507,13 +1582,13 @@ const AlphaBoard = ({ selectedAlpha, onSelect, onNewRunners, onLiveAlphas, onSzn
             </div>
           )}
           {activeTab === 'watch' && (
-            <p style={{ fontFamily: 'var(--font-mono)', fontSize: 9, color: 'var(--amber)', lineHeight: 1.5 }}>
+            <p style={{ fontFamily: 'var(--font-mono)', fontSize: 10, color: 'var(--text-muted)', lineHeight: 1.6, margin: 0, borderLeft: '2px solid var(--amber)', paddingLeft: 8 }}>
               Your starred tokens. ☆ star any runner, cooling token, or positioning play to save it here.
             </p>
           )}
           {activeTab === 'legends' && (
             <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-              <p style={{ fontFamily: 'var(--font-mono)', fontSize: 9, color: 'var(--amber)', lineHeight: 1.5, margin: 0 }}>
+              <p style={{ fontFamily: 'var(--font-mono)', fontSize: 10, color: 'var(--text-muted)', lineHeight: 1.6, margin: 0, borderLeft: '2px solid var(--amber)', paddingLeft: 8 }}>
                 Established narrative anchors. Still spawn betas when they move.
               </p>
               <NominateSearchBar />
@@ -1762,7 +1837,13 @@ const BadgeChip = ({ emoji, label, className, style: extraStyle = {} }) => {
   const show = () => {
     if (ref.current) {
       const r = ref.current.getBoundingClientRect()
-      setPos({ left: r.left + r.width / 2, top: r.top - 6 })
+      const rawLeft = r.left + r.width / 2
+      const TOOLTIP_HALF = 130
+      const clamped = Math.min(
+        Math.max(rawLeft, TOOLTIP_HALF + 8),
+        window.innerWidth - TOOLTIP_HALF - 8
+      )
+      setPos({ left: clamped, top: r.top - 6 })
     }
   }
   const hide = () => setPos(null)
@@ -1870,16 +1951,28 @@ const SignalBadge = ({ beta }) => {
 }
 
 // ─── Wave Badge ──────────────────────────────────────────────────
+// Emoji-only in the row; full label shown on hover via Tooltip.
+const WAVE_PHASE_META = {
+  WAVE:    { emoji: '🌊', tip: 'Wave — entered less than 6h ago. Fresh and still moving.' },
+  '2ND LEG': { emoji: '📈', tip: '2nd Leg — entered 6–24h ago. May be building for a second push.' },
+  LATE:    { emoji: '🕐', tip: 'Late — entered 1–7 days ago. Narrative is maturing.' },
+  COLD:    { emoji: '🧊', tip: 'Cold — entered 7+ days ago. Narrative has cooled.' },
+}
 
 const WaveBadge = ({ phase }) => {
   if (!phase || phase.label === 'UNKNOWN') return null
+  const meta = WAVE_PHASE_META[phase.label]
+  if (!meta) return null
   return (
-    <span style={{
-      fontFamily: 'var(--font-mono)', fontSize: 8, fontWeight: 700,
-      color: phase.color, letterSpacing: 0.5, whiteSpace: 'nowrap',
-    }}>
-      {phase.label}
-    </span>
+    <Tooltip text={meta.tip}>
+      <span style={{
+        fontFamily: 'var(--font-mono)', fontSize: 11,
+        cursor: 'default', userSelect: 'none',
+        lineHeight: 1,
+      }}>
+        {meta.emoji}
+      </span>
+    </Tooltip>
   )
 }
 
@@ -2141,7 +2234,7 @@ const BetaRow = ({ beta, alpha, isPinned, trenchOnly, onOpenDrawer }) => {
             <span style={{ fontFamily: 'var(--font-display)', fontWeight: 700, fontSize: 13, color: 'var(--text-primary)' }}>
               ${beta.symbol}
             </span>
-            {isLPPair       && <span className="badge badge-cabal"    style={{ fontSize: 7, padding: '1px 4px' }}>🔗 PAIRED</span>}
+            {isLPPair       && <Tooltip text="LP Paired — directly paired with the alpha in a liquidity pool. Strongest on-chain link possible."><span className="badge badge-cabal" style={{ fontSize: 9, padding: '1px 5px', cursor: 'default' }}>🔗</span></Tooltip>}
             {isTelegramSig  && <span className="badge" style={{ fontSize: 7, padding: '1px 4px', background: 'rgba(0,212,180,0.15)', borderColor: 'rgba(0,212,180,0.4)', color: 'rgb(0,212,180)', animation: 'pulse 2s infinite' }}>📡 TELEGRAM</span>}
             {isTwitterSig   && <span className="badge" style={{ fontSize: 7, padding: '1px 4px', background: 'rgba(29,161,242,0.15)', borderColor: 'rgba(29,161,242,0.4)', color: 'rgb(29,161,242)', animation: 'pulse 2s infinite' }}>🐦 TWITTER</span>}
             {isTied         && <span className="badge badge-strong"   style={{ fontSize: 7, padding: '1px 4px' }}>⚡ TIED</span>}
@@ -2508,24 +2601,25 @@ const BetaPanel = ({ alpha, liveAlphas, onListBeta, onOpenDrawer, onScrollToAlph
             >
               ⛏️ TRENCHES {trenchCount > 0 && `(${trenchCount})`}
             </button>
-            {/* Timing group — same pill container as mcap filters */}
+            {/* Timing legend — shows what each wave emoji means on hover */}
             <div style={{ display: 'flex', gap: 4, background: 'var(--surface-2)', padding: '3px', borderRadius: 8, border: '1px solid var(--border)', alignItems: 'center' }}>
-              <span style={{ fontFamily: 'var(--font-number)', fontSize: 7, color: 'var(--text-muted)', letterSpacing: 1, padding: '2px 4px', opacity: 0.6, borderRight: '1px solid var(--border)', marginRight: 2 }}>TIMING</span>
+              <span style={{ fontFamily: 'var(--font-display)', fontSize: 7, color: 'var(--text-secondary)', letterSpacing: 0.5, padding: '2px 5px', opacity: 0.85, borderRight: '1px solid var(--border)', marginRight: 2, fontWeight: 700, textTransform: 'uppercase' }}>TIMING</span>
               {[
-                { emoji: '🌊', label: 'WAVE',    sub: '<6h',    color: 'var(--neon-green)'     },
-                { emoji: '📈', label: '2ND LEG', sub: '6-24h',  color: 'var(--amber)'          },
-                { emoji: '🕐', label: 'LATE',    sub: '1-7d',   color: 'var(--text-secondary)' },
-                { emoji: '🧊', label: 'COLD',    sub: '7d+',    color: 'var(--text-muted)'     },
-              ].map(({ emoji, label, sub, color }) => (
-                <Tooltip key={label} text={`${emoji} ${label} — entered ${sub} ago`}>
+                { emoji: '🌊', label: 'WAVE',    sub: '<6h',    color: 'var(--neon-green)',    tip: 'Wave — entered less than 6h ago. Fresh and still moving.' },
+                { emoji: '📈', label: '2ND LEG', sub: '6-24h',  color: 'var(--amber)',         tip: '2nd Leg — entered 6–24h ago. May be building for a second push.' },
+                { emoji: '🕐', label: 'LATE',    sub: '1-7d',   color: '#a0aec0',             tip: 'Late — entered 1–7 days ago. Narrative is maturing.' },
+                { emoji: '🧊', label: 'COLD',    sub: '7d+',    color: '#687280',             tip: 'Cold — entered 7+ days ago. Narrative has cooled.' },
+              ].map(({ emoji, label, sub, color, tip }) => (
+                <Tooltip key={label} text={tip}>
                   <span style={{
                     display: 'inline-flex', alignItems: 'center', gap: 3,
-                    fontFamily: 'var(--font-mono)', fontSize: 8, fontWeight: 700,
+                    fontFamily: 'var(--font-display)', fontSize: 8, fontWeight: 700,
                     color, cursor: 'default', whiteSpace: 'nowrap',
-                    padding: '2px 5px', borderRadius: 4,
-                    border: `1px solid ${color}33`,
+                    padding: '2px 6px', borderRadius: 4,
+                    background: 'rgba(255,255,255,0.03)',
+                    border: `1px solid ${color}44`,
                   }}>
-                    {emoji} {label} <span style={{ opacity: 0.65, fontSize: '0.85em' }}>{sub}</span>
+                    {emoji} <span style={{ opacity: 0.9 }}>{label}</span> <span style={{ fontFamily: 'var(--font-number)', opacity: 0.55, fontSize: '0.8em', fontWeight: 400 }}>{sub}</span>
                   </span>
                 </Tooltip>
               ))}
