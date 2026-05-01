@@ -11,7 +11,7 @@
 // Architecture:
 //   - Calls backend /api/categorize-szn (no API keys in frontend)
 //   - Batches 12 tokens per call
-//   - localStorage cache with 24h TTL — survives page refreshes
+//   - Neon cache with 24h TTL — shared across all users and survives restarts
 //   - Individual token results cached by address — new tokens don't
 //     invalidate results for tokens we've already categorized
 //   - Returns via callback so keyword results show immediately
@@ -19,27 +19,38 @@
 const BACKEND_URL  = import.meta.env.VITE_BACKEND_URL || 'http://localhost:3001'
 const BATCH_SIZE   = 12
 const CACHE_TTL_MS = 24 * 60 * 60 * 1000  // 24h — narratives don't change daily
-const LS_KEY       = 'betaplays_szn_cache_v1'
 
-// ─── localStorage cache helpers ──────────────────────────────────
-// Stores results per individual token address so a new token joining
-// the feed doesn't force re-categorization of everything else.
+// ─── Neon-backed cache helpers ────────────────────────────────────
+// Each token's categorization is stored individually by address so
+// a new token doesn't force re-categorization of everything else.
+// In-memory layer for instant repeat lookups within the same session.
 
-const loadCache = () => {
+const sznMemCache = new Map()
+
+const getSznCached = async (key) => {
+  const mem = sznMemCache.get(key)
+  if (mem && (Date.now() - mem.timestamp) < CACHE_TTL_MS) return mem
+
   try {
-    const raw = localStorage.getItem(LS_KEY)
-    return raw ? JSON.parse(raw) : {}
-  } catch {
-    return {}
-  }
+    const res = await fetch(`${BACKEND_URL}/api/cache/szn?key=${encodeURIComponent(key)}`)
+    if (res.ok) {
+      const { hit, data } = await res.json()
+      if (hit && data) {
+        sznMemCache.set(key, { ...data, timestamp: Date.now() })
+        return { ...data, timestamp: Date.now() }
+      }
+    }
+  } catch { /* non-fatal */ }
+  return null
 }
 
-const saveCache = (cache) => {
-  try {
-    localStorage.setItem(LS_KEY, JSON.stringify(cache))
-  } catch {
-    // localStorage full — not a fatal error, just skip persisting
-  }
+const setSznCached = (key, value) => {
+  sznMemCache.set(key, { ...value, timestamp: Date.now() })
+  fetch(`${BACKEND_URL}/api/cache/szn`, {
+    method:  'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body:    JSON.stringify({ key, data: value }),
+  }).catch(() => {})
 }
 
 const isFresh = (entry) =>
@@ -79,21 +90,19 @@ const categorizeBatch = async (tokens, knownCategories) => {
 export const categorizeWithAI = async (unmatchedTokens, knownCategories, onResults) => {
   if (!unmatchedTokens || unmatchedTokens.length === 0) return
 
-  const cache = loadCache()
-
   // ── Split into cached vs truly new ───────────────────────────────
   const cachedResults = []
   const needsGroq     = []
 
-  unmatchedTokens.forEach(token => {
+  for (const token of unmatchedTokens) {
     const key   = token.address || token.symbol
-    const entry = cache[key]
+    const entry = await getSznCached(key)
     if (isFresh(entry)) {
       cachedResults.push({ token, category: entry.category, newNarrative: entry.newNarrative })
     } else {
       needsGroq.push(token)
     }
-  })
+  }
 
   const cacheHits = cachedResults.filter(r => r.category || r.newNarrative)
 
@@ -121,21 +130,19 @@ export const categorizeWithAI = async (unmatchedTokens, knownCategories, onResul
     .filter(r => r.status === 'fulfilled')
     .flatMap(r => r.value)
 
-  // ── Persist new results to localStorage ──────────────────────────
+  // ── Persist new results to Neon cache ────────────────────────────
   newResults.forEach(({ token, category, newNarrative }) => {
-    const key  = token.address || token.symbol
-    cache[key] = { category, newNarrative, timestamp: Date.now() }
+    const key = token.address || token.symbol
+    setSznCached(key, { category, newNarrative })
   })
 
   // Also cache tokens that got no result (so we don't retry them)
   needsGroq.forEach(token => {
     const key = token.address || token.symbol
-    if (!cache[key]) {
-      cache[key] = { category: null, newNarrative: null, timestamp: Date.now() }
+    if (!sznMemCache.has(key)) {
+      setSznCached(key, { category: null, newNarrative: null })
     }
   })
-
-  saveCache(cache)
 
   const allResults = [...cachedResults, ...newResults]
   const { categorized, novelGroups } = assembleResults(allResults)

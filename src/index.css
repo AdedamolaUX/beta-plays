@@ -395,11 +395,17 @@ body {
 }
 
 .token-change {
-  font-family: var(--font-number);
+  font-family: var(--font-mono);
   font-variant-numeric: tabular-nums;
   font-size: 13px;
   font-weight: 700;
   flex-shrink: 0;
+}
+
+/* Beta row overrides — match mono columns (mcap, liquidity) */
+.beta-row .token-change {
+  font-size: 12px;
+  font-weight: 400;
 }
 
 .token-change.positive { color: var(--neon-green); }

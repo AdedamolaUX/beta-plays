@@ -838,7 +838,18 @@ const AlphaCard = ({ alpha, isSelected, onClick, isWatched, onToggleWatch }) => 
             <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
               <CopyAddress address={alpha.address} />
               {alpha.coolingLabel && (
-                <span style={{ fontFamily: 'var(--font-mono)', fontSize: 8, color: alpha.isDumped ? 'var(--red)' : 'var(--cyan)' }}>
+                <span style={{
+                  fontFamily:   'var(--font-mono)',
+                  fontSize:     8,
+                  color:        alpha.isDumped ? 'var(--red)' : 'var(--cyan)',
+                  maxWidth:     90,
+                  overflow:     'hidden',
+                  textOverflow: 'ellipsis',
+                  whiteSpace:   'nowrap',
+                  display:      'inline-block',
+                }}
+                title={alpha.coolingLabel}
+                >
                   {alpha.coolingLabel}
                 </span>
               )}
@@ -1119,7 +1130,7 @@ const AdminNominationPanel = ({ onClose }) => {
   )
 }
 
-const AlphaBoard = ({ selectedAlpha, onSelect, onNewRunners, onLiveAlphas, onSznCards, onCoolingAlphas, onCustomSearch, customAlphaLoading, onRegisterClearSearch, alphaListRef }) => {
+const AlphaBoard = ({ selectedAlpha, onSelect, onNewRunners, onLiveAlphas, onSznCards, onCoolingAlphas, onCustomSearch, customAlphaLoading, onRegisterClearSearch, alphaListRef, searchResults, onSelectSearchResult }) => {
   const [activeTab,        setActiveTab]        = useState('live')
   const [searchQuery,      setSearchQuery]      = useState('')
   useEffect(() => {
@@ -1354,7 +1365,8 @@ const AlphaBoard = ({ selectedAlpha, onSelect, onNewRunners, onLiveAlphas, onSzn
     activeTab === 'cooling'     ? filteredCooling     :
     activeTab === 'positioning' ? positioningAlphas   :
     activeTab === 'watch'       ? watchlist           :
-    activeTab === 'history'     ? []                 :
+    activeTab === 'history'     ? []                  :
+    activeTab === 'runners'     ? []                  :
     legends
 
   // Apply search filter across all tabs — guard against malformed entries
@@ -1390,29 +1402,70 @@ const AlphaBoard = ({ selectedAlpha, onSelect, onNewRunners, onLiveAlphas, onSzn
 
   const isEmpty = !loading && displayList.length === 0
 
-  // ── History tab — runners seen in last 7 days from localStorage ──
-  const historyAlphas = useMemo(() => {
-    try {
-      const seen = JSON.parse(localStorage.getItem('betaplays_seen_alphas') || '{}')
-      const cutoff = Date.now() - 7 * 24 * 60 * 60 * 1000
-      const liveSet = new Set(liveAlphas.map(a => a.address))
-      return Object.values(seen)
-        .filter(a => a && typeof a === 'object' && a.symbol && a.address &&
-          !liveSet.has(a.address) &&
-          ((a.lastSeen && a.lastSeen > cutoff) || (a.timestamp && a.timestamp > cutoff)))
-        .sort((a, b) => (b.lastSeen || b.timestamp || 0) - (a.lastSeen || a.timestamp || 0))
-        .slice(0, 50)
-    } catch { return [] }
+  // ── History tab — runners seen in last 7 days (Neon DB → localStorage fallback) ──
+  const [historyAlphas, setHistoryAlphas] = useState([])
+
+  useEffect(() => {
+    const liveSet = new Set(liveAlphas.map(a => a.address))
+
+    const fetchHistory = async () => {
+      try {
+        const res = await fetch(`${BACKEND_URL}/api/history?days=7`)
+        if (!res.ok) throw new Error('history api failed')
+        const { tokens } = await res.json()
+        if (Array.isArray(tokens) && tokens.length > 0) {
+          const filtered = tokens
+            .filter(a => a && a.symbol && a.address && !liveSet.has(a.address))
+            .sort((a, b) => new Date(b.lastSeen || 0) - new Date(a.lastSeen || 0))
+            .slice(0, 50)
+          setHistoryAlphas(filtered)
+          return
+        }
+      } catch { /* fall through to localStorage */ }
+
+      // Fallback: localStorage (works offline, pre-DB data)
+      try {
+        const seen = JSON.parse(localStorage.getItem('betaplays_seen_alphas') || '{}')
+        const cutoff = Date.now() - 7 * 24 * 60 * 60 * 1000
+        const filtered = Object.values(seen)
+          .filter(a => a && typeof a === 'object' && a.symbol && a.address &&
+            !liveSet.has(a.address) &&
+            ((a.lastSeen && a.lastSeen > cutoff) || (a.timestamp && a.timestamp > cutoff)))
+          .sort((a, b) => (b.lastSeen || b.timestamp || 0) - (a.lastSeen || a.timestamp || 0))
+          .slice(0, 50)
+        setHistoryAlphas(filtered)
+      } catch { setHistoryAlphas([]) }
+    }
+
+    fetchHistory()
   }, [liveAlphas])
 
+  // ── Past Runners tab — historical alpha runners with beta performance ──
+  const [pastRunners,        setPastRunners]        = useState([])
+  const [pastRunnersLoading, setPastRunnersLoading] = useState(false)
+  const [pastRunnersDays,    setPastRunnersDays]    = useState(30)
+
+  useEffect(() => {
+    if (activeTab !== 'runners') return
+    setPastRunnersLoading(true)
+    fetch(`${BACKEND_URL}/api/past-runners?days=${pastRunnersDays}&limit=50`)
+      .then(r => r.json())
+      .then(({ runners }) => {
+        setPastRunners(Array.isArray(runners) ? runners : [])
+      })
+      .catch(() => setPastRunners([]))
+      .finally(() => setPastRunnersLoading(false))
+  }, [activeTab, pastRunnersDays])
+
   const tabs = [
-    { key: 'live',        label: '🔥 Live',       count: liveAlphas.length        },
-    { key: 'narratives',  label: '🌊 ACTIVE NARRATIVES', count: sznCards.length },
-    { key: 'cooling',     label: '❄️ Cooling',    count: null                     },
-    { key: 'positioning', label: '🎯 Position',   count: null                     },
-    { key: 'watch',       label: '⭐ Watchlist',   count: watchlist.length         },
-    { key: 'history',     label: '🕓 History',    count: historyAlphas.length     },
-    { key: 'legends',     label: '🏆 OGs',        count: legends.length },
+    { key: 'live',        label: '🔥 Live',           count: liveAlphas.length        },
+    { key: 'narratives',  label: '🌊 ACTIVE NARRATIVES', count: sznCards.length        },
+    { key: 'cooling',     label: '❄️ COOLING PLAYS',  count: null                     },
+    { key: 'positioning', label: '🎯 Position',       count: null                     },
+    { key: 'watch',       label: '⭐ Watchlist',       count: watchlist.length         },
+    { key: 'history',     label: '🕓 History',        count: historyAlphas.length     },
+    { key: 'runners',     label: '🏁 Past Runners',   count: null                     },
+    { key: 'legends',     label: '🏆 OGs',            count: legends.length           },
   ]
 
   return (
@@ -1443,12 +1496,8 @@ const AlphaBoard = ({ selectedAlpha, onSelect, onNewRunners, onLiveAlphas, onSzn
               // so the pinned card doesn't linger
             }}
             onKeyDown={(e) => {
-              if (e.key === 'Enter' && searchQuery.trim()) {
-                // Only trigger DEX if no local results exist
-                if (displayList.length === 0 && !customAlphaLoading && onCustomSearch) {
-                  onCustomSearch(searchQuery.trim())
-                  // Don't clear searchQuery yet — keep showing what was searched
-                }
+              if (e.key === 'Enter' && searchQuery.trim() && !customAlphaLoading && onCustomSearch) {
+                onCustomSearch(searchQuery.trim())
               }
               if (e.key === 'Escape') setSearchQuery('')
             }}
@@ -1462,6 +1511,17 @@ const AlphaBoard = ({ selectedAlpha, onSelect, onNewRunners, onLiveAlphas, onSzn
             <span style={{ fontSize: 9, color: 'var(--cyan)', whiteSpace: 'nowrap', fontFamily: 'var(--font-mono)' }}>
               Searching DEX...
             </span>
+          )}
+          {searchQuery && !customAlphaLoading && (
+            <button
+              onClick={() => onCustomSearch?.(searchQuery.trim())}
+              style={{
+                background: 'rgba(0,212,255,0.1)', border: '1px solid rgba(0,212,255,0.3)',
+                borderRadius: 4, cursor: 'pointer', color: 'var(--cyan)',
+                fontFamily: 'var(--font-mono)', fontSize: 8, padding: '2px 6px',
+                whiteSpace: 'nowrap', lineHeight: 1.4,
+              }}
+            >DEX ↗</button>
           )}
           {searchQuery && !customAlphaLoading && (
             <button
@@ -1629,8 +1689,33 @@ const AlphaBoard = ({ selectedAlpha, onSelect, onNewRunners, onLiveAlphas, onSzn
       )}
 
       <div className="alpha-list" ref={alphaListRef}>
-        {/* Custom search result — pinned at top, shows as real AlphaCard */}
-        {selectedAlpha?.isCustomSearch && !displayList.some(a => a.address === selectedAlpha.address) && (
+        {/* DEX Search results — shown as AlphaCards in the left panel */}
+        {searchResults?.length > 0 && (
+          <div style={{ flexShrink: 0 }}>
+            <div style={{
+              fontFamily: 'var(--font-mono)', fontSize: 7, color: 'var(--cyan)',
+              letterSpacing: 1, padding: '3px 4px', opacity: 0.8,
+              display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+            }}>
+              <span>🔍 {searchResults.length} DEX RESULTS — PICK ONE</span>
+              <span onClick={() => onSelectSearchResult(null)} style={{ cursor: 'pointer', opacity: 0.6 }}>✕ clear</span>
+            </div>
+            {searchResults.map(token => (
+              <AlphaCard
+                key={token.address}
+                alpha={token}
+                isSelected={selectedAlpha?.address === token.address}
+                onClick={() => onSelectSearchResult(token)}
+                isWatched={watchedAddresses.has(token.address)}
+                onToggleWatch={handleToggleWatch}
+              />
+            ))}
+            <div style={{ height: 1, background: 'rgba(255,255,255,0.06)', margin: '6px 0' }} />
+          </div>
+        )}
+
+        {/* Single custom search result pinned (legacy — when no multi-results) */}
+        {!searchResults?.length && selectedAlpha?.isCustomSearch && !displayList.some(a => a.address === selectedAlpha.address) && (
           <div style={{ flexShrink: 0 }}>
             <div style={{
               fontFamily: 'var(--font-mono)', fontSize: 7, color: 'var(--cyan)',
@@ -1638,10 +1723,7 @@ const AlphaBoard = ({ selectedAlpha, onSelect, onNewRunners, onLiveAlphas, onSzn
               display: 'flex', justifyContent: 'space-between',
             }}>
               <span>🔍 FROM DEX SEARCH</span>
-              <span
-                onClick={() => onSelect(null)}
-                style={{ cursor: 'pointer', opacity: 0.6 }}
-              >✕ clear</span>
+              <span onClick={() => onSelect(null)} style={{ cursor: 'pointer', opacity: 0.6 }}>✕ clear</span>
             </div>
             <AlphaCard
               alpha={selectedAlpha}
@@ -1811,6 +1893,172 @@ const AlphaBoard = ({ selectedAlpha, onSelect, onNewRunners, onLiveAlphas, onSzn
             </div>
           )
         })}
+
+        {/* Past Runners tab */}
+        {activeTab === 'runners' && (
+          <div style={{ padding: '0 4px' }}>
+            {/* Header controls */}
+            <div style={{ display: 'flex', gap: 6, marginBottom: 10, flexWrap: 'wrap' }}>
+              {[7, 14, 30].map(d => (
+                <button
+                  key={d}
+                  onClick={() => setPastRunnersDays(d)}
+                  style={{
+                    padding:      '3px 10px',
+                    borderRadius: 6,
+                    border:       `1px solid ${pastRunnersDays === d ? 'var(--cyan)' : 'rgba(255,255,255,0.1)'}`,
+                    background:   pastRunnersDays === d ? 'rgba(0,212,255,0.12)' : 'transparent',
+                    color:        pastRunnersDays === d ? 'var(--cyan)' : 'var(--text-muted)',
+                    fontFamily:   'var(--font-display)',
+                    fontSize:     10,
+                    cursor:       'pointer',
+                    fontWeight:   pastRunnersDays === d ? 700 : 400,
+                  }}
+                >{d}D</button>
+              ))}
+              <span style={{ fontFamily: 'var(--font-mono)', fontSize: 9, color: 'var(--text-muted)', alignSelf: 'center', marginLeft: 4 }}>
+                {pastRunners.length} runners
+              </span>
+            </div>
+
+            {pastRunnersLoading && (
+              <div style={{ textAlign: 'center', padding: 32, color: 'var(--text-muted)', fontFamily: 'var(--font-mono)', fontSize: 11 }}>
+                Loading past runners...
+              </div>
+            )}
+
+            {!pastRunnersLoading && pastRunners.length === 0 && (
+              <div style={{ textAlign: 'center', padding: 32 }}>
+                <div style={{ fontSize: 28, marginBottom: 8 }}>🏁</div>
+                <div style={{ fontFamily: 'var(--font-display)', fontSize: 13, color: 'var(--text-primary)', marginBottom: 4 }}>No past runners yet</div>
+                <div style={{ fontFamily: 'var(--font-mono)', fontSize: 10, color: 'var(--text-muted)' }}>
+                  Data accumulates as alphas hit the feed. Check back after 24–48h.
+                </div>
+              </div>
+            )}
+
+            {!pastRunnersLoading && pastRunners.map(runner => {
+              const peakFmt = runner.peakMcap >= 1_000_000
+                ? `$${(runner.peakMcap / 1_000_000).toFixed(1)}M`
+                : runner.peakMcap >= 1_000
+                  ? `$${(runner.peakMcap / 1_000).toFixed(0)}K`
+                  : runner.peakMcap > 0 ? `$${runner.peakMcap.toFixed(0)}` : '—'
+
+              const lastSeenLabel = runner.lastSeen
+                ? (() => {
+                    const h = Math.round((Date.now() - runner.lastSeen) / 3_600_000)
+                    return h < 24 ? `${h}h ago` : `${Math.floor(h / 24)}d ago`
+                  })()
+                : '—'
+
+              const sources = (runner.sources || []).join(', ')
+
+              return (
+                <div
+                  key={runner.address}
+                  style={{
+                    background:   'rgba(255,255,255,0.03)',
+                    border:       '1px solid rgba(255,255,255,0.08)',
+                    borderRadius: 10,
+                    padding:      '12px 14px',
+                    marginBottom: 8,
+                    cursor:       'pointer',
+                    transition:   'border-color 0.15s',
+                  }}
+                  onClick={() => window.open(`https://dexscreener.com/solana/${runner.address}`, '_blank')}
+                  onMouseEnter={e => e.currentTarget.style.borderColor = 'rgba(0,212,255,0.3)'}
+                  onMouseLeave={e => e.currentTarget.style.borderColor = 'rgba(255,255,255,0.08)'}
+                >
+                  {/* Token header row */}
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
+                    {runner.logoUrl
+                      ? <img src={runner.logoUrl} alt="" style={{ width: 28, height: 28, borderRadius: '50%', flexShrink: 0 }} onError={e => { e.target.style.display = 'none' }} />
+                      : <div style={{ width: 28, height: 28, borderRadius: '50%', background: 'rgba(255,255,255,0.08)', flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', fontFamily: 'var(--font-display)', fontSize: 10, color: 'var(--text-muted)' }}>{(runner.symbol || '?')[0]}</div>
+                    }
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                        <span style={{ fontFamily: 'var(--font-display)', fontSize: 13, fontWeight: 700, color: 'var(--text-primary)' }}>${runner.symbol}</span>
+                        {runner.runCount > 1 && (
+                          <span style={{ fontFamily: 'var(--font-mono)', fontSize: 8, color: 'var(--amber)', background: 'rgba(255,184,0,0.12)', border: '1px solid rgba(255,184,0,0.3)', borderRadius: 4, padding: '1px 5px' }}>
+                            🔁 {runner.runCount}x runner
+                          </span>
+                        )}
+                        {runner.category && (
+                          <span style={{ fontFamily: 'var(--font-mono)', fontSize: 8, color: 'var(--cyan)', background: 'rgba(0,212,255,0.08)', border: '1px solid rgba(0,212,255,0.2)', borderRadius: 4, padding: '1px 5px' }}>
+                            {runner.category}
+                          </span>
+                        )}
+                      </div>
+                      <div style={{ fontFamily: 'var(--font-mono)', fontSize: 9, color: 'var(--text-muted)', marginTop: 1 }}>
+                        {runner.name} · last seen {lastSeenLabel}
+                      </div>
+                    </div>
+                    <div style={{ textAlign: 'right', flexShrink: 0 }}>
+                      <div style={{ fontFamily: 'var(--font-mono)', fontSize: 9, color: 'var(--text-muted)' }}>ATH MCAP</div>
+                      <div style={{ fontFamily: 'var(--font-display)', fontSize: 12, fontWeight: 700, color: 'var(--neon-green)' }}>{peakFmt}</div>
+                    </div>
+                  </div>
+
+                  {/* Stats row */}
+                  <div style={{ display: 'flex', gap: 12, marginBottom: runner.topBetas?.length > 0 ? 10 : 0 }}>
+                    <div>
+                      <div style={{ fontFamily: 'var(--font-mono)', fontSize: 8, color: 'var(--text-muted)' }}>TIMES RAN</div>
+                      <div style={{ fontFamily: 'var(--font-display)', fontSize: 11, color: 'var(--text-primary)' }}>{runner.runCount}</div>
+                    </div>
+                    <div>
+                      <div style={{ fontFamily: 'var(--font-mono)', fontSize: 8, color: 'var(--text-muted)' }}>BETAS FOUND</div>
+                      <div style={{ fontFamily: 'var(--font-display)', fontSize: 11, color: 'var(--text-primary)' }}>{runner.betaCount}</div>
+                    </div>
+                    {sources && (
+                      <div>
+                        <div style={{ fontFamily: 'var(--font-mono)', fontSize: 8, color: 'var(--text-muted)' }}>SOURCE</div>
+                        <div style={{ fontFamily: 'var(--font-mono)', fontSize: 9, color: 'var(--text-secondary)', textTransform: 'uppercase' }}>{sources}</div>
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Top betas */}
+                  {runner.topBetas?.length > 0 && (
+                    <div style={{ borderTop: '1px solid rgba(255,255,255,0.06)', paddingTop: 8 }}>
+                      <div style={{ fontFamily: 'var(--font-mono)', fontSize: 8, color: 'var(--text-muted)', marginBottom: 5, letterSpacing: 1 }}>TOP CONFIRMED BETAS</div>
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                        {runner.topBetas.map(beta => {
+                          const hasPrice = beta.priceAtDetection > 0
+                          return (
+                            <div
+                              key={beta.address}
+                              style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '4px 6px', background: 'rgba(255,255,255,0.03)', borderRadius: 6 }}
+                              onClick={e => { e.stopPropagation(); window.open(`https://dexscreener.com/solana/${beta.address}`, '_blank') }}
+                            >
+                              {beta.logoUrl
+                                ? <img src={beta.logoUrl} alt="" style={{ width: 16, height: 16, borderRadius: '50%', flexShrink: 0 }} onError={e => { e.target.style.display = 'none' }} />
+                                : <div style={{ width: 16, height: 16, borderRadius: '50%', background: 'rgba(255,255,255,0.08)', flexShrink: 0 }} />
+                              }
+                              <span style={{ fontFamily: 'var(--font-display)', fontSize: 11, color: 'var(--text-primary)', flex: 1 }}>${beta.symbol}</span>
+                              {beta.confirmedCount > 1 && (
+                                <span style={{ fontFamily: 'var(--font-mono)', fontSize: 8, color: 'var(--text-muted)' }}>×{beta.confirmedCount}</span>
+                              )}
+                              {beta.relationshipType && (
+                                <span style={{ fontFamily: 'var(--font-mono)', fontSize: 7, color: 'var(--cyan)', background: 'rgba(0,212,255,0.08)', borderRadius: 3, padding: '1px 4px' }}>{beta.relationshipType}</span>
+                              )}
+                              {hasPrice && (
+                                <span style={{ fontFamily: 'var(--font-mono)', fontSize: 8, color: 'var(--text-muted)' }}>
+                                  @ ${beta.priceAtDetection < 0.001
+                                    ? beta.priceAtDetection.toExponential(2)
+                                    : beta.priceAtDetection.toFixed(4)}
+                                </span>
+                              )}
+                            </div>
+                          )
+                        })}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )
+            })}
+          </div>
+        )}
       </div>
     </aside>
   )
@@ -2573,7 +2821,8 @@ const BetaPanel = ({ alpha, liveAlphas, onListBeta, onOpenDrawer, onScrollToAlph
             </div>
           )}
         </div>
-      )}      {!alpha ? (
+      )}
+      {!alpha ? (
         <div className="empty-state">
           <div className="empty-state-icon">👈</div>
           <div className="empty-state-title">No runner selected</div>
@@ -3162,66 +3411,101 @@ const AppFooter = () => (
 
 export default function App() {
   const [selectedAlpha, setSelectedAlpha] = useState(null)
-  const [customAlphaQuery, setCustomAlphaQuery] = useState('')
+  const [customAlphaQuery,   setCustomAlphaQuery]   = useState('')
   const [customAlphaLoading, setCustomAlphaLoading] = useState(false)
-  const [customAlphaError, setCustomAlphaError] = useState('')
+  const [customAlphaError,   setCustomAlphaError]   = useState('')
+  const [searchResults,      setSearchResults]      = useState([])
   const clearAlphaBoardSearch = useRef(null) // set by AlphaBoard
 
   const handleSearchCustomAlpha = async (query) => {
     if (!query.trim()) return
     setCustomAlphaLoading(true)
     setCustomAlphaError('')
+    setSearchResults([])
     try {
-      const BACKEND = import.meta.env.VITE_BACKEND_URL || 'http://localhost:3001'
-      // Try DEXScreener search
       const res = await fetch(`https://api.dexscreener.com/latest/dex/search?q=${encodeURIComponent(query.trim())}`)
       const data = await res.json()
       const solanaPairs = (data.pairs || []).filter(p => p.chainId === 'solana')
       const q = query.trim().toLowerCase()
 
-      // Priority 1: exact symbol match — pick highest liquidity among exact matches
-      const exactSymbol = solanaPairs
-        .filter(p => p.baseToken?.symbol?.toLowerCase() === q)
-        .sort((a, b) => (b.liquidity?.usd || 0) - (a.liquidity?.usd || 0))
-
-      // Priority 2: exact address match
-      const exactAddress = solanaPairs.filter(p => p.baseToken?.address === query.trim())
-
-      // Priority 3: name contains query — highest liquidity
-      const nameMatch = solanaPairs
-        .filter(p => p.baseToken?.name?.toLowerCase().includes(q))
-        .sort((a, b) => (b.liquidity?.usd || 0) - (a.liquidity?.usd || 0))
-
-      // Priority 4: any solana pair — highest liquidity
-      const fallback = [...solanaPairs].sort((a, b) => (b.liquidity?.usd || 0) - (a.liquidity?.usd || 0))
-
-      const pair = exactAddress[0] || exactSymbol[0] || nameMatch[0] || fallback[0] || null
-
-      if (!pair) {
+      if (!solanaPairs.length) {
         setCustomAlphaError(`No Solana token found for "${query}"`)
         return
       }
 
-      const customAlpha = {
-        id:            pair.baseToken.address,
-        address:       pair.baseToken.address,
-        symbol:        pair.baseToken.symbol,
-        name:          pair.baseToken.name,
-        logoUrl:       pair.info?.imageUrl || null,
-        dexUrl:        pair.url || `https://dexscreener.com/solana/${pair.baseToken.address}`,
-        priceUsd:      parseFloat(pair.priceUsd) || 0,
-        priceChange24h: parseFloat(pair.priceChange?.h24) || 0,
-        volume24h:     pair.volume?.h24 || 0,
-        marketCap:     pair.marketCap || pair.fdv || 0,
-        liquidity:     pair.liquidity?.usd || 0,
-        ageDays:       pair.pairCreatedAt ? Math.floor((Date.now() - pair.pairCreatedAt) / 86400000) : '?',
-        source:        'custom_search',
-        isCustomSearch: true,
+      // Score each pair for relevance — higher = better match
+      const scored = solanaPairs.map(p => {
+        const sym  = (p.baseToken?.symbol || '').toLowerCase()
+        const name = (p.baseToken?.name   || '').toLowerCase()
+        const addr = (p.baseToken?.address || '')
+        let score  = 0
+
+        // Exact address match — always wins
+        if (addr === query.trim())        score += 1000
+        // Exact symbol match
+        if (sym  === q)                   score += 100
+        // Symbol starts with query
+        if (sym.startsWith(q))            score += 50
+        // Name exact match
+        if (name === q)                   score += 80
+        // Name contains query
+        if (name.includes(q))             score += 30
+        // Symbol contains query
+        if (sym.includes(q))              score += 20
+        // Boost by liquidity (log scale so it doesn't dominate)
+        const liq = p.liquidity?.usd || 0
+        if (liq > 0) score += Math.log10(liq) * 2
+
+        return { pair: p, score }
+      })
+
+      // Sort by score desc, deduplicate by token address, take top 8
+      const seen = new Set()
+      const topResults = scored
+        .sort((a, b) => b.score - a.score)
+        .filter(({ pair }) => {
+          const addr = pair.baseToken?.address
+          if (!addr || seen.has(addr)) return false
+          seen.add(addr)
+          return true
+        })
+        .slice(0, 8)
+        .map(({ pair }) => ({
+          id:             pair.baseToken.address,
+          address:        pair.baseToken.address,
+          symbol:         pair.baseToken.symbol,
+          name:           pair.baseToken.name,
+          logoUrl:        pair.info?.imageUrl || null,
+          dexUrl:         pair.url || `https://dexscreener.com/solana/${pair.baseToken.address}`,
+          priceUsd:       parseFloat(pair.priceUsd) || 0,
+          priceChange24h: parseFloat(pair.priceChange?.h24) || 0,
+          volume24h:      pair.volume?.h24 || 0,
+          marketCap:      pair.marketCap || pair.fdv || 0,
+          liquidity:      pair.liquidity?.usd || 0,
+          ageDays:        pair.pairCreatedAt ? Math.floor((Date.now() - pair.pairCreatedAt) / 86400000) : '?',
+          source:         'custom_search',
+          isCustomSearch: true,
+        }))
+
+      // If exact address match — auto-select immediately, no picker needed
+      if (query.trim().length >= 32 && topResults.length === 1) {
+        setSelectedAlpha(topResults[0])
+        setCustomAlphaQuery('')
+        setSearchResults([])
+        return
       }
-      setSelectedAlpha(customAlpha)
-      setCustomAlphaQuery('')
-      // Clear the search bar so the pinned card shows clean
-      if (clearAlphaBoardSearch.current) clearAlphaBoardSearch.current()
+
+      // If only one result total — auto-select
+      if (topResults.length === 1) {
+        setSelectedAlpha(topResults[0])
+        setCustomAlphaQuery('')
+        setSearchResults([])
+        return
+      }
+
+      // Multiple results — show picker in BetaPanel
+      // Do NOT clear the search bar — user needs to see what they searched
+      setSearchResults(topResults)
     } catch (err) {
       setCustomAlphaError('Search failed — check connection')
       console.warn('[CustomSearch]', err.message)
@@ -3259,7 +3543,7 @@ export default function App() {
       <Navbar onListBeta={() => setShowListModal(true)} newRunners={newRunners} liveAlphas={appLiveAlphas} coolingAlphas={appCoolingAlphas} />
       <NarrativeTicker liveAlphas={appLiveAlphas} sznCards={appSznCards} />
       <div className="main-layout" style={{ flex: 1, overflow: 'hidden' }}>
-        <AlphaBoard selectedAlpha={selectedAlpha} onSelect={handleSelectAlpha} onNewRunners={handleNewRunners} onLiveAlphas={setAppLiveAlphas} onSznCards={setAppSznCards} onCoolingAlphas={setAppCoolingAlphas} onCustomSearch={handleSearchCustomAlpha} customAlphaLoading={customAlphaLoading} onRegisterClearSearch={fn => { clearAlphaBoardSearch.current = fn }} alphaListRef={alphaListRef} />
+        <AlphaBoard selectedAlpha={selectedAlpha} onSelect={handleSelectAlpha} onNewRunners={handleNewRunners} onLiveAlphas={setAppLiveAlphas} onSznCards={setAppSznCards} onCoolingAlphas={setAppCoolingAlphas} onCustomSearch={handleSearchCustomAlpha} customAlphaLoading={customAlphaLoading} onRegisterClearSearch={fn => { clearAlphaBoardSearch.current = fn }} alphaListRef={alphaListRef} searchResults={searchResults} onSelectSearchResult={(token) => { if (!token) { setSearchResults([]); return }; setSelectedAlpha(token); setSearchResults([]) }} />
         {isSzn
           ? <SznPanel  szn={selectedAlpha}   onListBeta={() => setShowListModal(true)} onOpenDrawer={setDrawerToken} />
           : <BetaPanel alpha={selectedAlpha} liveAlphas={appLiveAlphas} onListBeta={() => setShowListModal(true)} onOpenDrawer={setDrawerToken} onScrollToAlpha={handleScrollToAlpha} onCustomSearch={handleSearchCustomAlpha} customAlphaLoading={customAlphaLoading} customAlphaError={customAlphaError} />

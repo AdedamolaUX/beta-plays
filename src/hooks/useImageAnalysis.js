@@ -24,47 +24,42 @@ const CACHE_TTL_MS        = 24 * 60 * 60 * 1000  // 24h — logos almost never c
 const VISION_BATCH_SIZE   = 5                     // tokens per backend call
 const BATCH_DELAY_MS      = 5000                  // 5s between batches → max 12 req/min
 const MIN_TEXT_CONFIDENCE = 0.5                   // skip vision if text already confident
-const LS_KEY              = 'betaplays_vision_cache_v1'
 
-// ─── localStorage cache ───────────────────────────────────────────
-// Persists across page refreshes — logos don't change, no reason to
-// re-analyze them on every session.
+// ─── Cache: in-memory + Neon ──────────────────────────────────────
+// In-memory: instant repeat lookups within the same session (free, no latency)
+// Neon: shared across all users and survives server/page restarts (24h TTL)
+// localStorage completely removed — Neon is the durable layer.
+
 const getCacheKey = (...parts) => parts.filter(Boolean).join(':')
-
-const loadVisionCache = () => {
-  try {
-    const raw = localStorage.getItem(LS_KEY)
-    return raw ? JSON.parse(raw) : {}
-  } catch { return {} }
-}
-
-const saveVisionCache = (cache) => {
-  try { localStorage.setItem(LS_KEY, JSON.stringify(cache)) } catch {}
-}
-
-// In-memory layer on top of localStorage for ultra-fast repeat lookups
-// within the same session
 const visionMemCache = new Map()
 
-const getCached = (key) => {
-  // Check memory first
+const getCached = async (key) => {
+  // Memory first
   if (visionMemCache.has(key)) return visionMemCache.get(key)
-  // Fall back to localStorage
-  const store = loadVisionCache()
-  const entry = store[key]
-  if (entry && (Date.now() - entry.timestamp) < CACHE_TTL_MS) {
-    visionMemCache.set(key, entry)  // promote to memory
-    return entry
-  }
+
+  // Neon fallback
+  try {
+    const res = await fetch(`${BACKEND_URL}/api/cache/vision?key=${encodeURIComponent(key)}`)
+    if (res.ok) {
+      const { hit, data } = await res.json()
+      if (hit && data) {
+        visionMemCache.set(key, { result: data, timestamp: Date.now() })
+        return { result: data, timestamp: Date.now() }
+      }
+    }
+  } catch { /* non-fatal */ }
   return null
 }
 
 const setCached = (key, result) => {
   const entry = { result, timestamp: Date.now() }
   visionMemCache.set(key, entry)
-  const store = loadVisionCache()
-  store[key] = entry
-  saveVisionCache(store)
+  // Persist to Neon — 24h TTL
+  fetch(`${BACKEND_URL}/api/cache/vision`, {
+    method:  'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body:    JSON.stringify({ key, data: result }),
+  }).catch(() => {})
 }
 
 // ─── Throttle helper ──────────────────────────────────────────────
@@ -113,16 +108,16 @@ export const classifyLogos = async (tokens) => {
 
     // ── Check cache first ──────────────────────────────────────────
     const uncached = []
-    batch.forEach(t => {
+    for (const t of batch) {
       const key    = getCacheKey('classify', t.address, t.logoUrl)
-      const cached = getCached(key)
+      const cached = await getCached(key)
       if (cached) {
         console.log(`[Vision] Cache hit: $${t.symbol}`)
         results.push({ token: t, ...cached.result })
       } else {
         uncached.push(t)
       }
-    })
+    }
 
     if (uncached.length === 0) continue
 
@@ -142,7 +137,7 @@ export const classifyLogos = async (tokens) => {
         if (!token) return
         const result = { category: r.category, visualDescription: r.description }
 
-        // Persist to localStorage cache
+        // Persist to Neon cache
         setCached(getCacheKey('classify', token.address, token.logoUrl), result)
         results.push({ token, ...result })
       })
@@ -188,7 +183,7 @@ export const compareLogos = async (alpha, candidates) => {
 
   // ── Full comparison cache ──────────────────────────────────────
   const cacheKey = getCacheKey('compare', alpha.address, withLogos.map(c => c.address).sort().join(','))
-  const cachedCompare = getCached(cacheKey)
+  const cachedCompare = await getCached(cacheKey)
   if (cachedCompare) {
     console.log(`[Vision] Cache hit for $${alpha.symbol} comparison (0 Groq/Gemini calls)`)
     return cachedCompare.result
@@ -251,7 +246,7 @@ export const compareLogos = async (alpha, candidates) => {
     }
   }
 
-  // Persist comparison results to localStorage
+  // Persist comparison results to Neon cache
   setCached(cacheKey, results)
   console.log(`[Vision] Found ${results.length} visual matches for $${alpha.symbol}`)
   return results

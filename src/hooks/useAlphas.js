@@ -65,7 +65,42 @@ const saveToHistory = (alphas) => {
   }
 }
 
-// ─── Load historical tokens by price action ──────────────────────
+// ─── Neon-backed history loader ───────────────────────────────────
+// Fetches full token history from Neon. Falls back to localStorage
+// if the API is unavailable (cold start, offline, pre-DB data).
+// Returns the same shape as the old localStorage object so all
+// downstream filtering logic works unchanged.
+
+let _historyCache     = null   // in-memory for the current session
+let _historyCacheTime = 0
+const HISTORY_CACHE_TTL_MS = 60_000  // re-fetch from Neon at most once per minute
+
+const loadNeonHistory = async () => {
+  const now = Date.now()
+  if (_historyCache && (now - _historyCacheTime) < HISTORY_CACHE_TTL_MS) {
+    return _historyCache
+  }
+  try {
+    const res = await fetch(`${BACKEND_URL}/api/history/full?days=7`)
+    if (!res.ok) throw new Error('history/full failed')
+    const { tokens } = await res.json()
+    if (Array.isArray(tokens) && tokens.length > 0) {
+      // Convert array to address-keyed object — same shape as localStorage seen_alphas
+      const map = {}
+      tokens.forEach(t => { map[t.address] = t })
+      _historyCache     = map
+      _historyCacheTime = now
+      return map
+    }
+  } catch { /* fall through to localStorage */ }
+
+  // Fallback: localStorage
+  try {
+    return JSON.parse(localStorage.getItem(STORAGE_KEY) || '{}')
+  } catch { return {} }
+}
+
+// ─── Load historical tokens by price action ───────────────────────
 // Tokens not in the current fetch cycle are classified by how they
 // were performing when last seen. Price action — not API presence —
 // decides whether they go to Live or Cooling.
@@ -73,58 +108,44 @@ const saveToHistory = (alphas) => {
 // Positive 24h when last seen → Live (still a runner until proven otherwise)
 // Negative 24h when last seen → Cooling (retracing, watch for reversal)
 
-const loadHistoricalByPriceAction = (currentAddresses) => {
+const loadHistoricalByPriceAction = async (currentAddresses) => {
   try {
-    const existing = JSON.parse(localStorage.getItem(STORAGE_KEY) || '{}')
+    const existing = await loadNeonHistory()
     const now      = Date.now()
 
     const historicalLive    = []
     const historicalCooling = []
 
     Object.values(existing).forEach((a) => {
-      const age         = now - a.lastSeen
+      const age         = now - (a.lastSeen || now)
       const inFeed      = currentAddresses.has(a.address)
       const change      = parseFloat(a.priceChange24h) || 0
       const volume      = a.volume24h || 0
       const mcap        = a.marketCap || 0
 
-      // Always recompute dexUrl from token address — pair addresses go stale
-      // when tokens migrate from Pump.fun → PumpSwap. Token address is permanent.
+      // Always recompute dexUrl from token address
       if (a.address) {
         a = { ...a, dexUrl: `https://dexscreener.com/solana/${a.address}` }
       }
 
-      // Skip if still in current feed (already classified fresh)
       if (inFeed) return
-      // Skip if too old
       if (age > HISTORY_MAX_AGE_MS) return
-      // Skip if no meaningful activity
       if (volume < COOLING_MIN_VOLUME || mcap < COOLING_MIN_MCAP) return
 
-      // ── Staleness guard ─────────────────────────────────────────
-      // If data is more than 2 hours old, the 24h% is unreliable.
-      // Bonding curve tokens especially show wild % that don't reflect
-      // current reality. Cap and flag as stale rather than mislead.
       const ageHours    = age / 3600000
-      // Use priceRefreshedAt when available — refreshHistoricalPrices updates
-      // prices without touching lastSeen (correct behaviour). A token refreshed
-      // 5 minutes ago is NOT stale even if last seen in feed 3 hours ago.
       const lastRefresh = a.priceRefreshedAt || a.lastSeen
-      const refreshAge  = (now - lastRefresh) / 3600000
+      const refreshAge  = (now - (lastRefresh || now)) / 3600000
       const isStale     = refreshAge > 2
-      // Cap bonding-curve artifacts — legitimate moves don't exceed 5000%
       const cappedChange = Math.min(Math.max(change, -100), 5000)
 
       const ageLabel = Math.floor(ageHours / 24) > 0
         ? `${Math.floor(ageHours / 24)}d ago`
         : ageHours > 0 ? `${Math.floor(ageHours)}h ago` : 'recently'
 
-      // Dump detection: if we've seen a peak and current is way below, don't show as live
       const peak    = a.peakMarketCap || 0
       const dumped  = peak > 50_000 && mcap > 0 && (mcap / peak) < 0.25
 
       if (dumped) {
-        // Force into cooling regardless of 24h%
         const peakDistance = peak > 0 ? Math.round((mcap / peak) * 100) : null
         historicalCooling.push({
           ...a,
@@ -147,7 +168,6 @@ const loadHistoricalByPriceAction = (currentAddresses) => {
           coolingLabel:   null,
         })
       } else if (cappedChange < 0 || isStale) {
-        // Cooled Xh ago — more actionable than "Watching for reversal"
         const cooledAt     = a.priceRefreshedAt || a.lastSeen || now
         const cooledAgoH   = Math.round((now - cooledAt) / 3600000)
         const cooledLabel  = cooledAgoH < 1
@@ -175,7 +195,7 @@ const loadHistoricalByPriceAction = (currentAddresses) => {
   }
 }
 
-// ─── Load positioning plays ───────────────────────────────────────
+// ─── Load positioning plays ────────────────────────────────────────
 // "Positioning Plays" = tokens that:
 //   1. Had a meaningful peak (>$50K mcap)
 //   2. Have drawn down significantly from that peak (>40%)
@@ -184,43 +204,38 @@ const loadHistoricalByPriceAction = (currentAddresses) => {
 //
 // Sorted by: opportunity score = drawdown depth × volume aliveness
 // The signal: big peak + big drawdown + still trading = degen magnet
-// These are the tokens traders position in for the second leg.
 
-const loadPositioningPlays = () => {
+const loadPositioningPlays = async () => {
   try {
-    const existing = JSON.parse(localStorage.getItem(STORAGE_KEY) || '{}')
+    const existing = await loadNeonHistory()
     const now      = Date.now()
 
     return Object.values(existing)
       .filter(a => {
-        const peak      = a.peakMarketCap || 0
+        const peak      = a.peakMarketCap || a.marketCap || 0  // use marketCap as proxy when peak not yet recorded
         const current   = a.marketCap     || 0
         const volume    = a.volume24h     || 0
         const liquidity = a.liquidity     || 0
-        const age       = now - (a.firstSeen || now)
+        const age       = now - (a.firstSeen || a.lastSeen || now)
 
-        if (peak < 50_000)     return false  // Never had meaningful size
-        if (current === 0)     return false  // Dead
-        if (volume < 5_000)    return false  // No one trading it
-        if (liquidity < 3_000) return false  // Can't get in/out
-        if (age < 12 * 3600000) return false // Too new — need history
+        if (peak < 50_000)     return false
+        if (current === 0)     return false
+        if (volume < 5_000)    return false
+        if (liquidity < 3_000) return false
+        if (age < 12 * 3600000) return false
 
-        const drawdown = (peak - current) / peak
-        return drawdown >= 0.40  // Down 40%+ from peak
+        const drawdown = peak > current ? (peak - current) / peak : 0
+        return drawdown >= 0.40
       })
       .map(a => {
-        const peak        = a.peakMarketCap || 0
+        const peak        = a.peakMarketCap || a.marketCap || 0
         const current     = a.marketCap     || 0
-        const drawdown    = peak > 0 ? ((peak - current) / peak) : 0
-        const ageDays     = (now - (a.firstSeen || now)) / 86400000
+        const drawdown    = peak > current ? ((peak - current) / peak) : 0
+        const ageDays     = (now - (a.firstSeen || a.lastSeen || now)) / 86400000
 
-        // Opportunity score:
-        //   Deep drawdown = more room to recover
-        //   High volume = still being traded actively
-        //   Not too old = narrative still fresh
-        const volScore      = Math.min(a.volume24h / 500_000, 1)
-        const drawdownScore = Math.min(drawdown, 0.99)
-        const freshnessScore = Math.max(0, 1 - ageDays / 14)  // Freshest in 14d
+        const volScore       = Math.min(a.volume24h / 500_000, 1)
+        const drawdownScore  = Math.min(drawdown, 0.99)
+        const freshnessScore = Math.max(0, 1 - ageDays / 14)
         const opportunityScore = Math.round(
           (drawdownScore * 0.50 + volScore * 0.30 + freshnessScore * 0.20) * 100
         )
@@ -1055,6 +1070,32 @@ const useAlphas = () => {
       // Save everything to localStorage before classifying
       saveToHistory(freshRaw)
 
+      // ── Record alphas to Neon DB (fire-and-forget) ───────────────
+      // Non-blocking — never awaited, never retried. A failure just means
+      // that refresh cycle isn't recorded. No impact on UI or feed.
+      ;(async () => {
+        try {
+          for (const alpha of freshRaw) {
+            if (!alpha.address || !alpha.symbol) continue
+            fetch(`${BACKEND_URL}/api/record-alpha`, {
+              method:  'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                address:         alpha.address,
+                symbol:          alpha.symbol,
+                name:            alpha.name,
+                logoUrl:         alpha.logoUrl || alpha.icon,
+                marketCap:       alpha.marketCap,
+                volume24h:       alpha.volume24h,
+                priceChange24h:  alpha.priceChange24h,
+                source:          alpha.source,
+                price:           alpha.priceUsd,
+              }),
+            }).catch(() => {})  // swallow network errors silently
+          }
+        } catch { /* non-fatal */ }
+      })()
+
       // Refresh prices for historical tokens (not in current feed)
       // Runs in background — doesn't block the UI update below
       // After it completes, re-classify so tabs show fresh prices
@@ -1062,10 +1103,10 @@ const useAlphas = () => {
       // Refresh live prices for legends — they were hardcoded, now stay fresh
       refreshLegendPrices(setLegends)
 
-      refreshHistoricalPrices().then(() => {
+      refreshHistoricalPrices().then(async () => {
         // Re-run historical classification with freshly updated prices
         const { historicalLive: freshHistLive, historicalCooling: freshHistCool } =
-          loadHistoricalByPriceAction(currentAddresses)
+          await loadHistoricalByPriceAction(currentAddresses)
         const freshHistLiveAddrs = new Set(freshHistLive.map(a => a.address))
         const freshHistCoolAddrs = new Set(freshHistCool.map(a => a.address))
 
@@ -1105,7 +1146,7 @@ const useAlphas = () => {
             return (parseFloat(a.priceChange24h) || 0) - (parseFloat(b.priceChange24h) || 0)
           }).slice(0, 50)
         })
-        setPositioningAlphas(loadPositioningPlays())
+        setPositioningAlphas(await loadPositioningPlays())
         console.log('[PriceRefresh] Tabs updated with fresh historical prices')
       }).catch(() => {})  // Silently ignore — stale data is better than a crash
 
@@ -1114,7 +1155,7 @@ const useAlphas = () => {
 
       // Load historical tokens not in current fetch
       // Split by their last-known price action — same rule applies
-      const { historicalLive, historicalCooling } = loadHistoricalByPriceAction(currentAddresses)
+      const { historicalLive, historicalCooling } = await loadHistoricalByPriceAction(currentAddresses)
 
       // Merge fresh + historical, deduplicate
       const freshLiveAddresses    = new Set(freshLive.map(a => a.address))
@@ -1169,7 +1210,7 @@ const useAlphas = () => {
       setLiveAlphas(sortedLive)
       liveAlphasRef.current = sortedLive
       setCoolingAlphas(sortedCooling)
-      setPositioningAlphas(loadPositioningPlays())
+      setPositioningAlphas(await loadPositioningPlays())
       setLastUpdated(new Date())
     } catch (err) {
       console.error('Alpha feed failed:', err.message)
@@ -1181,11 +1222,14 @@ const useAlphas = () => {
   }, [])  // No state dependencies — uses ref for first-load check to prevent infinite loop
 
   useEffect(() => {
-    // Load from storage immediately before first fetch completes
-    const { historicalLive, historicalCooling } = loadHistoricalByPriceAction(new Set())
-    setLiveAlphas(historicalLive)
-    setCoolingAlphas(historicalCooling)
-    setPositioningAlphas(loadPositioningPlays())
+    // Load from Neon immediately before first fetch completes
+    const loadInitial = async () => {
+      const { historicalLive, historicalCooling } = await loadHistoricalByPriceAction(new Set())
+      setLiveAlphas(historicalLive)
+      setCoolingAlphas(historicalCooling)
+      setPositioningAlphas(await loadPositioningPlays())
+    }
+    loadInitial()
     fetchLive()
   }, [fetchLive])
 

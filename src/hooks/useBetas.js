@@ -2883,6 +2883,31 @@ const useBetas = (alpha, parentAlpha = null) => {
       })
       const mergedForStorage = [...(finalList || []), ...validStored].slice(0, 50)
       saveStoredBetas(myAddress, mergedForStorage)
+
+      // ── Record beta relationships to Neon DB (fire-and-forget) ───
+      // Non-blocking — swallowed silently. Failure = that scan not recorded.
+      // confirmed_count increments on the server every time a pair is seen again.
+      if (mergedForStorage.length > 0) {
+        fetch(`${BACKEND_URL}/api/record-betas`, {
+          method:  'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            alphaAddress: myAddress,
+            betas: mergedForStorage.map(b => ({
+              address:               b.address,
+              symbol:                b.symbol,
+              name:                  b.name,
+              logoUrl:               b.logoUrl || b.icon,
+              signals:               b.signalSources || [],
+              score:                 b.betaRank,
+              relationshipType:      b.relationshipType      || null,
+              betaPriceAtDetection:  b.priceUsd              || null,
+              betaMcapAtDetection:   b.marketCap             || null,
+              alphaPriceAtDetection: alpha?.priceUsd         || null,
+            })),
+          }),
+        }).catch(() => {})
+      }
       if (!isStale()) {
         if (mergedForStorage.length === 0) setError('No beta plays detected yet. Trenches might be cooked.')
         else setBetas(mergedForStorage)

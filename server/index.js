@@ -21,6 +21,8 @@ require('dotenv').config({ path: require('path').join(__dirname, '.env') })
 
 const telegramService = require('./telegramService')
 const twitterService  = require('./twitterService')
+const db = require('./db')
+const { cacheGet, cacheSet, loadExpansionCache } = require('./db')
 
 const app = express()
 app.use(cors())
@@ -883,6 +885,8 @@ const expandTokenToCache = async (token) => {
       promptVersion: 'v6',
     }
     expansionCache.set(token.address, { data: cacheData, timestamp: Date.now(), mcap: token.marketCap || 0 })
+    // Persist to Neon — survives server restarts (6h TTL matches in-memory TTL)
+    cacheSet(`expansion:${token.address}`, { ...cacheData, mcap: token.marketCap || 0 }, 6).catch(() => {})
     console.log(`[Warmup] $${token.symbol} → ${cacheData.searchTerms.length} terms cached`)
     return true
   }
@@ -1227,6 +1231,8 @@ Respond ONLY with valid JSON. No markdown:
 
     // Cache server-side — shared across all users
     expansionCache.set(address, { data, timestamp: Date.now(), mcap: marketCap || 0 })
+    // Persist to Neon so cache survives restarts
+    cacheSet(`expansion:${address}`, { ...data, mcap: marketCap || 0 }, 6).catch(() => {})
     console.log(`[Vector0] $${symbol} cached — ${searchTerms.length} text + ${visualTerms.length} visual terms`)
 
     res.json({ ...data, fromCache: false })
@@ -1724,10 +1730,43 @@ app.get('/api/pumpfun', async (req, res) => {
 // GET /api/telegram-betas?symbol=WIF
 // Returns pre-computed cached beta results for a given alpha symbol.
 // Zero processing on request — all heavy work happens in background poller.
-app.get('/api/telegram-betas', (req, res) => {
+app.get('/api/telegram-betas', async (req, res) => {
   const { symbol } = req.query
   if (!symbol) return res.status(400).json({ error: 'symbol required' })
   const results = telegramService.getTelegramBetas(symbol)
+
+  // Persist any new signals to Neon (fire-and-forget)
+  if (results?.length > 0) {
+    ;(async () => {
+      for (const r of results) {
+        try {
+          await db.query(`
+            INSERT INTO telegram_signals (alpha_symbol, beta_symbol, beta_address, channel, confidence)
+            VALUES ($1, $2, $3, $4, $5)
+            ON CONFLICT DO NOTHING
+          `, [symbol, r.symbol || null, r.address || null, r.channel || null, r.confidence || 1.0])
+        } catch { /* non-fatal */ }
+      }
+    })()
+  }
+
+  // If in-memory cache is empty (cold restart), try Neon fallback
+  if (!results || results.length === 0) {
+    try {
+      const dbResult = await db.query(`
+        SELECT beta_symbol AS symbol, beta_address AS address, channel, confidence
+        FROM telegram_signals
+        WHERE alpha_symbol = $1
+          AND created_at > NOW() - INTERVAL '48 hours'
+        ORDER BY created_at DESC
+        LIMIT 20
+      `, [symbol])
+      if (dbResult.rows.length > 0) {
+        return res.json({ symbol, results: dbResult.rows, source: 'db_fallback' })
+      }
+    } catch { /* fall through */ }
+  }
+
   return res.json({ symbol, results })
 })
 
@@ -1741,6 +1780,364 @@ app.get('/api/twitter-betas', (req, res) => {
   if (!symbol) return res.status(400).json({ error: 'symbol required' })
   const results = twitterService.getTwitterBetas(symbol)
   return res.json({ symbol, results })
+})
+
+// ─── Database endpoints ───────────────────────────────────────────────────────
+
+// POST /api/record-alpha
+// Called fire-and-forget from useAlphas.js on each refresh cycle.
+// Upserts the token into the registry and inserts an alpha_run row.
+// Body: { address, symbol, name, logoUrl, marketCap, volume24h, priceChange24h, source, price }
+app.post('/api/record-alpha', async (req, res) => {
+  if (!process.env.DATABASE_URL) return res.json({ ok: true, skipped: 'no db' })
+  const { address, symbol, name, logoUrl, marketCap, volume24h, priceChange24h, source, price } = req.body
+  if (!address || !symbol) return res.status(400).json({ error: 'address and symbol required' })
+
+  try {
+    // Upsert token registry — update last_seen and peak_mcap on conflict
+    await db.query(`
+      INSERT INTO tokens (address, symbol, name, logo_url, peak_mcap, last_seen)
+      VALUES ($1, $2, $3, $4, $5, NOW())
+      ON CONFLICT (address) DO UPDATE SET
+        last_seen = NOW(),
+        name      = COALESCE(EXCLUDED.name, tokens.name),
+        logo_url  = COALESCE(EXCLUDED.logo_url, tokens.logo_url),
+        peak_mcap = GREATEST(tokens.peak_mcap, EXCLUDED.peak_mcap)
+    `, [address, symbol, name || null, logoUrl || null, marketCap || 0])
+
+    // Insert alpha run row
+    await db.query(`
+      INSERT INTO alpha_runs (token_address, mcap, volume_24h, price_change_24h, source, price)
+      VALUES ($1, $2, $3, $4, $5, $6)
+    `, [address, marketCap || null, volume24h || null, priceChange24h || null, source || null, price || null])
+
+    return res.json({ ok: true })
+  } catch (err) {
+    console.error('[DB] record-alpha error:', err.message)
+    return res.status(500).json({ error: 'db write failed' })
+  }
+})
+
+// GET /api/history/full?days=7
+// Returns full token data for cooling and positioning tabs.
+// Richer than /api/history — includes peakMcap, firstSeen, priceChange24h,
+// volume, liquidity, and source so frontend filtering logic works correctly.
+// One row per token — most recent alpha_run merged with tokens registry data.
+app.get('/api/history/full', async (req, res) => {
+  if (!process.env.DATABASE_URL) return res.json({ tokens: [] })
+  const days = Math.min(parseInt(req.query.days) || 7, 30)
+
+  try {
+    const result = await db.query(`
+      SELECT DISTINCT ON (r.token_address)
+        r.token_address    AS address,
+        t.symbol,
+        t.name,
+        t.logo_url         AS "logoUrl",
+        t.peak_mcap        AS "peakMarketCap",
+        t.first_seen       AS "firstSeen",
+        t.last_seen        AS "lastSeen",
+        r.mcap             AS "marketCap",
+        r.volume_24h       AS "volume24h",
+        r.price_change_24h AS "priceChange24h",
+        r.price            AS "priceUsd",
+        r.source,
+        r.timestamp        AS "priceRefreshedAt"
+      FROM alpha_runs r
+      JOIN tokens t ON t.address = r.token_address
+      WHERE r.timestamp > NOW() - ($1 || ' days')::INTERVAL
+      ORDER BY r.token_address, r.timestamp DESC
+    `, [days])
+
+    // Convert timestamps to milliseconds (JS expects ms, Postgres returns ISO strings)
+    const tokens = result.rows.map(t => ({
+      ...t,
+      firstSeen:        t.firstSeen        ? new Date(t.firstSeen).getTime()        : null,
+      lastSeen:         t.lastSeen         ? new Date(t.lastSeen).getTime()         : null,
+      priceRefreshedAt: t.priceRefreshedAt ? new Date(t.priceRefreshedAt).getTime() : null,
+      peakMarketCap:    parseFloat(t.peakMarketCap)  || 0,
+      marketCap:        parseFloat(t.marketCap)      || 0,
+      volume24h:        parseFloat(t.volume24h)      || 0,
+      priceChange24h:   parseFloat(t.priceChange24h) || 0,
+    }))
+
+    return res.json({ tokens })
+  } catch (err) {
+    console.error('[DB] history/full error:', err.message)
+    return res.status(500).json({ error: 'db read failed' })
+  }
+})
+// Replaces the localStorage betaplays_seen_alphas read in the History tab.
+// Returns one row per token — the most recent run for that address.
+app.get('/api/history', async (req, res) => {
+  if (!process.env.DATABASE_URL) return res.json({ tokens: [] })
+  const days = Math.min(parseInt(req.query.days) || 7, 30)  // max 30 days
+
+  try {
+    const result = await db.query(`
+      SELECT DISTINCT ON (r.token_address)
+        r.token_address  AS address,
+        t.symbol,
+        t.name,
+        t.logo_url       AS "logoUrl",
+        r.mcap           AS "marketCap",
+        r.volume_24h     AS "volume24h",
+        r.price_change_24h AS "priceChange24h",
+        r.source,
+        r.price,
+        r.timestamp      AS "lastSeen",
+        t.peak_mcap      AS "peakMcap"
+      FROM alpha_runs r
+      JOIN tokens t ON t.address = r.token_address
+      WHERE r.timestamp > NOW() - ($1 || ' days')::INTERVAL
+      ORDER BY r.token_address, r.timestamp DESC
+    `, [days])
+
+    return res.json({ tokens: result.rows })
+  } catch (err) {
+    console.error('[DB] history error:', err.message)
+    return res.status(500).json({ error: 'db read failed' })
+  }
+})
+
+// POST /api/record-betas
+// Called fire-and-forget from useBetas.js after a scan completes.
+// Bulk upserts beta_relations — confirmed_count increments on re-detection.
+// Body: { alphaAddress, betas: [{ address, symbol, name, signals, score, relationshipType }] }
+app.post('/api/record-betas', async (req, res) => {
+  if (!process.env.DATABASE_URL) return res.json({ ok: true, skipped: 'no db' })
+  const { alphaAddress, betas } = req.body
+  if (!alphaAddress || !Array.isArray(betas)) {
+    return res.status(400).json({ error: 'alphaAddress and betas array required' })
+  }
+
+  let upserted = 0
+  const errors = []
+
+  for (const beta of betas) {
+    if (!beta.address || !beta.symbol) continue
+    try {
+      // Ensure beta token exists in registry first
+      await db.query(`
+        INSERT INTO tokens (address, symbol, name, logo_url)
+        VALUES ($1, $2, $3, $4)
+        ON CONFLICT (address) DO UPDATE SET
+          last_seen = NOW(),
+          name      = COALESCE(EXCLUDED.name, tokens.name)
+      `, [beta.address, beta.symbol, beta.name || null, beta.logoUrl || null])
+
+      // Upsert beta relationship — increment confirmed_count on repeat detection
+      // Price snapshots only written on first_seen — never overwritten
+      await db.query(`
+        INSERT INTO beta_relations
+          (alpha_address, beta_address, signals, score, relationship_type,
+           beta_price_at_detection, alpha_price_at_detection, beta_mcap_at_detection)
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+        ON CONFLICT (alpha_address, beta_address) DO UPDATE SET
+          last_seen       = NOW(),
+          signals         = EXCLUDED.signals,
+          score           = EXCLUDED.score,
+          confirmed_count = beta_relations.confirmed_count + 1
+      `, [
+        alphaAddress,
+        beta.address,
+        beta.signals || [],
+        beta.score || null,
+        beta.relationshipType || null,
+        beta.betaPriceAtDetection   || null,
+        beta.alphaPriceAtDetection  || null,
+        beta.betaMcapAtDetection    || null,
+      ])
+      upserted++
+    } catch (err) {
+      errors.push(beta.address)
+    }
+  }
+
+  if (errors.length) console.error('[DB] record-betas partial errors:', errors)
+  return res.json({ ok: true, upserted, errors: errors.length })
+})
+
+// GET /api/beta-history?alpha=<address>&limit=50
+// Returns historical beta relationships for a given alpha address.
+// Ordered by confirmed_count desc — most consistently detected betas first.
+app.get('/api/beta-history', async (req, res) => {
+  if (!process.env.DATABASE_URL) return res.json({ betas: [] })
+  const { alpha } = req.query
+  if (!alpha) return res.status(400).json({ error: 'alpha address required' })
+  const limit = Math.min(parseInt(req.query.limit) || 50, 200)
+
+  try {
+    const result = await db.query(`
+      SELECT
+        br.beta_address   AS address,
+        t.symbol,
+        t.name,
+        t.logo_url        AS "logoUrl",
+        br.signals,
+        br.score,
+        br.relationship_type AS "relationshipType",
+        br.first_seen     AS "firstSeen",
+        br.last_seen      AS "lastSeen",
+        br.confirmed_count AS "confirmedCount"
+      FROM beta_relations br
+      JOIN tokens t ON t.address = br.beta_address
+      WHERE br.alpha_address = $1
+      ORDER BY br.confirmed_count DESC, br.last_seen DESC
+      LIMIT $2
+    `, [alpha, limit])
+
+    return res.json({ betas: result.rows })
+  } catch (err) {
+    console.error('[DB] beta-history error:', err.message)
+    return res.status(500).json({ error: 'db read failed' })
+  }
+})
+
+// GET /api/past-runners?days=30&limit=50
+// Powers the Past Runners tab. Returns historical alpha tokens with:
+//   - how many times they ran (run_count)
+//   - peak mcap ever recorded
+//   - their confirmed beta relationships with performance data
+//   - narrative category
+//   - source breakdown
+app.get('/api/past-runners', async (req, res) => {
+  if (!process.env.DATABASE_URL) return res.json({ runners: [] })
+  const days  = Math.min(parseInt(req.query.days)  || 30, 90)
+  const limit = Math.min(parseInt(req.query.limit) || 50, 100)
+
+  try {
+    // One row per token — aggregate run data + latest snapshot
+    const runnersResult = await db.query(`
+      SELECT
+        t.address,
+        t.symbol,
+        t.name,
+        t.logo_url            AS "logoUrl",
+        t.peak_mcap           AS "peakMcap",
+        t.first_seen          AS "firstSeen",
+        t.last_seen           AS "lastSeen",
+        t.category,
+        COUNT(r.id)           AS "runCount",
+        MAX(r.mcap)           AS "maxMcap",
+        MAX(r.price)          AS "maxPrice",
+        AVG(r.price_change_24h) AS "avgChange24h",
+        array_agg(DISTINCT r.source) FILTER (WHERE r.source IS NOT NULL) AS sources,
+        (SELECT COUNT(*) FROM beta_relations br WHERE br.alpha_address = t.address) AS "betaCount",
+        (SELECT MAX(br.confirmed_count) FROM beta_relations br WHERE br.alpha_address = t.address) AS "topBetaConfirmedCount"
+      FROM tokens t
+      JOIN alpha_runs r ON r.token_address = t.address
+      WHERE r.timestamp > NOW() - ($1 || ' days')::INTERVAL
+      GROUP BY t.address, t.symbol, t.name, t.logo_url, t.peak_mcap, t.first_seen, t.last_seen, t.category
+      ORDER BY COUNT(r.id) DESC, MAX(r.mcap) DESC
+      LIMIT $2
+    `, [days, limit])
+
+    // For each runner, fetch its top 5 confirmed betas
+    const runners = []
+    for (const runner of runnersResult.rows) {
+      const betasResult = await db.query(`
+        SELECT
+          br.beta_address                AS address,
+          t.symbol,
+          t.name,
+          t.logo_url                     AS "logoUrl",
+          br.signals,
+          br.score,
+          br.relationship_type           AS "relationshipType",
+          br.confirmed_count             AS "confirmedCount",
+          br.first_seen                  AS "firstSeen",
+          br.beta_price_at_detection     AS "priceAtDetection",
+          br.beta_mcap_at_detection      AS "mcapAtDetection",
+          br.alpha_price_at_detection    AS "alphaPriceAtDetection"
+        FROM beta_relations br
+        JOIN tokens t ON t.address = br.beta_address
+        WHERE br.alpha_address = $1
+        ORDER BY br.confirmed_count DESC, br.score DESC
+        LIMIT 5
+      `, [runner.address])
+
+      runners.push({
+        ...runner,
+        runCount:    parseInt(runner.runCount)    || 0,
+        betaCount:   parseInt(runner.betaCount)   || 0,
+        peakMcap:    parseFloat(runner.peakMcap)  || 0,
+        maxMcap:     parseFloat(runner.maxMcap)   || 0,
+        firstSeen:   runner.firstSeen  ? new Date(runner.firstSeen).getTime()  : null,
+        lastSeen:    runner.lastSeen   ? new Date(runner.lastSeen).getTime()   : null,
+        topBetas:    betasResult.rows.map(b => ({
+          ...b,
+          confirmedCount: parseInt(b.confirmedCount) || 0,
+          firstSeen:      b.firstSeen ? new Date(b.firstSeen).getTime() : null,
+          priceAtDetection:      parseFloat(b.priceAtDetection)      || null,
+          mcapAtDetection:       parseFloat(b.mcapAtDetection)       || null,
+          alphaPriceAtDetection: parseFloat(b.alphaPriceAtDetection) || null,
+        })),
+      })
+    }
+
+    return res.json({ runners })
+  } catch (err) {
+    console.error('[DB] past-runners error:', err.message)
+    return res.status(500).json({ error: 'db read failed' })
+  }
+})
+// Replaces per-user localStorage caches with a single server-side cache in Neon.
+// One API call serves all users. TTL: score=10min, vision=24h (matches old localStorage TTLs).
+
+// GET /api/cache/score?key=<cacheKey>
+// Frontend sends the same cache key it used to use for localStorage.
+app.get('/api/cache/score', async (req, res) => {
+  const { key } = req.query
+  if (!key) return res.status(400).json({ error: 'key required' })
+  const value = await cacheGet(`score:${key}`)
+  if (value) return res.json({ hit: true, data: value })
+  return res.json({ hit: false })
+})
+
+// POST /api/cache/score
+// Body: { key, data } — frontend saves result after a successful AI score call.
+app.post('/api/cache/score', async (req, res) => {
+  const { key, data } = req.body
+  if (!key || !data) return res.status(400).json({ error: 'key and data required' })
+  await cacheSet(`score:${key}`, data, 0.167)  // 10 minutes — matches old betaplays_score_cache_v1 TTL
+  return res.json({ ok: true })
+})
+
+// GET /api/cache/vision?key=<address>
+app.get('/api/cache/vision', async (req, res) => {
+  const { key } = req.query
+  if (!key) return res.status(400).json({ error: 'key required' })
+  const value = await cacheGet(`vision:${key}`)
+  if (value) return res.json({ hit: true, data: value })
+  return res.json({ hit: false })
+})
+
+// POST /api/cache/vision
+// Body: { key, data } — frontend saves result after a successful vision analysis call.
+app.post('/api/cache/vision', async (req, res) => {
+  const { key, data } = req.body
+  if (!key || !data) return res.status(400).json({ error: 'key and data required' })
+  await cacheSet(`vision:${key}`, data, 24)  // 24 hours — matches old betaplays_vision_cache_v1 TTL
+  return res.json({ ok: true })
+})
+
+// GET /api/cache/szn?key=<key>
+app.get('/api/cache/szn', async (req, res) => {
+  const { key } = req.query
+  if (!key) return res.status(400).json({ error: 'key required' })
+  const value = await cacheGet(`szn:${key}`)
+  if (value) return res.json({ hit: true, data: value })
+  return res.json({ hit: false })
+})
+
+// POST /api/cache/szn
+// Body: { key, data }
+app.post('/api/cache/szn', async (req, res) => {
+  const { key, data } = req.body
+  if (!key || !data) return res.status(400).json({ error: 'key and data required' })
+  await cacheSet(`szn:${key}`, data, 24)  // 24 hours — matches old betaplays_szn_cache_v1 TTL
+  return res.json({ ok: true })
 })
 
 // POST /api/report-alphas
@@ -1780,8 +2177,12 @@ app.post('/api/report-alphas', (req, res) => {
 })
 
 const PORT = process.env.PORT || 3001
-app.listen(PORT, () => {
+app.listen(PORT, async () => {
   console.log(`BetaPlays backend on port ${PORT}`)
+  // Initialise Neon DB — creates tables if they don't exist. Non-blocking on failure.
+  await db.init()
+  // Load persisted expansion cache from Neon — warms in-memory cache on cold start
+  await loadExpansionCache(expansionCache)
   // Initialise Telegram service after server is up
   telegramService.init().catch(err =>
     console.error('[TelegramService] Init failed:', err.message)

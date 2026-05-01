@@ -18,10 +18,46 @@ const MIN_SCORE    = 0.55   // Raised from 0.45 — tighter gate, reduces false 
 const BATCH_SIZE   = 8
 const CACHE_TTL_MS = 10 * 60 * 1000  // 10 min — longer than before, results are stable
 
+// In-memory layer — instant repeat lookups within the same session.
+// Neon is the durable backing store: one AI call serves ALL users across restarts.
 const classifyCache = new Map()
 
 const getCacheKey = (alphaAddress, betaAddresses) =>
   `${alphaAddress}:${[...betaAddresses].sort().join(',')}`
+
+// Check Neon cache first, then in-memory. Returns null if not found/expired.
+const getScoreCache = async (key) => {
+  // Memory first — instant
+  const mem = classifyCache.get(key)
+  if (mem && Date.now() - mem.timestamp < CACHE_TTL_MS) return mem
+
+  // Neon fallback — shared across all users and restarts
+  try {
+    const res = await fetch(`${BACKEND_URL}/api/cache/score?key=${encodeURIComponent(key)}`)
+    if (res.ok) {
+      const { hit, data } = await res.json()
+      if (hit && data) {
+        // Promote to memory
+        const entry = { results: data.results, rejectedAddresses: new Set(data.rejectedAddresses || []), timestamp: Date.now() }
+        classifyCache.set(key, entry)
+        return entry
+      }
+    }
+  } catch { /* non-fatal — fall through to AI */ }
+  return null
+}
+
+// Save to both memory and Neon
+const setScoreCache = (key, results, rejectedAddresses) => {
+  const entry = { results, rejectedAddresses, timestamp: Date.now() }
+  classifyCache.set(key, entry)
+  // Persist to Neon — rejectedAddresses is a Set, convert to array for JSON
+  fetch(`${BACKEND_URL}/api/cache/score`, {
+    method:  'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body:    JSON.stringify({ key, data: { results, rejectedAddresses: [...rejectedAddresses] } }),
+  }).catch(() => {})
+}
 
 // ─── Classification prompt ────────────────────────────────────────
 const buildClassificationPrompt = (alpha, candidates, relationshipHints = {}) => {
@@ -261,8 +297,8 @@ export const classifyRelationships = async (alpha, candidates, relationshipHints
     candidates.map(c => c.address || c.id)
   )
 
-  const cached = classifyCache.get(cacheKey)
-  if (cached && Date.now() - cached.timestamp < CACHE_TTL_MS) {
+  const cached = await getScoreCache(cacheKey)
+  if (cached) {
     console.log(`[Vector8] Cache hit for $${alpha.symbol} — ${cached.results.length} classified, ${cached.rejectedAddresses.size} rejected`)
     return { results: cached.results, rejectedAddresses: cached.rejectedAddresses }
   }
@@ -305,7 +341,7 @@ export const classifyRelationships = async (alpha, candidates, relationshipHints
   }
 
   const sorted = allClassified.sort((a, b) => b.aiScore - a.aiScore)
-  classifyCache.set(cacheKey, { results: sorted, rejectedAddresses: allRejectedAddrs, timestamp: Date.now() })
+  setScoreCache(cacheKey, sorted, allRejectedAddrs)
   console.log(`[Vector8] $${alpha.symbol} — ✅ ${sorted.length} confirmed, ❌ ${allRejectedAddrs.size} rejected`)
 
   return { results: sorted, rejectedAddresses: allRejectedAddrs }
