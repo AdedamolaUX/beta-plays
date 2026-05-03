@@ -170,7 +170,9 @@ const expandSearchTerms = (terms) =>
 // ─── Vector 0: Fetch AI concept expansion from server ────────────
 // Server caches per alpha address — shared across all users.
 // Client detects re-entry via mcap growth and sends forceRefresh.
-const fetchAlphaExpansion = async (alpha) => {
+// skipVision: true skips the V0B image analysis — used by background
+// warmup calls to avoid burning Gemini quota on tokens nobody is viewing.
+const fetchAlphaExpansion = async (alpha, { skipVision = false } = {}) => {
   let forceRefresh = false
   try {
     const localCache = JSON.parse(localStorage.getItem('betaplays_v0_cache') || '{}')
@@ -191,6 +193,7 @@ const fetchAlphaExpansion = async (alpha) => {
     logoUrl:     alpha.logoUrl  || null,
     marketCap:   alpha.marketCap || 0,
     forceRefresh,
+    skipVision,   // tells server to skip V0B image analysis (warmup calls)
   }, { timeout: 45000 })
 
   // If server returned a cached result but we suspect the prompt has been updated
@@ -1959,13 +1962,65 @@ const useBetas = (alpha, parentAlpha = null) => {
       activeAlphaRef.current !== myAddress
 
     // ── Preload stored betas for this address ─────────────────────
-    // loadStoredBetas is keyed by address — always safe to call.
-    // First visit: no stored data, nothing shows (panel stays blank).
-    // Re-selection: stored betas appear instantly while fresh fetch runs.
+    // Two sources, checked in order:
+    //   1. localStorage (instant, device-local)
+    //   2. Neon beta_relations (cross-device, survives cache clear)
+    //
+    // localStorage is checked first — zero latency. If it has data,
+    // show it immediately while the fresh scan runs in the background.
+    // Neon is checked in parallel — if it has data that localStorage
+    // doesn't (new device, cleared cache, newly scanned on another device),
+    // those betas are shown before the full scan completes.
     const storedNow = loadStoredBetas(myAddress)
     if (storedNow.length > 0 && !isStale()) {
       setBetas(storedNow)
-      console.log(`[BetaStore] Loaded ${storedNow.length} stored betas for $${alpha.symbol}`)
+      console.log(`[BetaStore] Loaded ${storedNow.length} stored betas from localStorage for $${alpha.symbol}`)
+    }
+
+    // Neon read — runs in parallel with the fresh scan
+    // Only fires if localStorage was empty (avoids redundant fetch)
+    if (storedNow.length === 0) {
+      ;(async () => {
+        try {
+          const res = await fetch(`${BACKEND_URL}/api/beta-history?address=${myAddress}`)
+          if (!res.ok) return
+          const { betas: neonBetas } = await res.json()
+          if (!Array.isArray(neonBetas) || neonBetas.length === 0) return
+          if (isStale()) return
+
+          // Shape Neon betas to match the localStorage beta shape
+          const shaped = neonBetas
+            .filter(b => b.beta_address && b.beta_symbol)
+            .map(b => ({
+              address:          b.beta_address,
+              symbol:           b.beta_symbol,
+              name:             b.beta_name   || b.beta_symbol,
+              logoUrl:          b.beta_logo   || null,
+              signalSources:    Array.isArray(b.signals) ? b.signals : [],
+              aiScore:          b.score       || null,
+              relationshipType: b.relationship_type || null,
+              marketCap:        b.beta_mcap_at_detection || 0,
+              priceUsd:         b.beta_price_at_detection || null,
+              isHistorical:     true,
+              storedAt:         b.last_seen ? new Date(b.last_seen).getTime() : Date.now(),
+              dexUrl:           `https://dexscreener.com/solana/${b.beta_address}`,
+              coolingLabel:     'From database',
+            }))
+            // Only show AI-confirmed or structural betas from Neon
+            .filter(b => {
+              const srcs = b.signalSources
+              return srcs.includes('ai_match') || srcs.includes('lp_pair') || srcs.includes('og_match')
+            })
+
+          if (shaped.length > 0 && !isStale()) {
+            console.log(`[BetaStore] Loaded ${shaped.length} betas from Neon for $${alpha.symbol}`)
+            // Only show Neon data if localStorage didn't already populate
+            setBetas(prev => prev.length > 0 ? prev : shaped)
+            // Also write to localStorage so future visits are instant
+            saveStoredBetas(myAddress, shaped)
+          }
+        } catch { /* non-fatal — full scan will populate */ }
+      })()
     }
 
     setLoading(true)
