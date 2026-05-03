@@ -250,6 +250,9 @@ const DataSourceStatus = ({ liveAlphas = [], coolingAlphas = [] }) => {
     { key: 'pumpfun_bonded', label: 'PumpFun',      short: 'PMP', desc: 'Tokens that graduated from PumpFun bonding curve. High degen activity signal.' },
     { key: 'new_pair',       label: 'New Pairs',    short: 'NEW', desc: 'Freshly created trading pairs on Solana DEXes. Earliest possible entry signals.' },
     { key: 'birdeye',        label: 'Birdeye',      short: 'BRD', desc: 'Organic trending tokens from Birdeye — ranked by real 24h volume and price action.' },
+  { key: 'cto',            label: 'CTO',          short: 'CTO', desc: 'Community takeover tokens — dead projects revived by the community. High volatility, beta-rich.' },
+  { key: 'profile_update', label: 'Updated',      short: 'UPD', desc: 'Tokens with recently updated profiles — catches rebrands, relaunches, and CTO pushes.' },
+  { key: 'meta',           label: 'Meta',         short: 'MTA', desc: 'Tokens from Tier 2 confirmed DEXScreener narratives — at least 2 tokens up 30%+ in 24h.' },
   ]
   const activeSources = new Set(all.map(a => a.source).filter(Boolean))
 
@@ -1195,8 +1198,102 @@ const AlphaBoard = ({ selectedAlpha, onSelect, onNewRunners, onLiveAlphas, onSzn
     return () => clearInterval(interval)
   }, [])
 
-  const { liveAlphas, coolingAlphas, positioningAlphas, legends, loading, isRefreshing, error, lastUpdated, refresh } = useAlphas()
+  const { liveAlphas, coolingAlphas: localCoolingAlphas, positioningAlphas: localPositioningAlphas, legends, loading, isRefreshing, error, lastUpdated, refresh } = useAlphas()
   const sznCards = useNarrativeSzn(liveAlphas)
+
+  // ── Cooling/Positioning: Neon DB cutover ──────────────────────
+  // Local (useAlphas) data shows instantly from localStorage.
+  // When either tab becomes active, we fetch /api/history/full from Neon
+  // which has richer data (peakMarketCap, firstSeen, cross-device history).
+  // Neon data replaces local once loaded. Falls back to local on error.
+  const [neonHistoryTokens,    setNeonHistoryTokens]    = useState(null)  // null = not fetched yet
+  const [neonHistoryLoading,   setNeonHistoryLoading]   = useState(false)
+  const neonHistoryFetchedRef  = useRef(false)
+
+  useEffect(() => {
+    // Only fetch when cooling or positioning tab is active, and only once per session
+    if (activeTab !== 'cooling' && activeTab !== 'positioning') return
+    if (neonHistoryFetchedRef.current || neonHistoryLoading) return
+
+    neonHistoryFetchedRef.current = true
+    setNeonHistoryLoading(true)
+
+    fetch(`${BACKEND_URL}/api/history/full?days=7`)
+      .then(r => r.ok ? r.json() : Promise.reject(r.status))
+      .then(({ tokens }) => {
+        if (Array.isArray(tokens) && tokens.length > 0) {
+          setNeonHistoryTokens(tokens)
+        }
+      })
+      .catch(() => { /* silent — local data stays active */ })
+      .finally(() => setNeonHistoryLoading(false))
+  }, [activeTab, neonHistoryLoading])
+
+  // Build cooling and positioning arrays from Neon data when available,
+  // otherwise fall back to localStorage-sourced data from useAlphas.
+  const liveAddresses = useMemo(() => new Set(liveAlphas.map(a => a.address)), [liveAlphas])
+
+  const coolingAlphas = useMemo(() => {
+    if (!neonHistoryTokens) return localCoolingAlphas
+
+    // Cooling = negative 24h change, not currently live, seen within 7 days
+    const now = Date.now()
+    const sevenDaysAgo = now - 7 * 24 * 60 * 60 * 1000
+    return neonHistoryTokens
+      .filter(t =>
+        t.address && t.symbol &&
+        !liveAddresses.has(t.address) &&
+        (parseFloat(t.priceChange24h) || 0) < 0 &&
+        (t.lastSeen ? t.lastSeen > sevenDaysAgo : true)
+      )
+      .map(t => ({
+        ...t,
+        // volumeRising: vol is positive but price is down — accumulation signal
+        volumeRising: (t.volume24h || 0) > 1000 && (parseFloat(t.priceChange24h) || 0) < 0,
+      }))
+      .sort((a, b) => (b.lastSeen || 0) - (a.lastSeen || 0))
+  }, [neonHistoryTokens, localCoolingAlphas, liveAddresses])
+
+  const positioningAlphas = useMemo(() => {
+    if (!neonHistoryTokens) return localPositioningAlphas
+
+    // Positioning = peaked high, now drawn down, volume still alive
+    return neonHistoryTokens
+      .filter(t => {
+        if (!t.address || !t.symbol) return false
+        if (liveAddresses.has(t.address)) return false
+        const peak    = parseFloat(t.peakMarketCap) || 0
+        const current = parseFloat(t.marketCap)     || 0
+        if (peak < 100_000) return false            // too small to be worth a position
+        if (current <= 0)   return false
+        const drawdown = ((peak - current) / peak) * 100
+        if (drawdown < 40)  return false            // not drawn down enough to be interesting
+        if ((t.volume24h || 0) < 100) return false  // dead — no volume means no liquidity
+        return true
+      })
+      .map(t => {
+        const peak    = parseFloat(t.peakMarketCap) || 0
+        const current = parseFloat(t.marketCap)     || 0
+        const drawdown = peak > 0 ? Math.round(((peak - current) / peak) * 100) : 0
+        // Opportunity score: higher drawdown + higher volume + higher peak = better setup
+        const opportunityScore = Math.min(100, Math.round(
+          (drawdown * 0.4) +
+          (Math.min(Math.log10((t.volume24h || 1) + 1) / Math.log10(1_000_000), 1) * 40) +
+          (Math.min(Math.log10((peak || 1) + 1) / Math.log10(10_000_000), 1) * 20)
+        ))
+        const ageDays = t.firstSeen
+          ? Math.floor((Date.now() - t.firstSeen) / 86400000)
+          : null
+        return {
+          ...t,
+          drawdownPct:     drawdown,
+          opportunityScore,
+          peakMarketCap:   peak,
+          ageDays:         ageDays ?? '?',
+        }
+      })
+      .sort((a, b) => b.opportunityScore - a.opportunityScore)
+  }, [neonHistoryTokens, localPositioningAlphas, liveAddresses])
 
   // ── Watchlist helpers ──────────────────────────────────────────
   const watchedAddresses = useMemo(() => new Set(watchlist.map(a => a.address)), [watchlist])
@@ -1623,12 +1720,16 @@ const AlphaBoard = ({ selectedAlpha, onSelect, onNewRunners, onLiveAlphas, onSzn
                 ? `📈 ${filteredCooling.length} tokens with rising volume despite negative price — accumulation signal. Gold in the rough.`
                 : `Tokens retracing or consolidating — ${filteredCooling.length} in the last ${coolingTimeframe}. Sorted by recency. Gold in the rough.`
               }
+              {neonHistoryLoading && <span style={{ opacity: 0.6 }}> · loading from DB...</span>}
+              {!neonHistoryLoading && neonHistoryTokens && <span style={{ opacity: 0.5 }}> · shared</span>}
             </p>
           )}
           {activeTab === 'positioning' && (
             <p style={{ fontFamily: 'var(--font-mono)', fontSize: 10, color: 'var(--text-muted)', lineHeight: 1.6, margin: 0, borderLeft: '2px solid var(--amber)', paddingLeft: 8 }}>
               Big peak. Big drawdown. Volume still alive. These are the second-leg setups degens hunt.
-              {positioningAlphas.length === 0 && ' Populates as tokens peak and retrace — check back after the next wave.'}
+              {positioningAlphas.length === 0 && !neonHistoryLoading && ' Populates as tokens peak and retrace — check back after the next wave.'}
+              {neonHistoryLoading && <span style={{ opacity: 0.6 }}> · loading from DB...</span>}
+              {!neonHistoryLoading && neonHistoryTokens && <span style={{ opacity: 0.5 }}> · shared</span>}
             </p>
           )}
           {activeTab === 'history' && (

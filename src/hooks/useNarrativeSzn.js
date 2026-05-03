@@ -1,19 +1,146 @@
-import { useState, useEffect, useMemo } from 'react'
+import { useState, useEffect, useMemo, useRef } from 'react'
 import { NARRATIVE_CATEGORIES } from '../data/lore_map'
 import { categorizeWithAI } from './useAISznCategorization'
 import { classifyLogos, shouldRunVision } from './useImageAnalysis'
 
 // ─── Narrative Season Detector ───────────────────────────────────
-// Two-pass detection:
+// Three-pass detection:
 //
-//   Pass 1 (instant): keyword matching → Szn cards appear immediately
-//   Pass 2 (async):   AI categorizes unmatched tokens → cards enrich
+//   Pass 1 (instant):     keyword matching → Szn cards appear immediately
+//   Pass 2 (async):       AI categorizes unmatched tokens → cards enrich
+//   Pass 3 (async, free): DEXScreener Metas API → authoritative narrative
+//                         groupings enrich/replace AI calls, saves Groq quota
 //
-// The AI layer does two things keywords can't:
-//   a) Catch unexpected vocabulary ($WHISKERS → cats)
-//   b) Surface novel narratives ($GORK + $GORKFUND → 🦕 Gork Szn)
+// Pass 3 benefits:
+//   a) DEXScreener editorial team manually curates meta membership
+//   b) Replaces AI categorisation for tokens already in a known meta
+//   c) Surfaces novel metas we haven't defined keywords for yet
+//   d) Zero API cost — free endpoint, cached 5min server-side
+//   e) topGainers from Tier 2 check enrich the Szn card display
 
+const BACKEND_URL = import.meta.env.VITE_BACKEND_URL || 'http://localhost:3001'
 const MIN_TOKENS_FOR_SZN = 2
+
+// ─── DEXScreener slug → lore_map category key ────────────────────
+// Maps DEXScreener meta slugs to our exact lore_map category keys.
+// Unmapped slugs become novel Szn cards using the meta's own label.
+// Keys must exactly match those in lore_map.js NARRATIVE_CATEGORIES.
+const SLUG_TO_CATEGORY = {
+  // Dogs
+  'dog-themed':        'dogs',
+  'dogs':              'dogs',
+  'dog':               'dogs',
+  'doge':              'dogs',
+  // Cats
+  'cat-themed':        'cats',
+  'cats':              'cats',
+  'cat':               'cats',
+  // Frogs / Pepe
+  'frog-pepe':         'frogs',
+  'pepe':              'frogs',
+  'frogs':             'frogs',
+  'frog':              'frogs',
+  // Aliens
+  'aliens':            'aliens',
+  'alien':             'aliens',
+  'ufo':               'aliens',
+  // Bears
+  'bear':              'bears',
+  'bears':             'bears',
+  'panda':             'bears',
+  // Penguins
+  'penguin':           'penguins',
+  'penguins':          'penguins',
+  // Animals (generic)
+  'animals':           'animals',
+  'animal':            'animals',
+  'bird':              'animals',
+  'fish':              'animals',
+  'snake':             'animals',
+  'rabbit':            'animals',
+  'hamster':           'animals',
+  'wolf':              'animals',
+  'fox':               'animals',
+  'monkey':            'animals',
+  'ape':               'animals',
+  'bull':              'animals',
+  // AI
+  'ai':                'ai',
+  'ai-agents':         'ai',
+  'artificial-intelligence': 'ai',
+  'agents':            'ai',
+  'depin':             'ai',
+  // Elon
+  'elon':              'elon',
+  'elon-musk':         'elon',
+  'musk':              'elon',
+  'grok':              'elon',
+  // Trump / Political
+  'trump':             'trump',
+  'maga':              'trump',
+  'political':         'political',
+  'election':          'political',
+  // Anime
+  'anime':             'anime',
+  'manga':             'anime',
+  'waifu':             'anime',
+  // Gaming
+  'gaming':            'gaming',
+  'games':             'gaming',
+  'pokemon':           'gaming',
+  // Nature
+  'nature':            'nature',
+  'forest':            'nature',
+  'plant':             'nature',
+  // Space
+  'space':             'space',
+  'moon':              'space',
+  'mars':              'space',
+  'rocket':            'space',
+  // Movies / TV
+  'movies':            'movies',
+  'film':              'movies',
+  'tv':                'movies',
+  // Celebrity
+  'celebrity':         'celebrity',
+  'celebrities':       'celebrity',
+  // Sports
+  'sports':            'sports',
+  'football':          'sports',
+  'soccer':            'sports',
+  // Food
+  'food':              'food',
+  'memes':             'memes',
+  'humor':             'humor',
+  'internet-culture':  'internet_culture',
+  'internet':          'internet_culture',
+  'crypto':            'crypto',
+  'defi':              'crypto',
+  // Chinese / Japanese / Korean / Spanish
+  'chinese':           'chinese',
+  'japan':             'japanese',
+  'anime-japanese':    'japanese',
+  'korean':            'korean',
+  'spanish':           'spanish',
+  // Fantasy
+  'fantasy':           'pippin',
+  'lotr':              'pippin',
+  // Holiday
+  'holiday':           'holiday',
+  'christmas':         'holiday',
+  'halloween':         'holiday',
+}
+
+// Map slug to our category key — direct match first, then partial
+const slugToCategory = (slug) => {
+  if (!slug) return null
+  const lower = slug.toLowerCase()
+  if (SLUG_TO_CATEGORY[lower]) return SLUG_TO_CATEGORY[lower]
+  for (const [pattern, catKey] of Object.entries(SLUG_TO_CATEGORY)) {
+    if (lower.includes(pattern) || pattern.includes(lower)) return catKey
+  }
+  return null
+}
 
 // ─── Priority-aware keyword detection ────────────────────────────
 const SORTED_CATEGORIES = Object.entries(NARRATIVE_CATEGORIES)
@@ -48,8 +175,8 @@ const getHeat = (score) => {
   return              { label: 'MILD',      color: '#888888', emoji: '😴' }
 }
 
-// ─── Build a single Szn card from grouped token data ─────────────
-const buildSznCard = (key, label, tokens, source = 'keyword') => {
+// ─── Build a single Szn card ──────────────────────────────────────
+const buildSznCard = (key, label, tokens, source = 'keyword', extra = {}) => {
   const changes    = tokens.map(t => parseFloat(t.priceChange24h) || 0)
   const avgChange  = changes.reduce((s, c) => s + c, 0) / changes.length
   const greenCount = changes.filter(c => c > 0).length
@@ -75,26 +202,30 @@ const buildSznCard = (key, label, tokens, source = 'keyword') => {
     sznScore,
     heat,
     tokenCount:  tokens.length,
-    source,      // 'keyword' | 'ai' | 'mixed'
+    source,
     isSzn:       true,
+    ...extra,
   }
 }
 
 // ─── Hook ─────────────────────────────────────────────────────────
 const useNarrativeSzn = (liveAlphas) => {
-  const [aiCards,       setAiCards]       = useState([])
-  const [aiEnrichments, setAiEnrichments] = useState({}) // catKey → extra tokens
+  const [aiCards,        setAiCards]        = useState([])
+  const [aiEnrichments,  setAiEnrichments]  = useState({})
+  const [metaEnrichments, setMetaEnrichments] = useState({})  // catKey → tokens from Metas
+  const [novelMetaCards,  setNovelMetaCards]  = useState([])  // new metas not in our categories
+  const liveAlphasRef = useRef(liveAlphas)
+  liveAlphasRef.current = liveAlphas
 
   // ── Pass 1: keyword matching (synchronous, instant) ────────────
   const { keywordCards, unmatched } = useMemo(() => {
     if (!liveAlphas || liveAlphas.length === 0) return { keywordCards: [], unmatched: [] }
 
-    const categoryMap = {}
+    const categoryMap     = {}
     const unmatchedTokens = []
 
     liveAlphas.forEach((alpha) => {
       const catKey = detectCategory(alpha.symbol, alpha.name || '', alpha.description || '')
-
       if (catKey) {
         if (!categoryMap[catKey]) {
           categoryMap[catKey] = { key: catKey, label: NARRATIVE_CATEGORIES[catKey].label, tokens: [] }
@@ -110,16 +241,7 @@ const useNarrativeSzn = (liveAlphas) => {
       .map(cat => buildSznCard(cat.key, cat.label, cat.tokens, 'keyword'))
       .sort((a, b) => b.sznScore - a.sznScore)
 
-    // ── P3: Proactive dominant narrative ─────────────────────────
-    // Compute and persist the dominant narrative IMMEDIATELY after
-    // keyword matching — before any async AI or API calls.
-    // useBetas MetaSeed reads this on every scan, so even the very
-    // first scan of a session gets the correct dominant injection.
-    //
-    // Counts tokens per category across ALL runners (not just the
-    // ones that formed full Szn cards). A single dominant runner
-    // with category "political" is enough signal to seed political
-    // terms into every beta scan that complements it.
+    // Proactive dominant narrative — written before any async calls
     try {
       const categoryCounts = {}
       Object.entries(categoryMap).forEach(([catKey, { tokens }]) => {
@@ -127,18 +249,17 @@ const useNarrativeSzn = (liveAlphas) => {
       })
       const dominantEntry = Object.entries(categoryCounts)
         .sort((a, b) => b[1] - a[1])
-        .find(([, count]) => count >= 2)  // ≥2 runners in same category = real narrative
+        .find(([, count]) => count >= 2)
 
       const proactive = dominantEntry
         ? { category: dominantEntry[0], count: dominantEntry[1], timestamp: Date.now() }
         : { category: null, count: 0, timestamp: Date.now() }
 
       localStorage.setItem('betaplays_dominant_narrative', JSON.stringify(proactive))
-
       if (dominantEntry) {
-        console.log(`[SznNarrative] Dominant narrative: "${dominantEntry[0]}" (${dominantEntry[1]} runners) — written proactively`)
+        console.log(`[SznNarrative] Dominant: "${dominantEntry[0]}" (${dominantEntry[1]} runners)`)
       }
-    } catch { /* silent — non-fatal */ }
+    } catch { /* non-fatal */ }
 
     return { keywordCards: cards, unmatched: unmatchedTokens }
   }, [liveAlphas])
@@ -151,7 +272,6 @@ const useNarrativeSzn = (liveAlphas) => {
       return
     }
 
-    // Reset stale AI results when alphas change
     setAiCards([])
     setAiEnrichments({})
 
@@ -159,10 +279,6 @@ const useNarrativeSzn = (liveAlphas) => {
       unmatched,
       NARRATIVE_CATEGORIES,
       (categorized, novelGroups) => {
-        // categorized: tokens that fit existing categories
-        // novelGroups: brand new narratives
-
-        // Build enrichment map: catKey → extra tokens from AI
         const enrichments = {}
         categorized.forEach(({ token, category }) => {
           if (!enrichments[category]) enrichments[category] = []
@@ -170,18 +286,14 @@ const useNarrativeSzn = (liveAlphas) => {
         })
         setAiEnrichments(enrichments)
 
-        // Build novel Szn cards from AI-discovered narratives
         const novel = novelGroups
           .filter(g => g.tokens.length >= MIN_TOKENS_FOR_SZN)
           .map(g => buildSznCard(g.key, g.label, g.tokens, 'ai'))
         setAiCards(novel)
       }
-    ).catch(err => console.warn('[SznAI] Categorization failed (non-fatal):', err))
+    ).catch(err => console.warn('[SznAI] Failed (non-fatal):', err))
 
-    // ── Pass 3: Vision — logo-based classification ────────────────
-    // Runs on tokens still unmatched after text + AI text passes.
-    // Fires independently — doesn't block or wait for Pass 2.
-    // A token called $NIRE with a glowing cat logo → cats Szn.
+    // Vision pass — logo-based classification
     const visionCandidates = unmatched.filter(t => shouldRunVision(t, 0))
     if (visionCandidates.length > 0) {
       classifyLogos(visionCandidates)
@@ -206,35 +318,130 @@ const useNarrativeSzn = (liveAlphas) => {
               })
               return merged
             })
-            console.log(`[Vision] Logo classify added tokens to ${Object.keys(visionEnrichments).length} Szn cards`)
+            console.log(`[Vision] Logo classify added to ${Object.keys(visionEnrichments).length} cards`)
           }
         })
-        .catch(err => console.warn('[Vision] Logo classify failed (non-fatal):', err))
+        .catch(err => console.warn('[Vision] Logo classify failed:', err))
     }
   }, [unmatched])
 
-  // ── Merge: combine keyword cards + AI enrichments + novel cards ─
-  const sznCards = useMemo(() => {
-    // Start with keyword cards, potentially enriched by AI
-    const merged = keywordCards.map(card => {
-      const extra = aiEnrichments[card.key]
-      if (!extra || extra.length === 0) return card
+  // ── Pass 3: DEXScreener Metas (async, free, non-blocking) ──────
+  // Runs independently of AI pass. Fetches trending confirmed metas
+  // (Tier 2: ≥2 tokens up 30%+ in 24h) and maps them to our categories.
+  // Enriches existing keyword cards and creates novel meta cards.
+  // Does NOT wait for or block Pass 2.
+  useEffect(() => {
+    if (!liveAlphas || liveAlphas.length === 0) return
 
-      // Merge AI-found tokens into existing keyword card
-      const allTokens = [...card.tokens, ...extra]
+    const liveAddresses = new Set(liveAlphas.map(a => a.address))
+
+    setMetaEnrichments({})
+    setNovelMetaCards([])
+
+    ;(async () => {
+      try {
+        const res  = await fetch(`${BACKEND_URL}/api/metas?type=trending`)
+        if (!res.ok) return
+        const data = await res.json()
+        const metas = (data.metas || []).filter(m => m.tier2Confirmed === true)
+
+        if (metas.length === 0) {
+          console.log('[SznMetas] No Tier 2 confirmed metas right now')
+          return
+        }
+
+        console.log(`[SznMetas] ${metas.length} confirmed metas — enriching Szn cards`)
+
+        const enrichments = {}
+        const novelCards  = []
+
+        for (const meta of metas) {
+          const catKey = slugToCategory(meta.slug)
+
+          // topGainers from the Tier 2 check — these are tokens we KNOW are up 30%+
+          // Cross-reference with live alpha list to get full token data
+          const topGainers = meta.topGainers || []
+          const matchedTokens = liveAlphas.filter(a =>
+            topGainers.some(g => g.symbol === a.symbol) ||
+            (a.metaSlug && a.metaSlug === meta.slug)  // Source 8 tokens tagged with metaSlug
+          )
+
+          // If we have fewer matched tokens than topGainers, fetch the meta token list
+          // to get addresses for cross-referencing — but only if we have no match at all
+          let tokens = matchedTokens
+
+          if (tokens.length === 0) {
+            // No live alpha overlap — skip (meta tokens may not be on our feed yet)
+            // Source 8 (fetchMetaAlphas) will add them to alpha feed on next refresh
+            console.log(`[SznMetas] ${meta.name}: no overlap with live feed yet`)
+            continue
+          }
+
+          if (catKey && NARRATIVE_CATEGORIES[catKey]) {
+            // Merge into existing category
+            if (!enrichments[catKey]) enrichments[catKey] = []
+            enrichments[catKey].push(...tokens)
+            console.log(`[SznMetas] ${meta.name} → ${catKey} (+${tokens.length} tokens)`)
+          } else {
+            // Novel meta — build a new Szn card
+            if (tokens.length >= MIN_TOKENS_FOR_SZN) {
+              const novelKey = `meta-${meta.slug}`
+              novelCards.push(buildSznCard(
+                novelKey,
+                `${meta.name}`,
+                tokens,
+                'meta',
+                {
+                  metaSlug:       meta.slug,
+                  pumpingCount:   meta.pumpingCount,
+                  topGainers:     meta.topGainers,
+                  tier2Confirmed: true,
+                }
+              ))
+              console.log(`[SznMetas] Novel meta: ${meta.name} (${tokens.length} tokens)`)
+            }
+          }
+        }
+
+        setMetaEnrichments(enrichments)
+        setNovelMetaCards(novelCards)
+      } catch (err) {
+        console.warn('[SznMetas] Pass 3 failed (non-fatal):', err.message)
+      }
+    })()
+  }, [liveAlphas])
+
+  // ── Merge: keyword + AI enrichments + Metas enrichments + novel cards ──
+  const sznCards = useMemo(() => {
+    const merged = keywordCards.map(card => {
+      const aiExtra   = aiEnrichments[card.key]   || []
+      const metaExtra = metaEnrichments[card.key] || []
+      const extra     = [...aiExtra, ...metaExtra]
+
+      if (extra.length === 0) return card
+
+      // Deduplicate by address before merging
+      const seen      = new Set(card.tokens.map(t => t.address))
+      const newTokens = extra.filter(t => !seen.has(t.address))
+      if (newTokens.length === 0) return card
+
+      const allTokens = [...card.tokens, ...newTokens]
+      const source    = metaExtra.length > 0 && aiExtra.length > 0 ? 'mixed'
+                      : metaExtra.length > 0 ? 'meta'
+                      : 'mixed'
       return {
-        ...buildSznCard(card.key, card.label, allTokens, 'mixed'),
-        // Mark that AI added tokens
-        aiEnriched: extra.length,
+        ...buildSznCard(card.key, card.label, allTokens, source),
+        aiEnriched:   aiExtra.length,
+        metaEnriched: metaExtra.length,
       }
     })
 
-    // Add novel AI-discovered Szn cards
-    const allCards = [...merged, ...aiCards]
-      .sort((a, b) => b.sznScore - a.sznScore)
+    // Novel AI cards + novel Meta cards — deduplicated by key
+    const novelKeys = new Set(merged.map(c => c.key))
+    const allNovel  = [...aiCards, ...novelMetaCards].filter(c => !novelKeys.has(c.key))
 
-    return allCards
-  }, [keywordCards, aiEnrichments, aiCards])
+    return [...merged, ...allNovel].sort((a, b) => b.sznScore - a.sznScore)
+  }, [keywordCards, aiEnrichments, aiCards, metaEnrichments, novelMetaCards])
 
   return sznCards
 }

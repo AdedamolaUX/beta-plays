@@ -977,6 +977,226 @@ export const checkLegendCandidates = (alphas) => {
   }).map(a => ({ ...a, candidateLegend: true }))
 }
 
+// ─── Source 6: Community Takeover (CTO) alphas ───────────────────
+// DEXScreener's /community-takeovers/latest/v1 — free, no key.
+// CTOs are community-revived dead tokens. High volatility, beta-rich events.
+// Badge: 🔄 CTO (pulsing orange)
+const fetchCTOAlphas = async () => {
+  try {
+    const res = await axios.get(`${BACKEND_URL}/api/cto`, { timeout: 8000 })
+    const tokens = res.data?.tokens || []
+    if (!tokens.length) return []
+
+    // Resolve each CTO token to its live DEX pair for pricing
+    const addresses = tokens.map(t => t.address).join(',')
+    const pairsRes  = await axios.get(
+      `${DEXSCREENER_BASE}/latest/dex/tokens/${addresses}`,
+      { timeout: 8000 }
+    )
+    const pairs = pairsRes.data?.pairs || []
+
+    const results = []
+    const seen    = new Set()
+
+    for (const token of tokens) {
+      const bestPair = pairs
+        .filter(p =>
+          p.chainId === 'solana' &&
+          p.baseToken?.address === token.address &&
+          (p.liquidity?.usd || 0) >= 500
+        )
+        .sort((a, b) => (b.volume?.h24 || 0) - (a.volume?.h24 || 0))[0]
+
+      if (!bestPair || seen.has(token.address)) continue
+      seen.add(token.address)
+
+      const alpha      = formatAlpha(bestPair, 'cto')
+      alpha.isCTO      = true
+      alpha.badgeLabel = '🔄 CTO'
+      if (!alpha.logoUrl && token.logoUrl) alpha.logoUrl = token.logoUrl
+      if (!alpha.description && token.name) alpha.description = token.name
+      results.push(alpha)
+    }
+
+    console.log(`[Source6/CTO] ${results.length} CTO alphas`)
+    return results
+  } catch (err) {
+    console.warn('[Source6/CTO] Fetch failed (non-fatal):', err.message)
+    return []
+  }
+}
+
+// ─── Source 7: Recently updated token profiles ────────────────────
+// DEXScreener's /token-profiles/recent-updates/v1 — free, no key.
+// Catches re-launches, rebrands, CTOs that just got a profile update.
+// Different signal from /latest which is brand new profiles.
+const fetchRecentProfileAlphas = async () => {
+  try {
+    const res    = await axios.get(`${BACKEND_URL}/api/profiles/recent`, { timeout: 8000 })
+    const tokens = res.data?.tokens || []
+    if (!tokens.length) return []
+
+    // Same pattern as fetchProfileAlphas — resolve addresses to pairs
+    const solTokens = tokens.filter(t => t.chainId === 'solana').slice(0, 30)
+    if (!solTokens.length) return []
+
+    const addresses = solTokens.map(t => t.tokenAddress).join(',')
+    const pairsRes  = await axios.get(
+      `${DEXSCREENER_BASE}/latest/dex/tokens/${addresses}`,
+      { timeout: 8000 }
+    )
+    const pairs = pairsRes.data?.pairs || []
+
+    const results = []
+    const seen    = new Set()
+
+    for (const token of solTokens) {
+      const bestPair = pairs
+        .filter(p =>
+          p.chainId === 'solana' &&
+          p.baseToken?.address === token.tokenAddress &&
+          (p.liquidity?.usd || 0) >= 500
+        )
+        .sort((a, b) => (b.volume?.h24 || 0) - (a.volume?.h24 || 0))[0]
+
+      if (!bestPair || seen.has(token.tokenAddress)) continue
+      seen.add(token.tokenAddress)
+
+      const alpha = formatAlpha(bestPair, 'profile_update')
+      if (!alpha.logoUrl && token.icon) alpha.logoUrl = token.icon
+      if (!alpha.description && token.description) alpha.description = token.description
+      results.push(alpha)
+    }
+
+    console.log(`[Source7/RecentProfiles] ${results.length} recently updated profiles`)
+    return results
+  } catch (err) {
+    console.warn('[Source7/RecentProfiles] Fetch failed (non-fatal):', err.message)
+    return []
+  }
+}
+
+// ─── Source 6: Community Takeover (CTO) alphas ───────────────────
+const fetchCTOAlphas = async () => {
+  try {
+    const res    = await axios.get(`${BACKEND_URL}/api/cto`, { timeout: 8000 })
+    const tokens = res.data?.tokens || []
+    if (!tokens.length) return []
+
+    const addresses = tokens.map(t => t.address).join(',')
+    const pairsRes  = await axios.get(`${DEXSCREENER_BASE}/latest/dex/tokens/${addresses}`, { timeout: 8000 })
+    const pairs     = pairsRes.data?.pairs || []
+
+    const results = []
+    const seen    = new Set()
+
+    for (const token of tokens) {
+      const best = pairs
+        .filter(p => p.chainId === 'solana' && p.baseToken?.address === token.address && (p.liquidity?.usd || 0) >= 500)
+        .sort((a, b) => (b.volume?.h24 || 0) - (a.volume?.h24 || 0))[0]
+      if (!best || seen.has(token.address)) continue
+      seen.add(token.address)
+      const alpha      = formatAlpha(best, 'cto')
+      alpha.isCTO      = true
+      alpha.badgeLabel = '🔄 CTO'
+      if (!alpha.logoUrl && token.logoUrl) alpha.logoUrl = token.logoUrl
+      results.push(alpha)
+    }
+    console.log(`[Source6/CTO] ${results.length} CTO alphas`)
+    return results
+  } catch (err) {
+    console.warn('[Source6/CTO] Fetch failed:', err.message)
+    return []
+  }
+}
+
+// ─── Source 7: Recently updated token profiles ────────────────────
+const fetchRecentProfileAlphas = async () => {
+  try {
+    const res    = await axios.get(`${BACKEND_URL}/api/profiles/recent`, { timeout: 8000 })
+    const tokens = (res.data?.tokens || []).filter(t => t.chainId === 'solana').slice(0, 30)
+    if (!tokens.length) return []
+
+    const addresses = tokens.map(t => t.tokenAddress).join(',')
+    const pairsRes  = await axios.get(`${DEXSCREENER_BASE}/latest/dex/tokens/${addresses}`, { timeout: 8000 })
+    const pairs     = pairsRes.data?.pairs || []
+
+    const results = []
+    const seen    = new Set()
+
+    for (const token of tokens) {
+      const best = pairs
+        .filter(p => p.chainId === 'solana' && p.baseToken?.address === token.tokenAddress && (p.liquidity?.usd || 0) >= 500)
+        .sort((a, b) => (b.volume?.h24 || 0) - (a.volume?.h24 || 0))[0]
+      if (!best || seen.has(token.tokenAddress)) continue
+      seen.add(token.tokenAddress)
+      const alpha = formatAlpha(best, 'profile_update')
+      if (!alpha.logoUrl && token.icon) alpha.logoUrl = token.icon
+      if (!alpha.description && token.description) alpha.description = token.description
+      results.push(alpha)
+    }
+    console.log(`[Source7/RecentProfiles] ${results.length} recently updated profiles`)
+    return results
+  } catch (err) {
+    console.warn('[Source7/RecentProfiles] Fetch failed:', err.message)
+    return []
+  }
+}
+
+// ─── Source 8: Meta tokens from confirmed trending narratives ─────
+// Only pulls from Tier 2 confirmed metas (≥2 tokens up 30%+ in 24h).
+// These tokens may not appear in any other source — pre-validated by
+// DEXScreener's editorial team as belonging to a real narrative.
+const fetchMetaAlphas = async () => {
+  try {
+    const metasRes = await axios.get(`${BACKEND_URL}/api/metas?type=trending`, { timeout: 10000 })
+    const allMetas = metasRes.data?.metas || []
+    const confirmed = allMetas.filter(m => m.tier2Confirmed === true)
+    if (!confirmed.length) return []
+
+    console.log(`[Source8/Metas] ${confirmed.length} confirmed metas`)
+    const results = []
+    const seen    = new Set()
+
+    for (const meta of confirmed.slice(0, 5)) {
+      try {
+        const metaRes = await axios.get(
+          `${BACKEND_URL}/api/metas?type=meta&slug=${encodeURIComponent(meta.slug)}`,
+          { timeout: 8000 }
+        )
+        const pairs = (metaRes.data?.pairs || [])
+          .filter(p =>
+            p.chainId === 'solana' &&
+            p.baseToken?.address &&
+            !seen.has(p.baseToken.address) &&
+            parseFloat(p.priceChange?.h24 || 0) >= 30 &&
+            (p.liquidity?.usd || 0) >= 500 &&
+            (p.volume?.h24    || 0) >= 1000
+          )
+          .sort((a, b) => parseFloat(b.priceChange?.h24 || 0) - parseFloat(a.priceChange?.h24 || 0))
+          .slice(0, 10)
+
+        for (const p of pairs) {
+          seen.add(p.baseToken.address)
+          const alpha      = formatAlpha(p, 'meta')
+          alpha.metaName   = meta.name
+          alpha.metaSlug   = meta.slug
+          alpha.isMeta     = true
+          alpha.badgeLabel = '🔥 META'
+          results.push(alpha)
+        }
+        console.log(`[Source8/Metas] ${meta.name}: ${pairs.length} tokens up 30%+`)
+      } catch { /* non-fatal per meta */ }
+    }
+
+    console.log(`[Source8/Metas] Total: ${results.length} meta alpha tokens`)
+    return results
+  } catch (err) {
+    console.warn('[Source8/Metas] Fetch failed:', err.message)
+    return []
+  }
+}
+
 const useAlphas = () => {
   const [liveAlphas,        setLiveAlphas]        = useState([])
   const [coolingAlphas,     setCoolingAlphas]     = useState([])
@@ -997,20 +1217,26 @@ const useAlphas = () => {
     setError(null)
 
     try {
-      const [boosted, profiles, pumpfun, newPairs, gainers] = await Promise.allSettled([
+    const [boosted, profiles, pumpfun, newPairs, gainers, cto, recentProfiles, metaTokens] = await Promise.allSettled([
         fetchBoostedAlphas(),
         fetchProfileAlphas(),
         fetchPumpFunBonded(),
         fetchNewPairs(),
-        fetchGainersAlphas(),  // Source 5: Birdeye top gainers — organic non-boosted runners
+        fetchGainersAlphas(),        // Source 5: Birdeye top gainers
+        fetchCTOAlphas(),            // Source 6: DEXScreener community takeovers
+        fetchRecentProfileAlphas(),  // Source 7: recently updated token profiles
+        fetchMetaAlphas(),           // Source 8: tokens from confirmed trending metas
       ])
 
       const freshRaw = deduplicateAlphas([
-        ...(boosted.status   === 'fulfilled' ? boosted.value   : []),
-        ...(profiles.status  === 'fulfilled' ? profiles.value  : []),
-        ...(pumpfun.status   === 'fulfilled' ? pumpfun.value   : []),
-        ...(newPairs.status  === 'fulfilled' ? newPairs.value  : []),
-        ...(gainers.status   === 'fulfilled' ? gainers.value   : []),
+        ...(boosted.status        === 'fulfilled' ? boosted.value        : []),
+        ...(profiles.status       === 'fulfilled' ? profiles.value       : []),
+        ...(pumpfun.status        === 'fulfilled' ? pumpfun.value        : []),
+        ...(newPairs.status       === 'fulfilled' ? newPairs.value       : []),
+        ...(gainers.status        === 'fulfilled' ? gainers.value        : []),
+        ...(cto.status            === 'fulfilled' ? cto.value            : []),
+        ...(recentProfiles.status === 'fulfilled' ? recentProfiles.value : []),
+        ...(metaTokens.status     === 'fulfilled' ? metaTokens.value     : []),
       ])
 
       // ── Immediate bonding-price fix for freshly migrated tokens ──
