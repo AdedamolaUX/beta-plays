@@ -65,15 +65,15 @@ const saveToHistory = (alphas) => {
   }
 }
 
-// ─── Neon-backed history loader ───────────────────────────────────
-// Fetches full token history from Neon. Falls back to localStorage
+// ─── Supabase-backed history loader ───────────────────────────────────
+// Fetches full token history from Supabase. Falls back to localStorage
 // if the API is unavailable (cold start, offline, pre-DB data).
 // Returns the same shape as the old localStorage object so all
 // downstream filtering logic works unchanged.
 
 let _historyCache     = null   // in-memory for the current session
 let _historyCacheTime = 0
-const HISTORY_CACHE_TTL_MS = 60_000  // re-fetch from Neon at most once per minute
+const HISTORY_CACHE_TTL_MS = 60_000  // re-fetch from Supabase at most once per minute
 
 const loadNeonHistory = async () => {
   const now = Date.now()
@@ -108,9 +108,9 @@ const loadNeonHistory = async () => {
 // Positive 24h when last seen → Live (still a runner until proven otherwise)
 // Negative 24h when last seen → Cooling (retracing, watch for reversal)
 
-const loadHistoricalByPriceAction = async (currentAddresses) => {
+const loadHistoricalByPriceAction = async (currentAddresses, preloadedHistory = null) => {
   try {
-    const existing = await loadNeonHistory()
+    const existing = preloadedHistory || await loadNeonHistory()
     const now      = Date.now()
 
     const historicalLive    = []
@@ -1070,29 +1070,32 @@ const useAlphas = () => {
       // Save everything to localStorage before classifying
       saveToHistory(freshRaw)
 
-      // ── Record alphas to Neon DB (fire-and-forget) ───────────────
-      // Non-blocking — never awaited, never retried. A failure just means
-      // that refresh cycle isn't recorded. No impact on UI or feed.
+      // ── Record alphas to Supabase (fire-and-forget) ───────────────
+      // ── Record alphas to Supabase (batched) ──────────────────────────
+      // Single request with all alphas instead of one request per token.
+      // This was causing 300+ simultaneous DB writes on boot, saturating
+      // Supabase PgBouncer handles concurrency cleanly.
       ;(async () => {
         try {
-          for (const alpha of freshRaw) {
-            if (!alpha.address || !alpha.symbol) continue
-            fetch(`${BACKEND_URL}/api/record-alpha`, {
-              method:  'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({
-                address:         alpha.address,
-                symbol:          alpha.symbol,
-                name:            alpha.name,
-                logoUrl:         alpha.logoUrl || alpha.icon,
-                marketCap:       alpha.marketCap,
-                volume24h:       alpha.volume24h,
-                priceChange24h:  alpha.priceChange24h,
-                source:          alpha.source,
-                price:           alpha.priceUsd,
-              }),
-            }).catch(() => {})  // swallow network errors silently
-          }
+          fetch(`${BACKEND_URL}/api/record-alphas`, {
+            method:  'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              alphas: freshRaw
+                .filter(a => a.address && a.symbol)
+                .map(a => ({
+                  address:        a.address,
+                  symbol:         a.symbol,
+                  name:           a.name,
+                  logoUrl:        a.logoUrl || a.icon,
+                  marketCap:      a.marketCap,
+                  volume24h:      a.volume24h,
+                  priceChange24h: a.priceChange24h,
+                  source:         a.source,
+                  price:          a.priceUsd,
+                }))
+            }),
+          }).catch(() => {})
         } catch { /* non-fatal */ }
       })()
 
@@ -1112,12 +1115,17 @@ const useAlphas = () => {
 
         // Patch live tokens stuck at bonding price — refreshHistoricalPrices just
         // wrote their real prices to localStorage so now we can read them.
-        // This is the fix for $WIZCLI/$lmeow stuck at $35K in the sidebar:
-        // they're LIVE (not historical) so loadHistoricalByPriceAction skips them,
-        // but refreshHistoricalPrices now targets them via isStuckAtBonding flag.
-        const freshStored = JSON.parse(localStorage.getItem(STORAGE_KEY) || '{}')
+        // freshStored is now read inside setLiveAlphas to avoid stale closure issues.
 
         setLiveAlphas(prev => {
+          // FLICKER FIX: This setter runs async after refreshHistoricalPrices completes.
+          // By the time it fires, the main fetch has already set the full live list (80+
+          // tokens). If prev has more non-historical tokens than freshHistLive, the main
+          // fetch already ran — our job here is ONLY to patch stuck prices and ADD any
+          // new historical tokens, never to replace or shrink the list.
+          const prevLiveCount = prev.filter(a => !a.isHistorical).length
+          const freshStored   = JSON.parse(localStorage.getItem(STORAGE_KEY) || '{}')
+
           const patched = prev.map(a => {
             const isStuck = (a.marketCap || 0) <= 50_000 && parseFloat(a.priceChange24h || 0) === 0
             const stored  = freshStored[a.address]
@@ -1128,10 +1136,16 @@ const useAlphas = () => {
             }
             return a
           })
-          const freshAddrs = new Set(patched.filter(a => !a.isHistorical).map(a => a.address))
+
+          const freshAddrs = new Set(patched.map(a => a.address))
+
+          // Only add historical tokens that aren't already in the list —
+          // never drop tokens the main fetch already placed there.
+          const addedHistorical = freshHistLive.filter(a => !freshAddrs.has(a.address))
+
           return [
-            ...patched.filter(a => !a.isHistorical),
-            ...freshHistLive.filter(a => !freshAddrs.has(a.address)),
+            ...patched,
+            ...addedHistorical,
           ].sort((a, b) => (b.momentumScore || 0) - (a.momentumScore || 0)).slice(0, 100)
         })
         setCoolingAlphas(prev => {
@@ -1222,15 +1236,56 @@ const useAlphas = () => {
   }, [])  // No state dependencies — uses ref for first-load check to prevent infinite loop
 
   useEffect(() => {
-    // Load from Neon immediately before first fetch completes
-    const loadInitial = async () => {
-      const { historicalLive, historicalCooling } = await loadHistoricalByPriceAction(new Set())
-      setLiveAlphas(historicalLive)
-      setCoolingAlphas(historicalCooling)
-      setPositioningAlphas(await loadPositioningPlays())
+    // Show localStorage data INSTANTLY — zero latency, no waiting for Supabase.
+    // Supabase loads in background and merges when ready.
+    // This is the fix for "alpha tab takes long to populate after server restart":
+    // the old loadInitial() awaited loadNeonHistory() which could take 10-15s on a cold connection
+    // blocking the entire first render.
+    const showLocalFirst = async () => {
+      try {
+        const local = JSON.parse(localStorage.getItem(STORAGE_KEY) || '{}')
+        if (Object.keys(local).length > 0) {
+          const { historicalLive, historicalCooling } = await loadHistoricalByPriceAction(new Set(), local)
+          if (historicalLive.length > 0 || historicalCooling.length > 0) {
+            setLiveAlphas(historicalLive)
+            setCoolingAlphas(historicalCooling)
+          }
+        }
+      } catch { /* silent — live fetch will populate */ }
     }
-    loadInitial()
+    showLocalFirst()
+
+    // Start live fetch immediately — doesn't wait for local or Neon
     fetchLive()
+
+    // Supabase loads in background after live fetch starts — merges silently
+    // Uses a delay so the live fetch gets DB connections first (Supabase pooler handles concurrency)
+    setTimeout(async () => {
+      try {
+        const neon = await loadNeonHistory()
+        if (!neon || Object.keys(neon).length === 0) return
+        const currentAddrs = new Set(
+          (JSON.parse(localStorage.getItem(STORAGE_KEY) || '{}')).keys?.() || []
+        )
+        const { historicalLive, historicalCooling } = await loadHistoricalByPriceAction(new Set(), neon)
+        if (historicalLive.length > 0) {
+          setLiveAlphas(prev => {
+            const existing = new Set(prev.map(a => a.address))
+            const added = historicalLive.filter(a => !existing.has(a.address))
+            if (added.length === 0) return prev
+            return [...prev, ...added].sort((a, b) => (b.momentumScore || 0) - (a.momentumScore || 0)).slice(0, 100)
+          })
+        }
+        if (historicalCooling.length > 0) {
+          setCoolingAlphas(prev => {
+            const existing = new Set(prev.map(a => a.address))
+            const added = historicalCooling.filter(a => !existing.has(a.address))
+            if (added.length === 0) return prev
+            return [...prev, ...added].slice(0, 50)
+          })
+        }
+      } catch { /* silent — Supabase unavailable, localStorage data stays */ }
+    }, 5000)  // 5s delay — live fetch gets DB connections priority
   }, [fetchLive])
 
   useEffect(() => {

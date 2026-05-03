@@ -72,7 +72,7 @@ const PUMPFUN_OUTAGE_COOLDOWN = 5 * 60 * 1000  // 5 minutes
 const isPumpFunDown = () => Date.now() < pumpFunOutageUntil
 const markPumpFunDown = () => {
   pumpFunOutageUntil = Date.now() + PUMPFUN_OUTAGE_COOLDOWN
-  console.warn(`[PumpFun] Both PumpFun + PumpPortal failed — cooling down until ${new Date(pumpFunOutageUntil).toISOString()}`)
+  console.warn(`[PumpFun] All sources failed (PumpFun + PumpPortal + DEXScreener) — cooling down until ${new Date(pumpFunOutageUntil).toISOString()}`)
 }
 
 // Rate limiting — split limits so vision batches don't eat the shared quota
@@ -885,7 +885,7 @@ const expandTokenToCache = async (token) => {
       promptVersion: 'v6',
     }
     expansionCache.set(token.address, { data: cacheData, timestamp: Date.now(), mcap: token.marketCap || 0 })
-    // Persist to Neon — survives server restarts (6h TTL matches in-memory TTL)
+    // Persist to Supabase — survives server restarts (6h TTL matches in-memory TTL)
     cacheSet(`expansion:${token.address}`, { ...cacheData, mcap: token.marketCap || 0 }, 6).catch(() => {})
     console.log(`[Warmup] $${token.symbol} → ${cacheData.searchTerms.length} terms cached`)
     return true
@@ -967,7 +967,7 @@ app.post('/api/warmup', async (req, res) => {
 // Body: { address, symbol, name, description, logoUrl, marketCap, forceRefresh }
 app.post('/api/expand-alpha', async (req, res) => {
   try {
-    const { address, symbol, name, description, logoUrl, marketCap, forceRefresh } = req.body
+    const { address, symbol, name, description, logoUrl, marketCap, forceRefresh, skipVision } = req.body
     if (!address || !symbol) return res.status(400).json({ error: 'address and symbol required' })
 
     const OR_KEY = process.env.OPENROUTER_API_KEY  // needed for Gemma 4 calls
@@ -1090,17 +1090,15 @@ app.post('/api/expand-alpha', async (req, res) => {
     }
 
     // ── Vector 0B: Image expansion ────────────────────────────────
-    // Model chain priority:
-    //   1. Gemini Flash    — best cultural/visual analysis, existing key
-    //   2. Gemma 4 31B     — vision benchmark leader, better than Gemini
-    //                        on charts/diagrams/logo understanding
-    //   3. Groq vision     — last resort (Llama 4 Scout)
+    // Skipped when skipVision=true (background warmup calls) to preserve
+    // Gemini quota for actual user-triggered scans. Text expansion alone
+    // is sufficient for warmup — vision runs when the user clicks the alpha.
     let visualTerms    = []
     let visualCounters = []
     let visualHints  = {}
     let mood         = null
 
-    if (logoUrl) {
+    if (logoUrl && !skipVision) {
       try {
         const imgData = await fetchImageAsBase64(logoUrl)
         if (imgData && GROQ_SUPPORTED_TYPES.includes(imgData.mimeType)) {
@@ -1231,7 +1229,7 @@ Respond ONLY with valid JSON. No markdown:
 
     // Cache server-side — shared across all users
     expansionCache.set(address, { data, timestamp: Date.now(), mcap: marketCap || 0 })
-    // Persist to Neon so cache survives restarts
+    // Persist to Supabase so cache survives restarts
     cacheSet(`expansion:${address}`, { ...data, mcap: marketCap || 0 }, 6).catch(() => {})
     console.log(`[Vector0] $${symbol} cached — ${searchTerms.length} text + ${visualTerms.length} visual terms`)
 
@@ -1710,17 +1708,71 @@ app.get('/api/pumpfun', async (req, res) => {
     } catch (ppErr) {
       console.error(`[PumpPortal] Fallback also failed: ${ppErr.message}`)
 
-      // Mark both sources as down — skip for 5 minutes
-      markPumpFunDown()
+      // ── DEXScreener /pairs/solana/pump fallback ───────────────
+      // Completely independent infrastructure from PumpFun/PumpPortal.
+      // Returns graduated/bonded Pump.fun pairs with live trading data.
+      // Normalised to match the PumpFun coin shape the frontend expects:
+      //   { mint, symbol, name, usd_market_cap, last_trade_timestamp }
+      try {
+        const limit   = parseInt(params.limit) || 100
+        const dexUrl  = 'https://api.dexscreener.com/latest/dex/pairs/solana/pump'
+        const dexRes  = await fetch(dexUrl, {
+          headers: { 'Accept': 'application/json' },
+          signal: AbortSignal.timeout(8000),
+        })
+        if (!dexRes.ok) throw new Error(`DEXScreener pump ${dexRes.status}`)
+        const dexData = await dexRes.json()
+        const pairs   = Array.isArray(dexData.pairs) ? dexData.pairs : []
 
-      // ── Last resort: serve stale cache rather than empty ──────
-      if (cached) {
-        const ageMin = Math.round((Date.now() - cached.ts) / 60000)
-        console.warn(`[PumpFun] Serving stale cache (${ageMin}m old)`)
-        return res.json(cached.data)
+        if (pairs.length === 0) throw new Error('DEXScreener pump returned empty pairs')
+
+        // Normalise DEXScreener pair shape → PumpFun coin shape
+        // Frontend Vector 4 only needs: mint (address), symbol, name,
+        // usd_market_cap, and last_trade_timestamp for sorting/filtering.
+        const normalised = pairs
+          .filter(p => p.baseToken?.address && p.baseToken?.symbol)
+          .slice(0, limit)
+          .map(p => ({
+            mint:                 p.baseToken.address,
+            symbol:               p.baseToken.symbol,
+            name:                 p.baseToken.name || p.baseToken.symbol,
+            usd_market_cap:       p.marketCap || p.fdv || 0,
+            // DEXScreener pairCreatedAt is ms epoch — convert to seconds
+            // so it matches PumpFun's last_trade_timestamp format
+            last_trade_timestamp: p.pairCreatedAt
+              ? Math.floor(p.pairCreatedAt / 1000)
+              : Math.floor(Date.now() / 1000),
+            // Extra fields that may be used by frontend filtering
+            liquidity_usd:        p.liquidity?.usd    || 0,
+            volume_24h:           p.volume?.h24        || 0,
+            price_change_24h:     parseFloat(p.priceChange?.h24) || 0,
+            image_uri:            p.info?.imageUrl     || null,
+            // Source tag so logs can identify this path
+            _source:              'dexscreener_pump',
+          }))
+
+        if (normalised.length === 0) throw new Error('DEXScreener pump normalisation yielded zero tokens')
+
+        console.log(`[DEXScreener] Pump fallback success — ${normalised.length} pairs`)
+        // Cache under the same key — serves future requests until TTL expires
+        pumpFunCache.set(cacheKey, { data: normalised, ts: Date.now() })
+        return res.json(normalised)
+
+      } catch (dexErr) {
+        console.error(`[DEXScreener] Pump fallback also failed: ${dexErr.message}`)
+
+        // All three sources failed — mark as down for 5 minutes
+        markPumpFunDown()
+
+        // ── Last resort: serve stale cache rather than empty ──────
+        if (cached) {
+          const ageMin = Math.round((Date.now() - cached.ts) / 60000)
+          console.warn(`[PumpFun] Serving stale cache (${ageMin}m old)`)
+          return res.json(cached.data)
+        }
+
+        return res.status(503).json({ error: 'PumpFun, PumpPortal, and DEXScreener pump all unavailable' })
       }
-
-      return res.status(503).json({ error: 'PumpFun and PumpPortal both unavailable' })
     }
   }
 })
@@ -1735,7 +1787,7 @@ app.get('/api/telegram-betas', async (req, res) => {
   if (!symbol) return res.status(400).json({ error: 'symbol required' })
   const results = telegramService.getTelegramBetas(symbol)
 
-  // Persist any new signals to Neon (fire-and-forget)
+  // Persist any new signals to Supabase (fire-and-forget)
   if (results?.length > 0) {
     ;(async () => {
       for (const r of results) {
@@ -1750,7 +1802,7 @@ app.get('/api/telegram-betas', async (req, res) => {
     })()
   }
 
-  // If in-memory cache is empty (cold restart), try Neon fallback
+  // If in-memory cache is empty (cold restart), try Supabase fallback
   if (!results || results.length === 0) {
     try {
       const dbResult = await db.query(`
@@ -1784,38 +1836,122 @@ app.get('/api/twitter-betas', (req, res) => {
 
 // ─── Database endpoints ───────────────────────────────────────────────────────
 
-// POST /api/record-alpha
-// Called fire-and-forget from useAlphas.js on each refresh cycle.
-// Upserts the token into the registry and inserts an alpha_run row.
-// Body: { address, symbol, name, logoUrl, marketCap, volume24h, priceChange24h, source, price }
+// ── DB write queue ─────────────────────────────────────────────────────────────
+// Supabase: 20 pool connections through PgBouncer (200 max client connections).
+// Without a queue, 300+ fire-and-forget record-alpha calls on boot saturate
+// the pool instantly — every query times out, DB becomes unusable for minutes.
+// This queue caps DB writes at 2 concurrent, serialising the rest.
+// Reads (history, beta-history) always get through because writes never hold
+// all 5 connections.
+const DB_WRITE_QUEUE = (() => {
+  let running   = 0
+  const MAX     = 2
+  const waiting = []
+
+  const next = () => {
+    if (waiting.length > 0 && running < MAX) waiting.shift()()
+  }
+
+  const run = (fn) => new Promise((resolve, reject) => {
+    const exec = async () => {
+      running++
+      try   { resolve(await fn()) }
+      catch (err) { reject(err) }
+      finally { running--; next() }
+    }
+    if (running < MAX) exec()
+    else waiting.push(exec)
+  })
+
+  return { run, get size() { return running + waiting.length } }
+})()
+
+// POST /api/record-alphas  (batch — replaces /api/record-alpha)
+// Called fire-and-forget from useAlphas.js with the full fresh alpha list.
+// One request per refresh cycle instead of one per token — kills the connection
+// storm. Batched upserts keep connection usage low.
+// Body: { alphas: [{ address, symbol, name, logoUrl, marketCap, volume24h, priceChange24h, source, price }] }
+app.post('/api/record-alphas', async (req, res) => {
+  if (!process.env.DATABASE_URL) return res.json({ ok: true, skipped: 'no db' })
+  const { alphas } = req.body
+  if (!Array.isArray(alphas) || alphas.length === 0) return res.json({ ok: true, skipped: 'empty' })
+
+  // Respond immediately — client doesn't wait for this
+  res.json({ ok: true, queued: alphas.length })
+
+  // Process in background via write queue — 10 at a time, serially within queue
+  const valid = alphas.filter(a => a.address && a.symbol)
+  const CHUNK = 10
+
+  for (let i = 0; i < valid.length; i += CHUNK) {
+    const chunk = valid.slice(i, i + CHUNK)
+    await DB_WRITE_QUEUE.run(async () => {
+      // Build a single multi-row upsert for the tokens table
+      const tokenValues = chunk.map((a, j) => {
+        const base = j * 5
+        return `($${base+1}, $${base+2}, $${base+3}, $${base+4}, $${base+5}, NOW())`
+      }).join(', ')
+      const tokenParams = chunk.flatMap(a => [
+        a.address, a.symbol, a.name || null, a.logoUrl || null, a.marketCap || 0
+      ])
+      try {
+        await db.query(`
+          INSERT INTO tokens (address, symbol, name, logo_url, peak_mcap, last_seen)
+          VALUES ${tokenValues}
+          ON CONFLICT (address) DO UPDATE SET
+            last_seen = NOW(),
+            name      = COALESCE(EXCLUDED.name, tokens.name),
+            logo_url  = COALESCE(EXCLUDED.logo_url, tokens.logo_url),
+            peak_mcap = GREATEST(tokens.peak_mcap, EXCLUDED.peak_mcap)
+        `, tokenParams)
+      } catch (err) {
+        console.error('[DB] record-alphas token upsert error:', err.message)
+      }
+
+      // Insert alpha_run rows — one per token, ignore conflicts on same address+minute
+      for (const a of chunk) {
+        try {
+          await db.query(`
+            INSERT INTO alpha_runs (token_address, mcap, volume_24h, price_change_24h, source, price)
+            VALUES ($1, $2, $3, $4, $5, $6)
+          `, [a.address, a.marketCap || null, a.volume24h || null, a.priceChange24h || null, a.source || null, a.price || null])
+        } catch { /* non-fatal per-token */ }
+      }
+    }).catch(err => console.error('[DB] record-alphas chunk error:', err.message))
+
+    // Small pause between chunks — lets read queries breathe
+    if (i + CHUNK < valid.length) await new Promise(r => setTimeout(r, 100))
+  }
+})
+
+// POST /api/record-alpha  (kept for backward compat — routes to queue)
+// Old single-token endpoint. Kept so any cached frontend code still works.
 app.post('/api/record-alpha', async (req, res) => {
   if (!process.env.DATABASE_URL) return res.json({ ok: true, skipped: 'no db' })
   const { address, symbol, name, logoUrl, marketCap, volume24h, priceChange24h, source, price } = req.body
   if (!address || !symbol) return res.status(400).json({ error: 'address and symbol required' })
 
-  try {
-    // Upsert token registry — update last_seen and peak_mcap on conflict
-    await db.query(`
-      INSERT INTO tokens (address, symbol, name, logo_url, peak_mcap, last_seen)
-      VALUES ($1, $2, $3, $4, $5, NOW())
-      ON CONFLICT (address) DO UPDATE SET
-        last_seen = NOW(),
-        name      = COALESCE(EXCLUDED.name, tokens.name),
-        logo_url  = COALESCE(EXCLUDED.logo_url, tokens.logo_url),
-        peak_mcap = GREATEST(tokens.peak_mcap, EXCLUDED.peak_mcap)
-    `, [address, symbol, name || null, logoUrl || null, marketCap || 0])
+  res.json({ ok: true, queued: 1 })
 
-    // Insert alpha run row
-    await db.query(`
-      INSERT INTO alpha_runs (token_address, mcap, volume_24h, price_change_24h, source, price)
-      VALUES ($1, $2, $3, $4, $5, $6)
-    `, [address, marketCap || null, volume24h || null, priceChange24h || null, source || null, price || null])
-
-    return res.json({ ok: true })
-  } catch (err) {
-    console.error('[DB] record-alpha error:', err.message)
-    return res.status(500).json({ error: 'db write failed' })
-  }
+  DB_WRITE_QUEUE.run(async () => {
+    try {
+      await db.query(`
+        INSERT INTO tokens (address, symbol, name, logo_url, peak_mcap, last_seen)
+        VALUES ($1, $2, $3, $4, $5, NOW())
+        ON CONFLICT (address) DO UPDATE SET
+          last_seen = NOW(),
+          name      = COALESCE(EXCLUDED.name, tokens.name),
+          logo_url  = COALESCE(EXCLUDED.logo_url, tokens.logo_url),
+          peak_mcap = GREATEST(tokens.peak_mcap, EXCLUDED.peak_mcap)
+      `, [address, symbol, name || null, logoUrl || null, marketCap || 0])
+      await db.query(`
+        INSERT INTO alpha_runs (token_address, mcap, volume_24h, price_change_24h, source, price)
+        VALUES ($1, $2, $3, $4, $5, $6)
+      `, [address, marketCap || null, volume24h || null, priceChange24h || null, source || null, price || null])
+    } catch (err) {
+      console.error('[DB] record-alpha error:', err.message)
+    }
+  }).catch(() => {})
 })
 
 // GET /api/history/full?days=7
@@ -1902,8 +2038,7 @@ app.get('/api/history', async (req, res) => {
 
 // POST /api/record-betas
 // Called fire-and-forget from useBetas.js after a scan completes.
-// Bulk upserts beta_relations — confirmed_count increments on re-detection.
-// Body: { alphaAddress, betas: [{ address, symbol, name, signals, score, relationshipType }] }
+// Routed through DB_WRITE_QUEUE to keep writes orderly.
 app.post('/api/record-betas', async (req, res) => {
   if (!process.env.DATABASE_URL) return res.json({ ok: true, skipped: 'no db' })
   const { alphaAddress, betas } = req.body
@@ -1911,51 +2046,50 @@ app.post('/api/record-betas', async (req, res) => {
     return res.status(400).json({ error: 'alphaAddress and betas array required' })
   }
 
-  let upserted = 0
+  // Respond immediately — client never waits for this
+  res.json({ ok: true, queued: betas.length })
+
+  const valid = betas.filter(b => b.address && b.symbol)
   const errors = []
 
-  for (const beta of betas) {
-    if (!beta.address || !beta.symbol) continue
-    try {
-      // Ensure beta token exists in registry first
-      await db.query(`
-        INSERT INTO tokens (address, symbol, name, logo_url)
-        VALUES ($1, $2, $3, $4)
-        ON CONFLICT (address) DO UPDATE SET
-          last_seen = NOW(),
-          name      = COALESCE(EXCLUDED.name, tokens.name)
-      `, [beta.address, beta.symbol, beta.name || null, beta.logoUrl || null])
+  for (const beta of valid) {
+    await DB_WRITE_QUEUE.run(async () => {
+      try {
+        await db.query(`
+          INSERT INTO tokens (address, symbol, name, logo_url)
+          VALUES ($1, $2, $3, $4)
+          ON CONFLICT (address) DO UPDATE SET
+            last_seen = NOW(),
+            name      = COALESCE(EXCLUDED.name, tokens.name)
+        `, [beta.address, beta.symbol, beta.name || null, beta.logoUrl || null])
 
-      // Upsert beta relationship — increment confirmed_count on repeat detection
-      // Price snapshots only written on first_seen — never overwritten
-      await db.query(`
-        INSERT INTO beta_relations
-          (alpha_address, beta_address, signals, score, relationship_type,
-           beta_price_at_detection, alpha_price_at_detection, beta_mcap_at_detection)
-        VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
-        ON CONFLICT (alpha_address, beta_address) DO UPDATE SET
-          last_seen       = NOW(),
-          signals         = EXCLUDED.signals,
-          score           = EXCLUDED.score,
-          confirmed_count = beta_relations.confirmed_count + 1
-      `, [
-        alphaAddress,
-        beta.address,
-        beta.signals || [],
-        beta.score || null,
-        beta.relationshipType || null,
-        beta.betaPriceAtDetection   || null,
-        beta.alphaPriceAtDetection  || null,
-        beta.betaMcapAtDetection    || null,
-      ])
-      upserted++
-    } catch (err) {
-      errors.push(beta.address)
-    }
+        await db.query(`
+          INSERT INTO beta_relations
+            (alpha_address, beta_address, signals, score, relationship_type,
+             beta_price_at_detection, alpha_price_at_detection, beta_mcap_at_detection)
+          VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+          ON CONFLICT (alpha_address, beta_address) DO UPDATE SET
+            last_seen       = NOW(),
+            signals         = EXCLUDED.signals,
+            score           = EXCLUDED.score,
+            confirmed_count = beta_relations.confirmed_count + 1
+        `, [
+          alphaAddress,
+          beta.address,
+          beta.signals || [],
+          beta.score || null,
+          beta.relationshipType || null,
+          beta.betaPriceAtDetection   || null,
+          beta.alphaPriceAtDetection  || null,
+          beta.betaMcapAtDetection    || null,
+        ])
+      } catch (err) {
+        errors.push(beta.address)
+      }
+    }).catch(err => errors.push(beta.address))
   }
 
   if (errors.length) console.error('[DB] record-betas partial errors:', errors)
-  return res.json({ ok: true, upserted, errors: errors.length })
 })
 
 // GET /api/beta-history?alpha=<address>&limit=50
@@ -2082,7 +2216,7 @@ app.get('/api/past-runners', async (req, res) => {
     return res.status(500).json({ error: 'db read failed' })
   }
 })
-// Replaces per-user localStorage caches with a single server-side cache in Neon.
+// Replaces per-user localStorage caches with a single server-side cache in Supabase.
 // One API call serves all users. TTL: score=10min, vision=24h (matches old localStorage TTLs).
 
 // GET /api/cache/score?key=<cacheKey>
@@ -2176,12 +2310,358 @@ app.post('/api/report-alphas', (req, res) => {
   return res.json({ ok: true, count: alphas.length, queued })
 })
 
+// ─── Proactive Beta Scanner ───────────────────────────────────────
+// Background job: runs every 5 minutes, fetches the top live alphas
+// from DEXScreener and pre-computes betas for each one via the server's
+// own endpoints (loopback). Results land in beta_relations so any user
+// who clicks an alpha gets instant results instead of a cold scan.
+//
+// Why loopback instead of duplicating the engine here?
+//   - The full scan pipeline (V1–V9 + V8 scoring) lives in useBetas.js
+//     on the frontend. Rewriting it server-side creates a two-source-of-truth
+//     maintenance problem. Instead, we call /api/expand-alpha and
+//     /api/score-betas on ourselves — same logic, zero duplication.
+//   - The only thing we do server-side is the DEX keyword search
+//     (a simple fetch) and recording the results. The AI calls piggyback
+//     on the existing fallback chain.
+//
+// Concurrency guard: proactiveScanRunning prevents overlapping runs.
+// Rate limiting: 2s spacing between alphas, 400ms between requests within each.
+// Resource ceiling: top 10 alphas only — avoids hammering AI quotas.
+
+let proactiveScanRunning = false
+
+// Fetch top N live alphas from DEXScreener boosted + profiles feeds.
+// Mirrors the two cheapest alpha sources (no Birdeye key needed).
+const fetchTopAlphasForScan = async (limit = 10) => {
+  const seen    = new Set()
+  const results = []
+
+  const addFromFeed = (pairs) => {
+    for (const p of (pairs || [])) {
+      if (p.chainId !== 'solana') continue
+      const addr = p.baseToken?.address
+      if (!addr || seen.has(addr)) continue
+      seen.add(addr)
+      results.push({
+        address:     addr,
+        symbol:      p.baseToken.symbol  || '',
+        name:        p.baseToken.name    || '',
+        logoUrl:     p.info?.imageUrl    || null,
+        marketCap:   p.marketCap || p.fdv || 0,
+        volume24h:   p.volume?.h24       || 0,
+        priceChange24h: parseFloat(p.priceChange?.h24) || 0,
+        description: p.info?.description || '',
+      })
+      if (results.length >= limit) return true  // signal: done
+    }
+    return false
+  }
+
+  try {
+    const [boostedRes, profilesRes] = await Promise.allSettled([
+      fetch('https://api.dexscreener.com/token-boosts/top/v1', { signal: AbortSignal.timeout(8000) }),
+      fetch('https://api.dexscreener.com/token-profiles/latest/v1', { signal: AbortSignal.timeout(8000) }),
+    ])
+
+    if (boostedRes.status === 'fulfilled' && boostedRes.value.ok) {
+      const raw  = await boostedRes.value.json()
+      const solana = (Array.isArray(raw) ? raw : [])
+        .filter(t => t.chainId === 'solana' && t.tokenAddress)
+        .slice(0, limit * 2)
+
+      // Resolve boosted token addresses to pairs via DEXScreener
+      if (solana.length > 0) {
+        const addrs = solana.map(t => t.tokenAddress).join(',')
+        try {
+          const pairsRes = await fetch(`https://api.dexscreener.com/latest/dex/tokens/${addrs}`, { signal: AbortSignal.timeout(8000) })
+          if (pairsRes.ok) {
+            const pairsData = await pairsRes.json()
+            if (addFromFeed(pairsData.pairs)) return results
+          }
+        } catch { /* non-fatal — try profiles next */ }
+      }
+    }
+
+    if (results.length < limit && profilesRes.status === 'fulfilled' && profilesRes.value.ok) {
+      const raw  = await profilesRes.value.json()
+      const solana = (Array.isArray(raw) ? raw : [])
+        .filter(t => t.chainId === 'solana' && t.tokenAddress)
+        .slice(0, limit * 2)
+
+      if (solana.length > 0) {
+        const addrs = solana.map(t => t.tokenAddress).join(',')
+        try {
+          const pairsRes = await fetch(`https://api.dexscreener.com/latest/dex/tokens/${addrs}`, { signal: AbortSignal.timeout(8000) })
+          if (pairsRes.ok) {
+            const pairsData = await pairsRes.json()
+            addFromFeed(pairsData.pairs)
+          }
+        } catch { /* non-fatal */ }
+      }
+    }
+  } catch (err) {
+    console.warn('[ProactiveScan] Feed fetch error:', err.message)
+  }
+
+  return results.slice(0, limit)
+}
+
+// Check if beta_relations for this alpha was updated recently.
+// If fresh, skip — no point re-scanning what we just scanned.
+const isBetaRelationsFresh = async (alphaAddress, maxAgeMinutes = 6) => {
+  if (!process.env.DATABASE_URL) return false
+  try {
+    const result = await db.query(`
+      SELECT MAX(last_seen) AS latest
+      FROM beta_relations
+      WHERE alpha_address = $1
+    `, [alphaAddress])
+    const latest = result.rows[0]?.latest
+    if (!latest) return false
+    const ageMs = Date.now() - new Date(latest).getTime()
+    return ageMs < maxAgeMinutes * 60 * 1000
+  } catch { return false }
+}
+
+// Run a lightweight beta scan for one alpha using loopback calls.
+// Expand → keyword search → V8 score → record to beta_relations.
+const runProactiveScanForAlpha = async (alpha, baseUrl) => {
+  const { address, symbol, name, description, logoUrl, marketCap } = alpha
+
+  // ── Step 1: Expand the alpha (uses existing server-side cache) ──
+  let expansion = null
+  try {
+    const res = await fetch(`${baseUrl}/api/expand-alpha`, {
+      method:  'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ address, symbol, name, description, logoUrl, marketCap, skipVision: true }),
+      signal: AbortSignal.timeout(20000),
+    })
+    if (res.ok) expansion = await res.json()
+  } catch (err) {
+    console.warn(`[ProactiveScan] $${symbol} — expand-alpha failed:`, err.message)
+    return 0
+  }
+
+  const searchTerms = [
+    ...(expansion?.searchTerms  || []),
+    ...(expansion?.visualTerms  || []),
+    symbol.toLowerCase(),
+  ].filter(Boolean).slice(0, 15)  // cap to avoid hammering DEX
+
+  if (searchTerms.length === 0) return 0
+
+  // ── Step 2: Keyword search on DEXScreener for each term ──
+  const candidates = new Map()  // address → pair data
+
+  for (const term of searchTerms.slice(0, 8)) {  // 8 terms max per alpha
+    try {
+      const res = await fetch(
+        `https://api.dexscreener.com/latest/dex/search?q=${encodeURIComponent(term)}`,
+        { signal: AbortSignal.timeout(6000) }
+      )
+      if (!res.ok) continue
+      const data  = await res.json()
+      const pairs = (data.pairs || []).filter(p =>
+        p.chainId === 'solana' &&
+        p.baseToken?.address &&
+        p.baseToken.address !== address &&
+        (p.liquidity?.usd || 0) >= 500 &&
+        (p.txns?.h24?.buys || 0) + (p.txns?.h24?.sells || 0) >= 3
+      )
+
+      for (const p of pairs.slice(0, 5)) {
+        const addr = p.baseToken.address
+        if (candidates.has(addr)) continue
+        candidates.set(addr, {
+          address:        addr,
+          symbol:         p.baseToken.symbol || '',
+          name:           p.baseToken.name   || '',
+          logoUrl:        p.info?.imageUrl   || null,
+          marketCap:      p.marketCap || p.fdv || 0,
+          volume24h:      p.volume?.h24 || 0,
+          liquidity:      p.liquidity?.usd || 0,
+          priceChange24h: parseFloat(p.priceChange?.h24) || 0,
+          priceUsd:       parseFloat(p.priceUsd) || 0,
+          signals:        ['keyword'],
+          signalSources:  term,
+        })
+      }
+
+      await new Promise(r => setTimeout(r, 300))  // 300ms between searches
+    } catch { /* non-fatal — continue with next term */ }
+  }
+
+  if (candidates.size === 0) return 0
+
+  // ── Step 3: V8 AI scoring via loopback ──
+  const candidateList = [...candidates.values()].slice(0, 20)
+
+  const relHints = expansion?.relationshipHints || {}
+  const alphaDesc = description
+    ? `Description: "${description.slice(0, 200)}"`
+    : `Symbol: $${symbol}${name ? ', Name: ' + name : ''}`
+
+  const prompt = `You are classifying Solana meme tokens as potential beta plays for alpha token $${symbol}.
+
+ALPHA TOKEN: $${symbol}${name ? ' (' + name + ')' : ''}
+${alphaDesc}
+Search terms that found these candidates: ${searchTerms.slice(0, 8).join(', ')}
+
+CANDIDATES:
+${candidateList.map((c, i) => `[${i}] $${c.symbol}${c.name ? ' (' + c.name + ')' : ''} — mcap $${Math.round((c.marketCap || 0) / 1000)}K, vol $${Math.round((c.volume24h || 0) / 1000)}K`).join('\n')}
+
+For each candidate, determine if it is a genuine beta play for $${symbol}.
+Score 0.0–1.0. Type: TWIN/COUNTER/ECHO/UNIVERSE/SECTOR/EVIL_TWIN/SPIN.
+
+Rules:
+- Score ≥ 0.5 = genuine beta. Score < 0.5 = not a beta.
+- TWIN: near-identical concept. COUNTER: opposite. ECHO: derivative/consequence.
+- UNIVERSE: same cultural world. SECTOR: same category. SPIN: loose derivative.
+- Reject if the only connection is "both are crypto tokens".
+- Partial match (one shared element) = 0.5–0.7, not rejection.
+
+Respond ONLY with valid JSON array, no markdown:
+[{"index":0,"score":0.85,"type":"TWIN","reason":"Same dog theme"},{"index":1,"score":0.2,"type":null,"reason":"Unrelated"}]`
+
+  let scores = []
+  try {
+    const res = await fetch(`${baseUrl}/api/score-betas`, {
+      method:  'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ prompt }),
+      signal: AbortSignal.timeout(30000),
+    })
+    if (res.ok) {
+      const raw = await res.json()
+      scores = Array.isArray(raw) ? raw : []
+    }
+  } catch (err) {
+    console.warn(`[ProactiveScan] $${symbol} — score-betas failed:`, err.message)
+    // Continue — record keyword-only hits with score null
+  }
+
+  // ── Step 4: Record confirmed betas to beta_relations ──
+  if (!process.env.DATABASE_URL) return 0
+
+  const confirmed = scores.filter(s => (s.score || 0) >= 0.5)
+  let recorded = 0
+
+  for (const scored of confirmed) {
+    const candidate = candidateList[scored.index]
+    if (!candidate) continue
+
+    try {
+      // Ensure token exists in registry
+      await db.query(`
+        INSERT INTO tokens (address, symbol, name, logo_url)
+        VALUES ($1, $2, $3, $4)
+        ON CONFLICT (address) DO UPDATE SET
+          last_seen = NOW(),
+          name      = COALESCE(EXCLUDED.name, tokens.name),
+          logo_url  = COALESCE(EXCLUDED.logo_url, tokens.logo_url)
+      `, [candidate.address, candidate.symbol, candidate.name || null, candidate.logoUrl || null])
+
+      // Upsert beta relationship
+      await db.query(`
+        INSERT INTO beta_relations
+          (alpha_address, beta_address, signals, score, relationship_type,
+           beta_price_at_detection, alpha_price_at_detection, beta_mcap_at_detection)
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+        ON CONFLICT (alpha_address, beta_address) DO UPDATE SET
+          last_seen       = NOW(),
+          signals         = EXCLUDED.signals,
+          score           = EXCLUDED.score,
+          confirmed_count = beta_relations.confirmed_count + 1
+      `, [
+        address,
+        candidate.address,
+        ['keyword', scored.type ? 'ai_match' : null].filter(Boolean),
+        scored.score || null,
+        scored.type  || null,
+        candidate.priceUsd    || null,
+        alpha.priceUsd        || null,
+        candidate.marketCap   || null,
+      ])
+
+      recorded++
+    } catch { /* non-fatal per-token error */ }
+  }
+
+  if (recorded > 0 || candidates.size > 0) {
+    console.log(`[ProactiveScan] $${symbol} — ${candidates.size} candidates, ${confirmed.length} scored ≥0.5, ${recorded} recorded`)
+  }
+
+  return recorded
+}
+
+// Main proactive scan loop — runs every 5 minutes
+const startProactiveBetaScanner = (port) => {
+  const baseUrl = `http://localhost:${port}`
+
+  const runScan = async () => {
+    if (proactiveScanRunning) {
+      console.log('[ProactiveScan] Previous scan still running — skipping this cycle')
+      return
+    }
+    proactiveScanRunning = true
+    const scanStart = Date.now()
+
+    try {
+      console.log('[ProactiveScan] Starting scan cycle...')
+      const alphas = await fetchTopAlphasForScan(10)
+
+      if (alphas.length === 0) {
+        console.log('[ProactiveScan] No alphas fetched — skipping cycle')
+        return
+      }
+
+      console.log(`[ProactiveScan] ${alphas.length} alphas to scan: ${alphas.map(a => '$' + a.symbol).join(', ')}`)
+
+      let totalRecorded = 0
+
+      for (const alpha of alphas) {
+        // Skip if beta_relations was updated in the last 6 minutes
+        const fresh = await isBetaRelationsFresh(alpha.address, 6)
+        if (fresh) {
+          console.log(`[ProactiveScan] $${alpha.symbol} — fresh, skipping`)
+          continue
+        }
+
+        try {
+          const n = await runProactiveScanForAlpha(alpha, baseUrl)
+          totalRecorded += n
+        } catch (err) {
+          console.warn(`[ProactiveScan] $${alpha.symbol} error:`, err.message)
+        }
+
+        // 2s spacing between alphas — avoids rate-limit cascades
+        await new Promise(r => setTimeout(r, 2000))
+      }
+
+      const elapsed = Math.round((Date.now() - scanStart) / 1000)
+      console.log(`[ProactiveScan] Cycle complete — ${totalRecorded} betas recorded in ${elapsed}s`)
+    } catch (err) {
+      console.error('[ProactiveScan] Cycle error:', err.message)
+    } finally {
+      proactiveScanRunning = false
+    }
+  }
+
+  // First run after 60s (let server fully boot + warm up caches first)
+  setTimeout(runScan, 60 * 1000)
+  // Then every 5 minutes
+  setInterval(runScan, 5 * 60 * 1000)
+  console.log('[ProactiveScan] Scheduled — first run in 60s, then every 5min')
+}
+
 const PORT = process.env.PORT || 3001
 app.listen(PORT, async () => {
   console.log(`BetaPlays backend on port ${PORT}`)
-  // Initialise Neon DB — creates tables if they don't exist. Non-blocking on failure.
+  // Initialise Supabase DB — creates tables if they don't exist. Non-blocking on failure.
   await db.init()
-  // Load persisted expansion cache from Neon — warms in-memory cache on cold start
+  // Load persisted expansion cache from Supabase — warms in-memory cache on cold start
   await loadExpansionCache(expansionCache)
   // Initialise Telegram service after server is up
   telegramService.init().catch(err =>
@@ -2196,4 +2676,6 @@ app.listen(PORT, async () => {
   // Any alpha not in cache gets queued for background V0 expansion automatically.
   // No static seed list needed — cache always mirrors the live feed.
   console.log('[Warmup] Cache warming driven by live feed via report-alphas')
+  // Start proactive beta scanner — pre-computes betas for top live alphas every 5min
+  startProactiveBetaScanner(PORT)
 })

@@ -1,7 +1,7 @@
-// ─── BetaPlays — Neon DB (server/db.js) ──────────────────────────────────────
-// Serverless Postgres via Neon — using @neondatabase/serverless driver.
-// Runs over WebSocket/HTTP (port 443) instead of raw TCP (port 5432).
-// This bypasses ISP/firewall blocks on port 5432 both locally and on Render.
+// ─── BetaPlays — Supabase DB (server/db.js) ───────────────────────────────────
+// Standard PostgreSQL via Supabase — using the `pg` package over TCP.
+// Connects through Supabase's PgBouncer transaction pooler (port 6543).
+// 200 max client connections vs Neon's 5 — no more timeout storms.
 //
 // Exports:
 //   db.init()   — creates tables if they don't exist (called at boot)
@@ -9,34 +9,27 @@
 //   db.pool     — raw Pool instance (for transactions if ever needed)
 // ─────────────────────────────────────────────────────────────────────────────
 
-const { Pool, neonConfig } = require('@neondatabase/serverless')
-const ws = require('ws')
-
-// Required for serverless driver in Node.js — provides WebSocket support
-neonConfig.webSocketConstructor = ws
+const { Pool } = require('pg')
 
 if (!process.env.DATABASE_URL) {
   console.warn('[DB] WARNING: DATABASE_URL not set — database features disabled')
 }
 
 const pool = new Pool({
-  connectionString: process.env.DATABASE_URL,
-  max: 5,
-  idleTimeoutMillis:    30000,
-  connectionTimeoutMillis: 10000,
+  connectionString:        process.env.DATABASE_URL,
+  max:                     20,
+  idleTimeoutMillis:       30_000,
+  connectionTimeoutMillis: 8_000,
+  ssl: process.env.DATABASE_URL?.includes('supabase')
+    ? { rejectUnauthorized: false }
+    : false,
 })
 
 pool.on('error', (err) => {
   console.error('[DB] Pool error:', err.message)
 })
 
-// ─── Schema ──────────────────────────────────────────────────────────────────
-// All tables use IF NOT EXISTS — safe to run on every boot.
-// Schema is intentionally simple: no foreign key enforcement on beta_relations
-// (alpha/beta tokens may arrive out of order, upserts handle the gap).
-
 const SCHEMA = `
-  -- 1. Token registry — every token ever seen by BetaPlays
   CREATE TABLE IF NOT EXISTS tokens (
     address      TEXT PRIMARY KEY,
     symbol       TEXT NOT NULL,
@@ -48,7 +41,6 @@ const SCHEMA = `
     chain        TEXT DEFAULT 'solana'
   );
 
-  -- 2. Alpha run history — each time a token surfaces as a runner on the feed
   CREATE TABLE IF NOT EXISTS alpha_runs (
     id               SERIAL PRIMARY KEY,
     token_address    TEXT NOT NULL,
@@ -60,10 +52,6 @@ const SCHEMA = `
     price            NUMERIC
   );
 
-  -- 3. Beta relationships — every alpha→beta pair our engine finds
-  --    signals is a Postgres TEXT array e.g. '{ai_match,keyword}'
-  --    confirmed_count increments every time the pair is seen again
-  --    price snapshots at detection enable "detected at X, now Y = Nx" performance tracking
   CREATE TABLE IF NOT EXISTS beta_relations (
     id                       SERIAL PRIMARY KEY,
     alpha_address            TEXT NOT NULL,
@@ -80,7 +68,6 @@ const SCHEMA = `
     UNIQUE (alpha_address, beta_address)
   );
 
-  -- 4. Narrative snapshots — periodic szn card state
   CREATE TABLE IF NOT EXISTS narratives (
     id           SERIAL PRIMARY KEY,
     key          TEXT NOT NULL,
@@ -91,7 +78,6 @@ const SCHEMA = `
     timestamp    TIMESTAMPTZ DEFAULT NOW()
   );
 
-  -- 5. Telegram signal cache — server-side, replaces 30-min localStorage TTL
   CREATE TABLE IF NOT EXISTS telegram_signals (
     id            SERIAL PRIMARY KEY,
     alpha_symbol  TEXT,
@@ -103,10 +89,6 @@ const SCHEMA = `
     created_at    TIMESTAMPTZ DEFAULT NOW()
   );
 
-  -- 6. General server-side key-value cache
-  --    Backs V0 expansion, AI score, and vision results across restarts.
-  --    key format: 'expansion:<address>', 'score:<cacheKey>', 'vision:<address>'
-  --    Entry is stale when NOW() > created_at + ttl_hours * INTERVAL '1 hour'
   CREATE TABLE IF NOT EXISTS server_cache (
     key        TEXT PRIMARY KEY,
     value      JSONB NOT NULL,
@@ -115,17 +97,13 @@ const SCHEMA = `
   );
 
   CREATE INDEX IF NOT EXISTS idx_server_cache_created ON server_cache(created_at);
-
-  -- Indexes for the queries we actually run
-  CREATE INDEX IF NOT EXISTS idx_alpha_runs_token ON alpha_runs(token_address);
-  CREATE INDEX IF NOT EXISTS idx_alpha_runs_ts    ON alpha_runs(timestamp DESC);
-  CREATE INDEX IF NOT EXISTS idx_beta_alpha       ON beta_relations(alpha_address);
-  CREATE INDEX IF NOT EXISTS idx_beta_last_seen   ON beta_relations(last_seen DESC);
-  CREATE INDEX IF NOT EXISTS idx_telegram_alpha   ON telegram_signals(alpha_symbol);
+  CREATE INDEX IF NOT EXISTS idx_alpha_runs_token     ON alpha_runs(token_address);
+  CREATE INDEX IF NOT EXISTS idx_alpha_runs_ts        ON alpha_runs(timestamp DESC);
+  CREATE INDEX IF NOT EXISTS idx_beta_alpha           ON beta_relations(alpha_address);
+  CREATE INDEX IF NOT EXISTS idx_beta_last_seen       ON beta_relations(last_seen DESC);
+  CREATE INDEX IF NOT EXISTS idx_telegram_alpha       ON telegram_signals(alpha_symbol);
 `
 
-// Migrations — run after schema. ALTER TABLE IF NOT EXISTS COLUMN is safe to re-run.
-// Add new columns here whenever the schema evolves.
 const MIGRATIONS = [
   `ALTER TABLE beta_relations ADD COLUMN IF NOT EXISTS beta_price_at_detection  NUMERIC`,
   `ALTER TABLE beta_relations ADD COLUMN IF NOT EXISTS alpha_price_at_detection NUMERIC`,
@@ -133,12 +111,6 @@ const MIGRATIONS = [
   `ALTER TABLE tokens         ADD COLUMN IF NOT EXISTS category                 TEXT`,
 ]
 
-// ─── Public API ──────────────────────────────────────────────────────────────
-
-/**
- * Run the schema + migrations on boot. Safe to call every time.
- * Logs success or error. Never throws — a DB failure must not crash the server.
- */
 async function init () {
   if (!process.env.DATABASE_URL) return
   try {
@@ -146,17 +118,12 @@ async function init () {
     for (const m of MIGRATIONS) {
       await pool.query(m)
     }
-    console.log('[DB] Schema initialised (Neon)')
+    console.log('[DB] Schema initialised (Supabase)')
   } catch (err) {
     console.error('[DB] Schema init failed:', err.message)
   }
 }
 
-/**
- * Thin query wrapper. Logs errors and re-throws so callers can handle gracefully.
- * @param {string} text   — SQL string with $1/$2 placeholders
- * @param {any[]}  params — parameter array
- */
 async function query (text, params) {
   try {
     return await pool.query(text, params)
@@ -165,10 +132,6 @@ async function query (text, params) {
     throw err
   }
 }
-
-// ─── Cache helpers ────────────────────────────────────────────────────────────
-// Used by index.js for V0 expansion, score, and vision caches.
-// Returns parsed value or null if missing/stale/error.
 
 async function cacheGet (key) {
   if (!process.env.DATABASE_URL) return null
@@ -183,7 +146,6 @@ async function cacheGet (key) {
   } catch { return null }
 }
 
-// Upserts a cache entry. ttlHours defaults to 6.
 async function cacheSet (key, value, ttlHours = 6) {
   if (!process.env.DATABASE_URL) return
   try {
@@ -196,11 +158,9 @@ async function cacheSet (key, value, ttlHours = 6) {
          ttl_hours  = EXCLUDED.ttl_hours`,
       [key, JSON.stringify(value), ttlHours]
     )
-  } catch { /* non-fatal — in-memory cache still works */ }
+  } catch { /* non-fatal */ }
 }
 
-// Load all non-stale expansion entries from Neon into the in-memory expansionCache.
-// Called once at boot so the cache survives server restarts.
 async function loadExpansionCache (expansionCache) {
   if (!process.env.DATABASE_URL) return 0
   try {
@@ -219,7 +179,7 @@ async function loadExpansionCache (expansionCache) {
       })
       loaded++
     }
-    if (loaded > 0) console.log(`[DB] Loaded ${loaded} expansion entries from Neon`)
+    if (loaded > 0) console.log(`[DB] Loaded ${loaded} expansion entries from Supabase`)
     return loaded
   } catch (err) {
     console.error('[DB] loadExpansionCache failed:', err.message)
