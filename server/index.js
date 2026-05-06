@@ -1702,7 +1702,25 @@ app.get('/api/birdeye', async (req, res) => {
 // tokenCount≥3, volume≥$1M). Tier 2: token-level on top 5 candidates
 // (≥2 tokens up ≥30% in 24h). 5min server cache.
 
-const METAS_CACHE = { trending: null, ts: 0, ttl: 5 * 60 * 1000 }
+// ─── DEXScreener rate limit cooldowns ────────────────────────────
+// When any DEXScreener endpoint returns 429, suspend that specific
+// endpoint for 5 minutes and serve stale cache. Prevents thundering
+// herd — no data in cache means every 30s refresh fires a live call
+// and gets another 429, burning the rate limit repeatedly.
+//
+// Metas TTL raised to 15 minutes — narratives don't shift in 5 min.
+// CTO TTL raised to 10 minutes — community takeovers are slow-moving.
+// Profiles/Recent TTL stays at 3 minutes — rebrands can be faster.
+
+let metasCooldownUntil          = 0
+let ctoCooldownUntil            = 0
+let profilesRecentCooldownUntil = 0
+
+const DEXSCREENER_429_COOLDOWN = 5 * 60 * 1000  // 5 minutes
+
+const METAS_CACHE          = { trending: null, ts: 0, ttl: 15 * 60 * 1000 }  // 15min
+const CTO_CACHE            = { data: null, ts: 0, ttl: 10 * 60 * 1000 }      // 10min
+const PROFILES_RECENT_CACHE = { data: null, ts: 0, ttl:  3 * 60 * 1000 }     //  3min
 
 const checkMetaTokenMomentum = async (slug) => {
   try {
@@ -1727,11 +1745,22 @@ app.get('/api/metas', async (req, res) => {
   const { type = 'trending', slug } = req.query
 
   if (type === 'trending') {
+    // Serve cache if fresh
     const age = Date.now() - METAS_CACHE.ts
     if (METAS_CACHE.trending && age < METAS_CACHE.ttl) return res.json(METAS_CACHE.trending)
 
+    // 429 cooldown — serve stale cache if available, otherwise skip
+    if (Date.now() < metasCooldownUntil) {
+      if (METAS_CACHE.trending) {
+        console.log('[Metas] 429 cooldown active — serving stale cache')
+        return res.json(METAS_CACHE.trending)
+      }
+      return res.status(429).json({ error: 'Metas rate limited — no cache available' })
+    }
+
     try {
       const r = await fetch('https://api.dexscreener.com/metas/trending/v1', { signal: AbortSignal.timeout(8000) })
+      if (r.status === 429) throw new Error('Metas 429')
       if (!r.ok) throw new Error(`Metas ${r.status}`)
       const raw = await r.json()
 
@@ -1771,7 +1800,12 @@ app.get('/api/metas', async (req, res) => {
       console.log(`[Metas] ${confirmed.length} Tier 2 confirmed, ${remainder.length} Tier 1 only`)
       return res.json(result)
     } catch (err) {
-      console.error('[Metas] Failed:', err.message)
+      if (err.message?.includes('429')) {
+        metasCooldownUntil = Date.now() + DEXSCREENER_429_COOLDOWN
+        console.warn(`[Metas] 429 — cooling down for 5min until ${new Date(metasCooldownUntil).toISOString()}`)
+      } else {
+        console.error('[Metas] Failed:', err.message)
+      }
       if (METAS_CACHE.trending) return res.json(METAS_CACHE.trending)
       return res.status(502).json({ error: err.message })
     }
@@ -1789,13 +1823,21 @@ app.get('/api/metas', async (req, res) => {
 })
 
 // ─── Community Takeovers ──────────────────────────────────────────
-const CTO_CACHE = { data: null, ts: 0, ttl: 5 * 60 * 1000 }
-
 app.get('/api/cto', async (req, res) => {
   const age = Date.now() - CTO_CACHE.ts
   if (CTO_CACHE.data && age < CTO_CACHE.ttl) return res.json(CTO_CACHE.data)
+
+  if (Date.now() < ctoCooldownUntil) {
+    if (CTO_CACHE.data) {
+      console.log('[CTO] 429 cooldown active — serving stale cache')
+      return res.json(CTO_CACHE.data)
+    }
+    return res.status(429).json({ error: 'CTO rate limited — no cache available' })
+  }
+
   try {
     const r = await fetch('https://api.dexscreener.com/community-takeovers/latest/v1', { signal: AbortSignal.timeout(8000) })
+    if (r.status === 429) throw new Error('CTO 429')
     if (!r.ok) throw new Error(`CTO ${r.status}`)
     const raw    = await r.json()
     const tokens = (Array.isArray(raw) ? raw : [])
@@ -1806,20 +1848,33 @@ app.get('/api/cto', async (req, res) => {
     console.log(`[CTO] ${tokens.length} tokens cached`)
     return res.json(result)
   } catch (err) {
-    console.error('[CTO] Failed:', err.message)
+    if (err.message?.includes('429')) {
+      ctoCooldownUntil = Date.now() + DEXSCREENER_429_COOLDOWN
+      console.warn(`[CTO] 429 — cooling down for 5min until ${new Date(ctoCooldownUntil).toISOString()}`)
+    } else {
+      console.error('[CTO] Failed:', err.message)
+    }
     if (CTO_CACHE.data) return res.json(CTO_CACHE.data)
     return res.status(502).json({ error: err.message })
   }
 })
 
 // ─── Recently updated token profiles ─────────────────────────────
-const PROFILES_RECENT_CACHE = { data: null, ts: 0, ttl: 3 * 60 * 1000 }
-
 app.get('/api/profiles/recent', async (req, res) => {
   const age = Date.now() - PROFILES_RECENT_CACHE.ts
   if (PROFILES_RECENT_CACHE.data && age < PROFILES_RECENT_CACHE.ttl) return res.json(PROFILES_RECENT_CACHE.data)
+
+  if (Date.now() < profilesRecentCooldownUntil) {
+    if (PROFILES_RECENT_CACHE.data) {
+      console.log('[Profiles/Recent] 429 cooldown active — serving stale cache')
+      return res.json(PROFILES_RECENT_CACHE.data)
+    }
+    return res.status(429).json({ error: 'Profiles/Recent rate limited — no cache available' })
+  }
+
   try {
     const r = await fetch('https://api.dexscreener.com/token-profiles/recent-updates/v1', { signal: AbortSignal.timeout(8000) })
+    if (r.status === 429) throw new Error('Profiles recent 429')
     if (!r.ok) throw new Error(`Profiles recent ${r.status}`)
     const raw    = await r.json()
     const tokens = (Array.isArray(raw) ? raw : []).filter(t => t.chainId === 'solana' && t.tokenAddress)
@@ -1828,7 +1883,12 @@ app.get('/api/profiles/recent', async (req, res) => {
     console.log(`[Profiles/Recent] ${tokens.length} cached`)
     return res.json(result)
   } catch (err) {
-    console.error('[Profiles/Recent] Failed:', err.message)
+    if (err.message?.includes('429')) {
+      profilesRecentCooldownUntil = Date.now() + DEXSCREENER_429_COOLDOWN
+      console.warn(`[Profiles/Recent] 429 — cooling down for 5min until ${new Date(profilesRecentCooldownUntil).toISOString()}`)
+    } else {
+      console.error('[Profiles/Recent] Failed:', err.message)
+    }
     if (PROFILES_RECENT_CACHE.data) return res.json(PROFILES_RECENT_CACHE.data)
     return res.status(502).json({ error: err.message })
   }
