@@ -1523,48 +1523,145 @@ Respond ONLY with a JSON array. No markdown. Example:
 })
 
 // ─── Birdeye proxy ────────────────────────────────────────────────
+// ─── Birdeye proxy ────────────────────────────────────────────────
+// Quota guard: marks exhausted until midnight UTC on 400/429.
+// 10min server cache for trending/top_volume (was firing every 30s = 5,760/day).
+// Per-token Supabase cache for overview/holders (shared across users).
+// DEXScreener fallback for trending when quota exhausted.
+// v3 endpoints stubbed — activate when key upgrades to paid tier.
+
+let birdeyeQuotaExhaustedUntil = 0
+const BIRDEYE_TRENDING_CACHE = { data: null, ts: 0, ttl: 10 * 60 * 1000 }
+
+const isBirdeyeQuotaExhausted = () => Date.now() < birdeyeQuotaExhaustedUntil
+
+const markBirdeyeQuotaExhausted = () => {
+  const now      = new Date()
+  const midnight = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate() + 1))
+  birdeyeQuotaExhaustedUntil = midnight.getTime()
+  console.warn(`[Birdeye] Quota exhausted — suspending until ${midnight.toISOString()}`)
+}
+
+const fetchDexScreenerTrendingFallback = async () => {
+  try {
+    const [boostRes, newRes] = await Promise.allSettled([
+      fetch('https://api.dexscreener.com/token-boosts/top/v1',        { signal: AbortSignal.timeout(6000) }),
+      fetch('https://api.dexscreener.com/latest/dex/pairs/solana/new', { signal: AbortSignal.timeout(6000) }),
+    ])
+    const seen = new Set()
+    const items = []
+    const addPairs = (pairs) => {
+      for (const p of (pairs || [])) {
+        if (p.chainId !== 'solana') continue
+        const addr = p.baseToken?.address
+        if (!addr || seen.has(addr)) continue
+        if ((p.volume?.h24 || 0) < 5000) continue
+        if ((p.liquidity?.usd || 0) < 1000) continue
+        seen.add(addr)
+        items.push({
+          address:           addr,
+          symbol:            p.baseToken.symbol || '',
+          name:              p.baseToken.name   || '',
+          v24hChangePercent: parseFloat(p.priceChange?.h24) || 0,
+          v24hUSD:           p.volume?.h24    || 0,
+          liquidity:         p.liquidity?.usd || 0,
+          logoURI:           p.info?.imageUrl || null,
+          _source:           'dexscreener_fallback',
+        })
+      }
+    }
+    if (boostRes.status === 'fulfilled' && boostRes.value.ok) {
+      const raw   = await boostRes.value.json()
+      const addrs = (Array.isArray(raw) ? raw : [])
+        .filter(t => t.chainId === 'solana').slice(0, 30)
+        .map(t => t.tokenAddress).join(',')
+      if (addrs) {
+        try {
+          const pr = await fetch(`https://api.dexscreener.com/latest/dex/tokens/${addrs}`, { signal: AbortSignal.timeout(6000) })
+          if (pr.ok) addPairs((await pr.json()).pairs)
+        } catch { /* non-fatal */ }
+      }
+    }
+    if (newRes.status === 'fulfilled' && newRes.value.ok) addPairs((await newRes.value.json()).pairs)
+    if (items.length === 0) return null
+    console.log(`[Birdeye] DEXScreener fallback — ${items.length} tokens`)
+    return { data: { items } }
+  } catch (err) {
+    console.warn('[Birdeye] DEXScreener fallback failed:', err.message)
+    return null
+  }
+}
+
 app.get('/api/birdeye', async (req, res) => {
   const { endpoint, address } = req.query
-
   const BIRDEYE_KEY = process.env.BIRDEYE_API_KEY
   if (!BIRDEYE_KEY) return res.status(503).json({ error: 'Birdeye not configured' })
 
-  // trending endpoint doesn't need an address
-  const ENDPOINT_MAP = {
-    token_overview: address ? `https://public-api.birdeye.so/defi/token_overview?address=${address}` : null,
-    holders:        address ? `https://public-api.birdeye.so/v1/token/holder?address=${address}&offset=0&limit=10` : null,
-    // Top gainers by 24h % change — finds organic runners not in DEXScreener boost feed
-    // token_trending requires paid plan — use tokenlist sorted by 24h% change instead
-    // tokenlist is available on free tier and sorts by the same metric we need
-    trending:       `https://public-api.birdeye.so/defi/tokenlist?sort_by=v24hChangePercent&sort_type=desc&offset=0&limit=50&min_liquidity=5000`,
-    // Top by volume — catches high-activity tokens regardless of % change
-    top_volume:     `https://public-api.birdeye.so/defi/tokenlist?sort_by=v24hUSD&sort_type=desc&offset=0&limit=20&min_liquidity=10000`,
+  if (!address && ['token_overview', 'token_overview_v3', 'holders'].includes(endpoint)) {
+    return res.status(400).json({ error: 'address required for this endpoint' })
   }
 
-  if (!address && ['token_overview','holders'].includes(endpoint)) {
-    return res.status(400).json({ error: 'address required for this endpoint' })
+  const ENDPOINT_MAP = {
+    token_overview:    address ? `https://public-api.birdeye.so/defi/token_overview?address=${address}` : null,
+    holders:           address ? `https://public-api.birdeye.so/v1/token/holder?address=${address}&offset=0&limit=10` : null,
+    trending:          `https://public-api.birdeye.so/defi/tokenlist?sort_by=v24hChangePercent&sort_type=desc&offset=0&limit=50&min_liquidity=5000`,
+    top_volume:        `https://public-api.birdeye.so/defi/tokenlist?sort_by=v24hUSD&sort_type=desc&offset=0&limit=20&min_liquidity=10000`,
+    // Paid tier stubs — activate automatically when key has access
+    trending_v3:       `https://public-api.birdeye.so/defi/v3/token/list?sort_by=volume_24h_change_percent&sort_type=desc&offset=0&limit=50&min_liquidity=5000`,
+    token_overview_v3: address ? `https://public-api.birdeye.so/defi/v3/token/overview?address=${address}` : null,
   }
 
   const url = ENDPOINT_MAP[endpoint]
   if (!url) return res.status(400).json({ error: `Unknown endpoint: ${endpoint}` })
 
-  console.log(`[Birdeye] Calling: ${url}`)
-  console.log(`[Birdeye] Key present: ${!!BIRDEYE_KEY} (${BIRDEYE_KEY ? BIRDEYE_KEY.slice(0,8) + '...' : 'MISSING'})`)
+  // Per-token Supabase cache — shared across users, survives restarts
+  if (endpoint === 'token_overview' || endpoint === 'token_overview_v3') {
+    const cached = await cacheGet(`birdeye:overview:${address}`)
+    if (cached) return res.json(cached)
+  }
+  if (endpoint === 'holders') {
+    const cached = await cacheGet(`birdeye:holders:${address}`)
+    if (cached) return res.json(cached)
+  }
+
+  // 10-minute in-memory cache for trending endpoints
+  if (endpoint === 'trending' || endpoint === 'top_volume') {
+    const age = Date.now() - BIRDEYE_TRENDING_CACHE.ts
+    if (BIRDEYE_TRENDING_CACHE.data && age < BIRDEYE_TRENDING_CACHE.ttl) {
+      return res.json(BIRDEYE_TRENDING_CACHE.data)
+    }
+  }
+
+  // Quota guard
+  if (isBirdeyeQuotaExhausted()) {
+    if (endpoint === 'trending' || endpoint === 'top_volume' || endpoint === 'trending_v3') {
+      if (BIRDEYE_TRENDING_CACHE.data) return res.json(BIRDEYE_TRENDING_CACHE.data)
+      const fallback = await fetchDexScreenerTrendingFallback()
+      if (fallback) return res.json(fallback)
+    }
+    return res.status(429).json({ error: 'Birdeye quota exhausted until midnight UTC' })
+  }
 
   try {
     const response = await fetchWithRetry(url, {
       headers: { 'X-API-KEY': BIRDEYE_KEY, 'x-chain': 'solana' },
-    })
-    console.log(`[Birdeye] Response status: ${response.status}`)
+    }, 1)  // 1 retry only — don't double-burn quota
+
     if (response.status === 404) return res.json({ data: null })
-    if (response.status === 400) {
-      console.warn(`[Birdeye] 400 on ${endpoint} — endpoint may require higher tier or key is invalid`)
-      return res.status(400).json({ error: `Birdeye 400 — check API key tier for ${endpoint}` })
+
+    if (response.status === 400 || response.status === 429) {
+      console.warn(`[Birdeye] ${response.status} on ${endpoint} — marking quota exhausted`)
+      markBirdeyeQuotaExhausted()
+      if (endpoint === 'trending' || endpoint === 'top_volume') {
+        if (BIRDEYE_TRENDING_CACHE.data) return res.json(BIRDEYE_TRENDING_CACHE.data)
+        const fallback = await fetchDexScreenerTrendingFallback()
+        if (fallback) return res.json(fallback)
+      }
+      return res.status(response.status).json({ error: `Birdeye ${response.status}` })
     }
+
     if (!response.ok) throw new Error(`Birdeye ${response.status}`)
 
-    // Guard: Birdeye occasionally returns an HTML error page instead of JSON
-    // (e.g. during outages or when the CDN intercepts the request)
     const contentType = response.headers.get('content-type') || ''
     if (!contentType.includes('application/json')) {
       const raw = await response.text()
@@ -1572,10 +1669,168 @@ app.get('/api/birdeye', async (req, res) => {
       return res.status(502).json({ error: 'Birdeye returned non-JSON response' })
     }
 
-    res.json(await response.json())
+    const data = await response.json()
+
+    // Cache successful responses
+    if (endpoint === 'trending' || endpoint === 'top_volume') {
+      BIRDEYE_TRENDING_CACHE.data = data
+      BIRDEYE_TRENDING_CACHE.ts   = Date.now()
+    }
+    if (endpoint === 'token_overview' || endpoint === 'token_overview_v3') {
+      cacheGet(`birdeye:overview:${address}`).then(() =>
+        cacheSet(`birdeye:overview:${address}`, data, 24)
+      ).catch(() => {})
+    }
+    if (endpoint === 'holders') {
+      cacheSet(`birdeye:holders:${address}`, data, 6).catch(() => {})
+    }
+
+    res.json(data)
   } catch (err) {
-    console.error('Birdeye proxy error:', err.message)
+    console.error('[Birdeye] Proxy error:', err.message)
+    if (endpoint === 'trending' || endpoint === 'top_volume') {
+      if (BIRDEYE_TRENDING_CACHE.data) return res.json(BIRDEYE_TRENDING_CACHE.data)
+      const fallback = await fetchDexScreenerTrendingFallback()
+      if (fallback) return res.json(fallback)
+    }
     res.status(502).json({ error: err.message })
+  }
+})
+
+// ─── DEXScreener Metas API ────────────────────────────────────────
+// Two-tier trending filter. Tier 1: aggregate (h1>10% OR h6>20%,
+// tokenCount≥3, volume≥$1M). Tier 2: token-level on top 5 candidates
+// (≥2 tokens up ≥30% in 24h). 5min server cache.
+
+const METAS_CACHE = { trending: null, ts: 0, ttl: 5 * 60 * 1000 }
+
+const checkMetaTokenMomentum = async (slug) => {
+  try {
+    const r = await fetch(`https://api.dexscreener.com/metas/meta/v1/${encodeURIComponent(slug)}`, { signal: AbortSignal.timeout(6000) })
+    if (!r.ok) return { confirmed: false, pumpingCount: 0 }
+    const data  = await r.json()
+    const pairs = Array.isArray(data.pairs) ? data.pairs : []
+    const pumping = pairs.filter(p => parseFloat(p.priceChange?.h24 || 0) >= 30)
+    return {
+      confirmed:    pumping.length >= 2,
+      pumpingCount: pumping.length,
+      totalTokens:  pairs.length,
+      topGainers:   pumping
+        .sort((a, b) => parseFloat(b.priceChange?.h24 || 0) - parseFloat(a.priceChange?.h24 || 0))
+        .slice(0, 3)
+        .map(p => ({ symbol: p.baseToken?.symbol || '', change24h: parseFloat(p.priceChange?.h24 || 0), volume24h: p.volume?.h24 || 0 })),
+    }
+  } catch { return { confirmed: false, pumpingCount: 0 } }
+}
+
+app.get('/api/metas', async (req, res) => {
+  const { type = 'trending', slug } = req.query
+
+  if (type === 'trending') {
+    const age = Date.now() - METAS_CACHE.ts
+    if (METAS_CACHE.trending && age < METAS_CACHE.ttl) return res.json(METAS_CACHE.trending)
+
+    try {
+      const r = await fetch('https://api.dexscreener.com/metas/trending/v1', { signal: AbortSignal.timeout(8000) })
+      if (!r.ok) throw new Error(`Metas ${r.status}`)
+      const raw = await r.json()
+
+      const tier1 = (Array.isArray(raw) ? raw : [])
+        .filter(m => (m.tokenCount || 0) >= 3 && (m.volume || 0) >= 1_000_000 &&
+          ((m.marketCapChange?.h1 || 0) >= 10 || (m.marketCapChange?.h6 || 0) >= 20))
+        .map(m => ({
+          name: m.name, slug: m.slug, marketCap: m.marketCap || 0, volume: m.volume || 0,
+          tokenCount: m.tokenCount || 0,
+          change: { m5: m.marketCapChange?.m5 || 0, h1: m.marketCapChange?.h1 || 0, h6: m.marketCapChange?.h6 || 0, h24: m.marketCapChange?.h24 || 0 },
+          trendScore: Math.round(Math.abs(m.marketCapChange?.h1 || 0) * 0.5 + Math.abs(m.marketCapChange?.h6 || 0) * 0.3 + Math.abs(m.marketCapChange?.h24 || 0) * 0.2),
+        }))
+        .sort((a, b) => b.trendScore - a.trendScore)
+
+      if (tier1.length === 0) {
+        const result = { metas: [], fetchedAt: Date.now(), tier1Count: 0, tier2Count: 0 }
+        METAS_CACHE.trending = result; METAS_CACHE.ts = Date.now()
+        return res.json(result)
+      }
+
+      const top5 = tier1.slice(0, 5), remainder = tier1.slice(5)
+      console.log(`[Metas] Tier 1: ${tier1.length} — Tier 2 check on top ${top5.length}`)
+      const tier2Results = await Promise.allSettled(top5.map(m => checkMetaTokenMomentum(m.slug)))
+
+      const confirmed = []
+      top5.forEach((meta, i) => {
+        const r = tier2Results[i]
+        if (r.status !== 'fulfilled') return
+        const { confirmed: ok, pumpingCount, topGainers } = r.value
+        if (ok) { confirmed.push({ ...meta, pumpingCount, topGainers, tier2Confirmed: true }); console.log(`[Metas] ✅ ${meta.name} — ${pumpingCount} tokens up 30%+`) }
+        else      console.log(`[Metas] ❌ ${meta.name} — only ${pumpingCount} tokens up 30%+`)
+      })
+
+      const metas  = [...confirmed, ...remainder.map(m => ({ ...m, tier2Confirmed: false, pumpingCount: null }))]
+      const result = { metas, fetchedAt: Date.now(), tier1Count: tier1.length, tier2Count: confirmed.length }
+      METAS_CACHE.trending = result; METAS_CACHE.ts = Date.now()
+      console.log(`[Metas] ${confirmed.length} Tier 2 confirmed, ${remainder.length} Tier 1 only`)
+      return res.json(result)
+    } catch (err) {
+      console.error('[Metas] Failed:', err.message)
+      if (METAS_CACHE.trending) return res.json(METAS_CACHE.trending)
+      return res.status(502).json({ error: err.message })
+    }
+  }
+
+  if (type === 'meta' && slug) {
+    try {
+      const r = await fetch(`https://api.dexscreener.com/metas/meta/v1/${encodeURIComponent(slug)}`, { signal: AbortSignal.timeout(8000) })
+      if (!r.ok) throw new Error(`Meta ${slug} ${r.status}`)
+      return res.json(await r.json())
+    } catch (err) { return res.status(502).json({ error: err.message }) }
+  }
+
+  return res.status(400).json({ error: 'type must be trending or meta (with slug)' })
+})
+
+// ─── Community Takeovers ──────────────────────────────────────────
+const CTO_CACHE = { data: null, ts: 0, ttl: 5 * 60 * 1000 }
+
+app.get('/api/cto', async (req, res) => {
+  const age = Date.now() - CTO_CACHE.ts
+  if (CTO_CACHE.data && age < CTO_CACHE.ttl) return res.json(CTO_CACHE.data)
+  try {
+    const r = await fetch('https://api.dexscreener.com/community-takeovers/latest/v1', { signal: AbortSignal.timeout(8000) })
+    if (!r.ok) throw new Error(`CTO ${r.status}`)
+    const raw    = await r.json()
+    const tokens = (Array.isArray(raw) ? raw : [])
+      .filter(t => t.chainId === 'solana' && t.tokenAddress)
+      .map(t => ({ address: t.tokenAddress, symbol: t.header || '', name: t.description || '', logoUrl: t.icon || null, isCTO: true, source: 'cto' }))
+    const result = { tokens, fetchedAt: Date.now() }
+    CTO_CACHE.data = result; CTO_CACHE.ts = Date.now()
+    console.log(`[CTO] ${tokens.length} tokens cached`)
+    return res.json(result)
+  } catch (err) {
+    console.error('[CTO] Failed:', err.message)
+    if (CTO_CACHE.data) return res.json(CTO_CACHE.data)
+    return res.status(502).json({ error: err.message })
+  }
+})
+
+// ─── Recently updated token profiles ─────────────────────────────
+const PROFILES_RECENT_CACHE = { data: null, ts: 0, ttl: 3 * 60 * 1000 }
+
+app.get('/api/profiles/recent', async (req, res) => {
+  const age = Date.now() - PROFILES_RECENT_CACHE.ts
+  if (PROFILES_RECENT_CACHE.data && age < PROFILES_RECENT_CACHE.ttl) return res.json(PROFILES_RECENT_CACHE.data)
+  try {
+    const r = await fetch('https://api.dexscreener.com/token-profiles/recent-updates/v1', { signal: AbortSignal.timeout(8000) })
+    if (!r.ok) throw new Error(`Profiles recent ${r.status}`)
+    const raw    = await r.json()
+    const tokens = (Array.isArray(raw) ? raw : []).filter(t => t.chainId === 'solana' && t.tokenAddress)
+    const result = { tokens, fetchedAt: Date.now() }
+    PROFILES_RECENT_CACHE.data = result; PROFILES_RECENT_CACHE.ts = Date.now()
+    console.log(`[Profiles/Recent] ${tokens.length} cached`)
+    return res.json(result)
+  } catch (err) {
+    console.error('[Profiles/Recent] Failed:', err.message)
+    if (PROFILES_RECENT_CACHE.data) return res.json(PROFILES_RECENT_CACHE.data)
+    return res.status(502).json({ error: err.message })
   }
 })
 
@@ -2234,7 +2489,8 @@ app.get('/api/cache/score', async (req, res) => {
 app.post('/api/cache/score', async (req, res) => {
   const { key, data } = req.body
   if (!key || !data) return res.status(400).json({ error: 'key and data required' })
-  await cacheSet(`score:${key}`, data, 0.167)  // 10 minutes — matches old betaplays_score_cache_v1 TTL
+  await cacheSet(`score:${key}`, data, 6)  // 6 hours — beta narrative fit doesn't change
+                                            // meaningfully in minutes. Was 10min (0.167h). 36x improvement.
   return res.json({ ok: true })
 })
 
@@ -2288,11 +2544,20 @@ app.post('/api/report-alphas', (req, res) => {
   twitterService.updateKnownAlphas(alphas)
 
   // Queue uncached tokens for background V0 expansion.
-  // Already-cached tokens are skipped inside expandTokenToCache.
-  // Queue deduplication: don't add if already queued.
+  // QUOTA CAP: max 30 per cycle, sorted by momentum — warmup the most
+  // active tokens first. Remaining expand on-demand when user clicks them.
+  // Was queuing 337+ at boot = 337 Groq calls before any user scan.
   const queuedAddresses = new Set(warmupQueue.map(t => t.address))
   let queued = 0
-  for (const alpha of alphas) {
+
+  const sortedAlphas = [...alphas].sort((a, b) =>
+    ((b.volume24h || 0) * Math.abs(parseFloat(b.priceChange24h) || 0)) -
+    ((a.volume24h || 0) * Math.abs(parseFloat(a.priceChange24h) || 0))
+  )
+
+  const WARMUP_CAP = 30
+  for (const alpha of sortedAlphas) {
+    if (queued >= WARMUP_CAP) break
     if (!alpha.address || !alpha.symbol) continue
     const cached = expansionCache.get(alpha.address)
     if (isExpansionCacheValid(cached, alpha.marketCap, false)) continue
@@ -2676,6 +2941,9 @@ app.listen(PORT, async () => {
   // Any alpha not in cache gets queued for background V0 expansion automatically.
   // No static seed list needed — cache always mirrors the live feed.
   console.log('[Warmup] Cache warming driven by live feed via report-alphas')
-  // Start proactive beta scanner — pre-computes betas for top live alphas every 5min
-  startProactiveBetaScanner(PORT)
+  // Proactive beta scanner DISABLED — re-enable when Groq Developer tier active.
+  // Scanner burns ~288 V8 calls/day (10 alphas × every 5min) against a 1,000/day
+  // free tier limit. Uncomment when Developer tier available (10x limits, free with card).
+  // startProactiveBetaScanner(PORT)
+  console.log('[ProactiveScan] Disabled — re-enable when Groq Developer tier active')
 })
