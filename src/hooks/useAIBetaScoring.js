@@ -236,7 +236,13 @@ const processBatch = async (alpha, batch, batchNum, relationshipHints) => {
   )
   const ALWAYS_INVALID = [
     'dollar sign','both are crypto','both tokens are',
-    'cryptocurrency','meme token','solana token','similar concept'
+    'cryptocurrency','meme token','solana token','similar concept',
+    // Generic emotion/humor rationalisations — these fire when MetaSeed
+    // accidentally feeds humor candidates into non-humor alphas.
+    // The AI invents a TWIN relationship ("both are emotion tokens") that
+    // has nothing to do with the alpha's actual narrative.
+    'emotion token','humor token','laughter token','comedy token',
+    'both represent','both are emotion','both express','reaction token',
   ]
   const MONETARY_IF_NOT_THEMED = ['monetary','dollar','currency','financial']
   const isHallucination = (reason = '') => {
@@ -343,6 +349,17 @@ export const classifyRelationships = async (alpha, candidates, relationshipHints
   const sorted = allClassified.sort((a, b) => b.aiScore - a.aiScore)
   setScoreCache(cacheKey, sorted, allRejectedAddrs)
   console.log(`[Vector8] $${alpha.symbol} — ✅ ${sorted.length} confirmed, ❌ ${allRejectedAddrs.size} rejected`)
+
+  // Silent failure detection — 0 confirmed AND 0 rejected from a non-empty
+  // candidate set means every batch threw an error and was swallowed silently.
+  // This is the "0/0" problem that makes V8 invisible when Groq Scout times out.
+  if (sorted.length === 0 && allRejectedAddrs.size === 0 && candidates.length > 0) {
+    console.warn(
+      `[Vector8] ⚠️  $${alpha.symbol} — ALL ${candidates.length} candidates unscored. ` +
+      `Every batch failed silently (Groq timeout / malformed JSON). ` +
+      `Betas will show as unclassified with no aiReason.`
+    )
+  }
 
   return { results: sorted, rejectedAddresses: allRejectedAddrs }
 }

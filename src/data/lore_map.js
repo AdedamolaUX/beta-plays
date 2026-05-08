@@ -311,6 +311,104 @@ export const NARRATIVE_CATEGORIES = {
   },
 }
 
+// ─── Category Trait System ────────────────────────────────────────
+// Each category gets a set of abstract trait tags.
+// MetaSeed compatibility is determined by trait overlap — no hardcoded pairs.
+// Add new categories here with traits; compatibility logic self-maintains.
+//
+// Trait vocabulary:
+//   fictional    — token universe is invented/narrative (anime, gaming, movies)
+//   character    — token represents a named character or persona
+//   real_world   — token references real people, places, or events
+//   creature     — token represents an animal or living being
+//   meme         — token is fundamentally a meme/joke format
+//   culture      — token references a cultural movement or shared identity
+//   internet     — token lives primarily in online/CT space
+//   tech         — token references technology, AI, or science
+//   nature       — token references the natural world
+//   emotion      — token represents a feeling or reaction
+//   political    — token references governance, elections, or ideology
+//   japanese     — token is rooted in Japanese language or culture
+//   chinese      — token is rooted in Chinese language or culture
+//   korean       — token is rooted in Korean language or culture
+//   latin        — token is rooted in Latin/Spanish language or culture
+export const CATEGORY_TRAITS = {
+  aliens:           ['fictional', 'creature', 'sci_fi', 'meme'],
+  frogs:            ['creature', 'meme', 'internet', 'culture'],
+  dogs:             ['creature', 'meme', 'nature', 'culture'],
+  cats:             ['creature', 'meme', 'nature', 'culture'],
+  bears:            ['creature', 'nature', 'meme'],
+  penguins:         ['creature', 'nature', 'meme'],
+  animals:          ['creature', 'nature'],
+  nature:           ['nature', 'creature'],
+  elon:             ['real_world', 'character', 'tech', 'political', 'meme'],
+  trump:            ['real_world', 'character', 'political', 'meme', 'culture'],
+  political:        ['real_world', 'political', 'meme', 'culture'],
+  celebrity:        ['real_world', 'character', 'culture', 'meme'],
+  ai:               ['tech', 'sci_fi', 'culture', 'internet'],
+  space:            ['sci_fi', 'tech', 'fictional', 'nature'],
+  anime:            ['fictional', 'character', 'japanese', 'culture'],
+  gaming:           ['fictional', 'character', 'culture', 'internet'],
+  movies:           ['fictional', 'character', 'culture', 'meme'],
+  sports:           ['real_world', 'character', 'culture'],
+  food:             ['culture', 'meme', 'nature'],
+  memes:            ['meme', 'internet', 'culture', 'emotion'],
+  humor:            ['meme', 'internet', 'emotion', 'culture'],
+  internet_culture: ['meme', 'internet', 'culture', 'emotion'],
+  crypto:           ['tech', 'internet', 'culture'],
+  pippin:           ['fictional', 'character', 'culture'],
+  holiday:          ['culture', 'meme', 'real_world'],
+  japanese:         ['japanese', 'culture', 'character'],
+  chinese:          ['chinese', 'culture', 'character'],
+  korean:           ['korean', 'culture', 'character'],
+  spanish:          ['latin', 'culture', 'character'],
+}
+
+// Minimum shared traits required for MetaSeed injection.
+// 2 = meaningful overlap. 1 = too loose (nearly everything shares 'meme').
+const MIN_SHARED_TRAITS = 2
+
+// Returns true if dominantCat narratively complements tokenCat.
+// Neither can be null — call site must handle null before calling this.
+export const areCategoriesCompatible = (tokenCat, dominantCat) => {
+  if (!tokenCat || !dominantCat) return false
+  if (tokenCat === dominantCat) return false  // already in same category — no injection needed
+  const tokenTraits    = new Set(CATEGORY_TRAITS[tokenCat]    || [])
+  const dominantTraits = new Set(CATEGORY_TRAITS[dominantCat] || [])
+  if (tokenTraits.size === 0 || dominantTraits.size === 0) return false
+  let shared = 0
+  for (const trait of dominantTraits) {
+    if (tokenTraits.has(trait)) shared++
+    if (shared >= MIN_SHARED_TRAITS) return true
+  }
+  return false
+}
+
+// Infers category from a list of search terms when V0A detection returned null.
+// Useful for tokens with non-Latin names (Japanese, Chinese) where symbol/name
+// matching fails but V0 expansion terms reveal the actual narrative.
+// Scores ALL categories by keyword overlap and returns the best match.
+// Priority is a tiebreaker only — most keyword matches wins.
+// Requires at least 2 matching keywords to avoid false positives.
+export const inferCategoryFromTerms = (terms = []) => {
+  if (!terms.length) return null
+  const termSet = new Set(terms.map(t => t.toLowerCase()))
+  let bestKey   = null
+  let bestScore = 0
+  let bestPri   = 99
+  for (const [key, cat] of SORTED_CATEGORIES) {
+    const overlap = cat.keywords.filter(kw => termSet.has(kw)).length
+    if (overlap < 2) continue
+    // More matches wins. Equal matches: lower priority number (more specific) wins.
+    if (overlap > bestScore || (overlap === bestScore && (cat.priority || 2) < bestPri)) {
+      bestKey   = key
+      bestScore = overlap
+      bestPri   = cat.priority || 2
+    }
+  }
+  return bestKey
+}
+
 // ─── Exports ─────────────────────────────────────────────────────
 
 export const getSearchTerms = (symbol) => {

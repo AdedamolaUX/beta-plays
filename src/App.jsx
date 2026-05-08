@@ -454,9 +454,185 @@ const NarrativeTicker = ({ liveAlphas = [], sznCards = [] }) => {
   )
 }
 
+// ─── Settings ────────────────────────────────────────────────────
+
+const SETTINGS_KEY = 'betaplays_settings_v1'
+
+const DEFAULT_SETTINGS = {
+  hideWeakBetas:     false,   // hide WEAK tier betas
+  hideUnclassified:  false,   // hide betas with no V8 score
+  defaultTab:        'live',  // starting alpha tab
+  metaSeedEnabled:   true,    // MetaSeed narrative injection
+  compactBetas:      false,   // compact beta card layout
+  defaultBetaSort:   'rank',  // default beta sort column
+}
+
+const useSettings = () => {
+  const [settings, setSettings] = useState(() => {
+    try {
+      const raw = localStorage.getItem(SETTINGS_KEY)
+      return raw ? { ...DEFAULT_SETTINGS, ...JSON.parse(raw) } : DEFAULT_SETTINGS
+    } catch { return DEFAULT_SETTINGS }
+  })
+
+  const updateSetting = (key, value) => {
+    setSettings(prev => {
+      const next = { ...prev, [key]: value }
+      try { localStorage.setItem(SETTINGS_KEY, JSON.stringify(next)) } catch {}
+      return next
+    })
+  }
+
+  const resetSettings = () => {
+    try { localStorage.removeItem(SETTINGS_KEY) } catch {}
+    setSettings(DEFAULT_SETTINGS)
+  }
+
+  return { settings, updateSetting, resetSettings }
+}
+
+const SettingsPanel = ({ settings, onUpdate, onReset, onClose }) => {
+  const overlay = {
+    position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.7)',
+    zIndex: 9999, display: 'flex', alignItems: 'center', justifyContent: 'center',
+  }
+  const panel = {
+    background: 'var(--surface-2)', border: '1px solid var(--border-lit)',
+    borderRadius: 12, padding: 24, width: 340, maxWidth: '90vw',
+    display: 'flex', flexDirection: 'column', gap: 20,
+  }
+  const row = {
+    display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12,
+  }
+  const label = {
+    fontFamily: 'var(--font-display)', fontSize: 12, fontWeight: 700,
+    color: 'var(--text-primary)',
+  }
+  const sublabel = {
+    fontFamily: 'var(--font-body)', fontSize: 10, color: 'var(--text-muted)',
+    marginTop: 2,
+  }
+  const Toggle = ({ settingKey }) => {
+    const on = settings[settingKey]
+    return (
+      <div
+        onClick={() => onUpdate(settingKey, !on)}
+        style={{
+          width: 36, height: 20, borderRadius: 10, flexShrink: 0,
+          background: on ? 'var(--neon-green)' : 'rgba(255,255,255,0.1)',
+          position: 'relative', cursor: 'pointer', transition: 'background 0.2s',
+        }}
+      >
+        <div style={{
+          position: 'absolute', top: 3, left: on ? 19 : 3,
+          width: 14, height: 14, borderRadius: '50%',
+          background: 'white', transition: 'left 0.2s',
+        }} />
+      </div>
+    )
+  }
+  const Select = ({ settingKey, options }) => (
+    <select
+      value={settings[settingKey]}
+      onChange={e => onUpdate(settingKey, e.target.value)}
+      style={{
+        background: 'var(--surface-3)', border: '1px solid var(--border)',
+        borderRadius: 6, color: 'var(--text-primary)', padding: '4px 8px',
+        fontFamily: 'var(--font-display)', fontSize: 11, cursor: 'pointer',
+      }}
+    >
+      {options.map(([val, lbl]) => <option key={val} value={val}>{lbl}</option>)}
+    </select>
+  )
+
+  return (
+    <div style={overlay} onClick={e => { if (e.target === e.currentTarget) onClose() }}>
+      <div style={panel}>
+        {/* Header */}
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+          <div style={{ fontFamily: 'var(--font-display)', fontSize: 16, fontWeight: 800, color: 'var(--neon-green)' }}>
+            ⚙️ Settings
+          </div>
+          <button onClick={onClose} style={{ background: 'none', border: 'none', color: 'var(--text-muted)', cursor: 'pointer', fontSize: 18, lineHeight: 1 }}>✕</button>
+        </div>
+
+        {/* Beta display */}
+        <div>
+          <div style={{ fontFamily: 'var(--font-mono)', fontSize: 9, color: 'var(--text-muted)', letterSpacing: 1, marginBottom: 12 }}>BETA RESULTS</div>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+            <div style={row}>
+              <div>
+                <div style={label}>Hide weak betas</div>
+                <div style={sublabel}>Remove WEAK tier from results</div>
+              </div>
+              <Toggle settingKey="hideWeakBetas" />
+            </div>
+            <div style={row}>
+              <div>
+                <div style={label}>Hide unclassified</div>
+                <div style={sublabel}>Only show AI-scored betas</div>
+              </div>
+              <Toggle settingKey="hideUnclassified" />
+            </div>
+            <div style={row}>
+              <div>
+                <div style={label}>Default sort</div>
+                <div style={sublabel}>How betas are ordered by default</div>
+              </div>
+              <Select settingKey="defaultBetaSort" options={[['rank','Rank'],['change','24h %'],['volume','Volume'],['mcap','Mcap']]} />
+            </div>
+            <div style={row}>
+              <div>
+                <div style={label}>Compact layout</div>
+                <div style={sublabel}>Smaller beta cards, more visible</div>
+              </div>
+              <Toggle settingKey="compactBetas" />
+            </div>
+          </div>
+        </div>
+
+        {/* Discovery */}
+        <div>
+          <div style={{ fontFamily: 'var(--font-mono)', fontSize: 9, color: 'var(--text-muted)', letterSpacing: 1, marginBottom: 12 }}>DISCOVERY</div>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+            <div style={row}>
+              <div>
+                <div style={label}>MetaSeed injection</div>
+                <div style={sublabel}>Add active narrative terms to searches</div>
+              </div>
+              <Toggle settingKey="metaSeedEnabled" />
+            </div>
+            <div style={row}>
+              <div>
+                <div style={label}>Default tab</div>
+                <div style={sublabel}>Which tab opens on load</div>
+              </div>
+              <Select settingKey="defaultTab" options={[['live','Live'],['cooling','Cooling'],['narratives','Narratives'],['watch','Watchlist']]} />
+            </div>
+          </div>
+        </div>
+
+        {/* Reset */}
+        <div style={{ borderTop: '1px solid var(--border)', paddingTop: 16 }}>
+          <button
+            onClick={() => { onReset(); onClose() }}
+            style={{
+              background: 'rgba(255,68,102,0.1)', border: '1px solid rgba(255,68,102,0.3)',
+              borderRadius: 6, color: 'var(--red)', fontFamily: 'var(--font-display)',
+              fontSize: 11, fontWeight: 700, padding: '6px 14px', cursor: 'pointer', width: '100%',
+            }}
+          >
+            Reset to defaults
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 // ─── Navbar ─────────────────────────────────────────────────────
 
-const Navbar = ({ onListBeta, newRunners, liveAlphas, coolingAlphas }) => (
+const Navbar = ({ onListBeta, newRunners, liveAlphas, coolingAlphas, onSettings }) => (
   <nav className="navbar">
   <div className="navbar-brand">
     <img
@@ -477,6 +653,16 @@ const Navbar = ({ onListBeta, newRunners, liveAlphas, coolingAlphas }) => (
       <LatencyDot />
     </div>
     <div className="navbar-actions">
+      <button
+        onClick={onSettings}
+        style={{
+          background: 'rgba(255,255,255,0.05)', border: '1px solid var(--border)',
+          borderRadius: 8, cursor: 'pointer', color: 'var(--text-muted)',
+          fontSize: 16, padding: '6px 10px', lineHeight: 1,
+          transition: 'all 0.15s ease',
+        }}
+        title="Settings"
+      >⚙️</button>
       <button className="btn btn-amber btn-sm" onClick={onListBeta}>
         ⚡ List Your Beta
       </button>
@@ -600,6 +786,37 @@ const SznCard = ({ szn, isSelected, onClick }) => {
           )
         })}
       </div>
+
+      {/* News event badge — real-world catalyst indicator */}
+      {szn.newsEvent && (
+        <div style={{
+          marginTop: 6,
+          background: 'rgba(100,200,255,0.06)',
+          border: '1px solid rgba(100,200,255,0.15)',
+          borderRadius: 5,
+          padding: '4px 7px',
+          display: 'flex',
+          alignItems: 'flex-start',
+          gap: 5,
+        }}>
+          <span style={{ fontSize: 9, flexShrink: 0, marginTop: 1 }}>📰</span>
+          <div style={{ minWidth: 0 }}>
+            <div style={{
+              fontFamily: 'var(--font-display)', fontSize: 7, fontWeight: 700,
+              color: 'var(--sky)', letterSpacing: 0.4, marginBottom: 2,
+            }}>
+              REAL-WORLD CATALYST · {Math.round(szn.newsEvent.confidence * 100)}% signal
+            </div>
+            <div style={{
+              fontFamily: 'var(--font-body)', fontSize: 8, color: 'var(--text-muted)',
+              lineHeight: 1.3, overflow: 'hidden', textOverflow: 'ellipsis',
+              display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical',
+            }}>
+              {szn.newsEvent.headline}
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }
@@ -1133,8 +1350,8 @@ const AdminNominationPanel = ({ onClose }) => {
   )
 }
 
-const AlphaBoard = ({ selectedAlpha, onSelect, onNewRunners, onLiveAlphas, onSznCards, onCoolingAlphas, onCustomSearch, customAlphaLoading, onRegisterClearSearch, alphaListRef, searchResults, onSelectSearchResult }) => {
-  const [activeTab,        setActiveTab]        = useState('live')
+const AlphaBoard = ({ selectedAlpha, onSelect, onNewRunners, onLiveAlphas, onSznCards, onCoolingAlphas, onCustomSearch, customAlphaLoading, onRegisterClearSearch, alphaListRef, searchResults, onSelectSearchResult, defaultTab = 'live' }) => {
+  const [activeTab,        setActiveTab]        = useState(defaultTab)
   const [searchQuery,      setSearchQuery]      = useState('')
   useEffect(() => {
     if (onRegisterClearSearch) onRegisterClearSearch(() => setSearchQuery(''))
@@ -1476,8 +1693,21 @@ const AlphaBoard = ({ selectedAlpha, onSelect, onNewRunners, onLiveAlphas, onSzn
   // Deduplicate tokens across szn cards — a token should only appear
   // in the highest-scoring szn card it belongs to, not multiple.
   const dedupedSznCards = useMemo(() => {
+    // Step 1: deduplicate cards by key — same category can appear from
+    // keyword + novel meta sources simultaneously, causing duplicate React keys.
+    // Keep the card with the higher sznScore when there's a conflict.
+    const cardsByKey = new Map()
+    for (const szn of sznCards) {
+      const existing = cardsByKey.get(szn.key)
+      if (!existing || szn.sznScore > existing.sznScore) {
+        cardsByKey.set(szn.key, szn)
+      }
+    }
+    const uniqueCards = [...cardsByKey.values()]
+
+    // Step 2: deduplicate tokens across cards by address
     const seen = new Set()
-    return sznCards.map(szn => ({
+    return uniqueCards.map(szn => ({
       ...szn,
       tokens: szn.tokens.filter(t => {
         if (!t.address || seen.has(t.address)) return false
@@ -1541,6 +1771,7 @@ const AlphaBoard = ({ selectedAlpha, onSelect, onNewRunners, onLiveAlphas, onSzn
   const [pastRunners,        setPastRunners]        = useState([])
   const [pastRunnersLoading, setPastRunnersLoading] = useState(false)
   const [pastRunnersDays,    setPastRunnersDays]    = useState(30)
+  const [pastRunnersQuery,   setPastRunnersQuery]   = useState('')
 
   useEffect(() => {
     if (activeTab !== 'runners') return
@@ -1585,7 +1816,7 @@ const AlphaBoard = ({ selectedAlpha, onSelect, onNewRunners, onLiveAlphas, onSzn
           </span>
           <input
             type="text"
-            placeholder="Search runners or any token..."
+            placeholder={activeTab === 'watch' ? 'Filter watchlist...' : 'Search runners or any token...'}
             value={searchQuery}
             onChange={(e) => {
               setSearchQuery(e.target.value)
@@ -1593,7 +1824,8 @@ const AlphaBoard = ({ selectedAlpha, onSelect, onNewRunners, onLiveAlphas, onSzn
               // so the pinned card doesn't linger
             }}
             onKeyDown={(e) => {
-              if (e.key === 'Enter' && searchQuery.trim() && !customAlphaLoading && onCustomSearch) {
+              // On watch tab, Enter just filters — no DEX search
+              if (e.key === 'Enter' && searchQuery.trim() && !customAlphaLoading && onCustomSearch && activeTab !== 'watch') {
                 onCustomSearch(searchQuery.trim())
               }
               if (e.key === 'Escape') setSearchQuery('')
@@ -1609,7 +1841,8 @@ const AlphaBoard = ({ selectedAlpha, onSelect, onNewRunners, onLiveAlphas, onSzn
               Searching DEX...
             </span>
           )}
-          {searchQuery && !customAlphaLoading && (
+          {/* DEX search button — hidden on watch tab, watchlist is local only */}
+          {searchQuery && !customAlphaLoading && activeTab !== 'watch' && (
             <button
               onClick={() => onCustomSearch?.(searchQuery.trim())}
               style={{
@@ -1619,6 +1852,15 @@ const AlphaBoard = ({ selectedAlpha, onSelect, onNewRunners, onLiveAlphas, onSzn
                 whiteSpace: 'nowrap', lineHeight: 1.4,
               }}
             >DEX ↗</button>
+          )}
+          {/* Watchlist match count — shown instead of DEX button */}
+          {searchQuery && activeTab === 'watch' && watchlist.length > 0 && (
+            <span style={{
+              fontSize: 8, color: 'var(--text-muted)', whiteSpace: 'nowrap',
+              fontFamily: 'var(--font-mono)',
+            }}>
+              {displayList.length}/{watchlist.length}
+            </span>
           )}
           {searchQuery && !customAlphaLoading && (
             <button
@@ -1998,33 +2240,85 @@ const AlphaBoard = ({ selectedAlpha, onSelect, onNewRunners, onLiveAlphas, onSzn
         {/* Past Runners tab */}
         {activeTab === 'runners' && (
           <div style={{ padding: '0 4px' }}>
-            {/* Header controls */}
-            <div style={{ display: 'flex', gap: 6, marginBottom: 10, flexWrap: 'wrap' }}>
-              {[7, 14, 30].map(d => (
-                <button
-                  key={d}
-                  onClick={() => setPastRunnersDays(d)}
+            {/* Header controls — search + day filter */}
+            <div style={{ marginBottom: 8 }}>
+              {/* Search input */}
+              <div style={{
+                display: 'flex', alignItems: 'center', gap: 6,
+                background: 'rgba(255,255,255,0.04)',
+                border: `1px solid ${pastRunnersQuery ? 'rgba(0,212,255,0.35)' : 'rgba(255,255,255,0.08)'}`,
+                borderRadius: 8, padding: '6px 10px', marginBottom: 8,
+                transition: 'border-color 0.15s',
+              }}>
+                <span style={{ fontSize: 10, color: 'var(--text-muted)', flexShrink: 0 }}>🔍</span>
+                <input
+                  type="text"
+                  placeholder="Search past runners by symbol or name..."
+                  value={pastRunnersQuery}
+                  onChange={e => setPastRunnersQuery(e.target.value)}
                   style={{
-                    padding:      '3px 10px',
-                    borderRadius: 6,
-                    border:       `1px solid ${pastRunnersDays === d ? 'var(--cyan)' : 'rgba(255,255,255,0.1)'}`,
-                    background:   pastRunnersDays === d ? 'rgba(0,212,255,0.12)' : 'transparent',
-                    color:        pastRunnersDays === d ? 'var(--cyan)' : 'var(--text-muted)',
-                    fontFamily:   'var(--font-display)',
-                    fontSize:     10,
-                    cursor:       'pointer',
-                    fontWeight:   pastRunnersDays === d ? 700 : 400,
+                    background: 'transparent', border: 'none', outline: 'none',
+                    fontFamily: 'var(--font-display)', fontSize: 11, fontWeight: 600,
+                    color: 'var(--text-primary)', width: '100%', letterSpacing: '0.02em',
                   }}
-                >{d}D</button>
-              ))}
-              <span style={{ fontFamily: 'var(--font-mono)', fontSize: 9, color: 'var(--text-muted)', alignSelf: 'center', marginLeft: 4 }}>
-                {pastRunners.length} runners
-              </span>
+                />
+                {pastRunnersQuery && (
+                  <button
+                    onClick={() => setPastRunnersQuery('')}
+                    style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-muted)', fontSize: 12, padding: 0, lineHeight: 1, flexShrink: 0 }}
+                  >✕</button>
+                )}
+              </div>
+              {/* Day filter + count row */}
+              <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center' }}>
+                {[7, 14, 30].map(d => (
+                  <button
+                    key={d}
+                    onClick={() => setPastRunnersDays(d)}
+                    style={{
+                      padding:      '3px 10px',
+                      borderRadius: 6,
+                      border:       `1px solid ${pastRunnersDays === d ? 'var(--cyan)' : 'rgba(255,255,255,0.1)'}`,
+                      background:   pastRunnersDays === d ? 'rgba(0,212,255,0.12)' : 'transparent',
+                      color:        pastRunnersDays === d ? 'var(--cyan)' : 'var(--text-muted)',
+                      fontFamily:   'var(--font-display)',
+                      fontSize:     10,
+                      cursor:       'pointer',
+                      fontWeight:   pastRunnersDays === d ? 700 : 400,
+                    }}
+                  >{d}D</button>
+                ))}
+                <span style={{ fontFamily: 'var(--font-mono)', fontSize: 9, color: 'var(--text-muted)', marginLeft: 4 }}>
+                  {pastRunnersQuery
+                    ? `${pastRunners.filter(r =>
+                        (r.symbol || '').toLowerCase().includes(pastRunnersQuery.toLowerCase()) ||
+                        (r.name   || '').toLowerCase().includes(pastRunnersQuery.toLowerCase())
+                      ).length} / ${pastRunners.length} runners`
+                    : `${pastRunners.length} runners`
+                  }
+                </span>
+              </div>
             </div>
 
             {pastRunnersLoading && (
               <div style={{ textAlign: 'center', padding: 32, color: 'var(--text-muted)', fontFamily: 'var(--font-mono)', fontSize: 11 }}>
                 Loading past runners...
+              </div>
+            )}
+
+            {!pastRunnersLoading && pastRunnersQuery && pastRunners.length > 0 &&
+              pastRunners.filter(r =>
+                (r.symbol || '').toLowerCase().includes(pastRunnersQuery.toLowerCase()) ||
+                (r.name   || '').toLowerCase().includes(pastRunnersQuery.toLowerCase())
+              ).length === 0 && (
+              <div style={{ textAlign: 'center', padding: 32 }}>
+                <div style={{ fontSize: 24, marginBottom: 8 }}>🔍</div>
+                <div style={{ fontFamily: 'var(--font-display)', fontSize: 13, color: 'var(--text-primary)', marginBottom: 4 }}>
+                  No runners match "{pastRunnersQuery}"
+                </div>
+                <div style={{ fontFamily: 'var(--font-mono)', fontSize: 10, color: 'var(--text-muted)' }}>
+                  Try a different symbol or name
+                </div>
               </div>
             )}
 
@@ -2038,7 +2332,13 @@ const AlphaBoard = ({ selectedAlpha, onSelect, onNewRunners, onLiveAlphas, onSzn
               </div>
             )}
 
-            {!pastRunnersLoading && pastRunners.map(runner => {
+            {!pastRunnersLoading && pastRunners
+              .filter(runner =>
+                !pastRunnersQuery ||
+                (runner.symbol || '').toLowerCase().includes(pastRunnersQuery.toLowerCase()) ||
+                (runner.name   || '').toLowerCase().includes(pastRunnersQuery.toLowerCase())
+              )
+              .map(runner => {
               const peakFmt = runner.peakMcap >= 1_000_000
                 ? `$${(runner.peakMcap / 1_000_000).toFixed(1)}M`
                 : runner.peakMcap >= 1_000
@@ -2589,6 +2889,16 @@ const BetaRow = ({ beta, alpha, isPinned, trenchOnly, onOpenDrawer }) => {
             {isTied         && <span className="badge badge-strong"   style={{ fontSize: 7, padding: '1px 4px' }}>⚡ TIED</span>}
             {isTrench       && <Tooltip text="Trenches — market cap under $30K. Very high risk, very high reward."><span className="badge badge-new" style={{ fontSize: 9, padding: '1px 5px', cursor: 'default' }}>⛏️</span></Tooltip>}
             <FlagWarningBadge address={beta.address} />
+            {beta.decayCount >= 2 && (
+              <Tooltip text={`Weakening signal (${beta.decayCount}/5): ${(beta.decaySignals || []).join(', ')}. Not dead yet but showing decay.`}>
+                <span style={{
+                  fontSize: 7, padding: '1px 5px', cursor: 'default',
+                  background: 'rgba(255,170,0,0.1)', border: '1px solid rgba(255,170,0,0.3)',
+                  borderRadius: 3, color: 'var(--amber)', fontFamily: 'var(--font-mono)',
+                  fontWeight: 700, letterSpacing: 0.3,
+                }}>⚠️ {beta.decayCount}/5</span>
+              </Tooltip>
+            )}
             {isPinned       && <span className="badge badge-verified" style={{ fontSize: 7, padding: '1px 4px' }}>DEV VERIFIED</span>}
             {beta.isSibling && <span className="badge badge-cabal"    style={{ fontSize: 7, padding: '1px 4px', opacity: 0.85 }}>👥 SIBLING</span>}
           </div>
@@ -2789,13 +3099,13 @@ const SznPanel = ({ szn, onListBeta, onOpenDrawer }) => {
 
 // ─── Beta Panel ──────────────────────────────────────────────────
 
-const BetaPanel = ({ alpha, liveAlphas, onListBeta, onOpenDrawer, onScrollToAlpha, onCustomSearch, customAlphaLoading, customAlphaError }) => {
+const BetaPanel = ({ alpha, liveAlphas, onListBeta, onOpenDrawer, onScrollToAlpha, onCustomSearch, customAlphaLoading, customAlphaError, settings = {} }) => {
   const { parent, loading: parentLoading }               = useParentAlpha(alpha, liveAlphas)
-  const { betas, loading: betasLoading, error, scanPhase, refresh } = useBetas(alpha, parent)
+  const { betas, loading: betasLoading, error, scanPhase, refresh } = useBetas(alpha, parent, { metaSeedEnabled: settings.metaSeedEnabled ?? true })
   const { birdeye }                                       = useBirdeye(alpha?.address)
   const [trenchOnly,   setTrenchOnly]   = useState(false)
   const [mcapFilter,   setMcapFilter]   = useState('all')
-  const [sortBy,       setSortBy]       = useState('change')
+  const [sortBy,       setSortBy]       = useState(settings.defaultBetaSort || 'rank')
   const [sortDir,      setSortDir]      = useState('desc')
 
   const mcapFilterFn = {
@@ -2812,7 +3122,13 @@ const BetaPanel = ({ alpha, liveAlphas, onListBeta, onOpenDrawer, onScrollToAlph
   }
 
   const filteredBetas = useMemo(() => {
-    const filtered = betas.filter(mcapFilterFn[mcapFilter])
+    const filtered = betas.filter(b => {
+      if (!mcapFilterFn[mcapFilter](b)) return false
+      // Settings gates
+      if (settings.hideWeakBetas    && b.signalTier === 'WEAK')                        return false
+      if (settings.hideUnclassified && (!b.relationshipType || b.relationshipType === 'SPIN') && !b.aiScore) return false
+      return true
+    })
     return [...filtered].sort((a, b) => {
       // LP pairs always float to top regardless of sort
       const aLP = a.signalSources?.includes('lp_pair') ? 1 : 0
@@ -3041,18 +3357,51 @@ const BetaPanel = ({ alpha, liveAlphas, onListBeta, onOpenDrawer, onScrollToAlph
               />
             ))}
 
-            {/* Complete status */}
-            {!betasLoading && scanPhase === 'complete' && filteredBetas.length > 0 && (
-              <div style={{
-                textAlign: 'center', padding: '10px 8px', fontSize: 11,
-                fontFamily: 'var(--font-mono)', fontWeight: 700,
-                color: 'var(--neon-green)',
-                borderTop: '1px solid rgba(0,255,136,0.15)',
-                marginTop: 4,
-              }}>
-                ✅ {betas.length} beta{betas.length !== 1 ? 's' : ''} found
-              </div>
-            )}
+            {/* Complete status + AI availability banner */}
+            {!betasLoading && scanPhase === 'complete' && filteredBetas.length > 0 && (() => {
+              const hasAIScored = betas.some(b => b.signalSources?.includes('ai_match'))
+              return (
+                <>
+                  {/* AI unavailable notice — shown when V8 failed silently for all batches */}
+                  {!hasAIScored && betas.length > 0 && (
+                    <div style={{
+                      display: 'flex', alignItems: 'center', gap: 7,
+                      margin: '8px 0 2px',
+                      background: 'rgba(255,170,0,0.07)',
+                      border: '1px solid rgba(255,170,0,0.2)',
+                      borderRadius: 7, padding: '7px 12px',
+                    }}>
+                      <span style={{ fontSize: 13 }}>⚠️</span>
+                      <div>
+                        <div style={{
+                          fontFamily: 'var(--font-display)', fontSize: 10, fontWeight: 800,
+                          color: 'var(--amber)', letterSpacing: '0.04em',
+                        }}>
+                          PATTERN MATCH ONLY
+                        </div>
+                        <div style={{
+                          fontFamily: 'var(--font-body)', fontSize: 9,
+                          color: 'var(--text-muted)', marginTop: 2, lineHeight: 1.4,
+                        }}>
+                          AI scoring unavailable this scan — results are keyword &amp; lore matches only.
+                          Accuracy is lower. Rescan to retry.
+                        </div>
+                      </div>
+                    </div>
+                  )}
+                  <div style={{
+                    textAlign: 'center', padding: '10px 8px', fontSize: 11,
+                    fontFamily: 'var(--font-mono)', fontWeight: 700,
+                    color: 'var(--neon-green)',
+                    borderTop: '1px solid rgba(0,255,136,0.15)',
+                    marginTop: 4,
+                  }}>
+                    ✅ {betas.length} beta{betas.length !== 1 ? 's' : ''} found
+                    {!hasAIScored && <span style={{ color: 'var(--amber)', marginLeft: 6, fontSize: 9 }}>(unscored)</span>}
+                  </div>
+                </>
+              )
+            })()}
 
             {!betasLoading && trenchOnly && trenchCount === 0 && (
               <div className="empty-state" style={{ marginTop: 24 }}>
@@ -3511,6 +3860,8 @@ const AppFooter = () => (
 )
 
 export default function App() {
+  const { settings, updateSetting, resetSettings } = useSettings()
+  const [showSettings, setShowSettings] = useState(false)
   const [selectedAlpha, setSelectedAlpha] = useState(null)
   const [customAlphaQuery,   setCustomAlphaQuery]   = useState('')
   const [customAlphaLoading, setCustomAlphaLoading] = useState(false)
@@ -3641,13 +3992,13 @@ export default function App() {
 
   return (
     <div className="app-wrapper">
-      <Navbar onListBeta={() => setShowListModal(true)} newRunners={newRunners} liveAlphas={appLiveAlphas} coolingAlphas={appCoolingAlphas} />
+      <Navbar onListBeta={() => setShowListModal(true)} newRunners={newRunners} liveAlphas={appLiveAlphas} coolingAlphas={appCoolingAlphas} onSettings={() => setShowSettings(true)} />
       <NarrativeTicker liveAlphas={appLiveAlphas} sznCards={appSznCards} />
       <div className="main-layout" style={{ flex: 1, overflow: 'hidden' }}>
-        <AlphaBoard selectedAlpha={selectedAlpha} onSelect={handleSelectAlpha} onNewRunners={handleNewRunners} onLiveAlphas={setAppLiveAlphas} onSznCards={setAppSznCards} onCoolingAlphas={setAppCoolingAlphas} onCustomSearch={handleSearchCustomAlpha} customAlphaLoading={customAlphaLoading} onRegisterClearSearch={fn => { clearAlphaBoardSearch.current = fn }} alphaListRef={alphaListRef} searchResults={searchResults} onSelectSearchResult={(token) => { if (!token) { setSearchResults([]); return }; setSelectedAlpha(token); setSearchResults([]) }} />
+        <AlphaBoard selectedAlpha={selectedAlpha} onSelect={handleSelectAlpha} onNewRunners={handleNewRunners} onLiveAlphas={setAppLiveAlphas} onSznCards={setAppSznCards} onCoolingAlphas={setAppCoolingAlphas} onCustomSearch={handleSearchCustomAlpha} customAlphaLoading={customAlphaLoading} onRegisterClearSearch={fn => { clearAlphaBoardSearch.current = fn }} alphaListRef={alphaListRef} searchResults={searchResults} onSelectSearchResult={(token) => { if (!token) { setSearchResults([]); return }; setSelectedAlpha(token); setSearchResults([]) }} defaultTab={settings.defaultTab} />
         {isSzn
           ? <SznPanel  szn={selectedAlpha}   onListBeta={() => setShowListModal(true)} onOpenDrawer={setDrawerToken} />
-          : <BetaPanel alpha={selectedAlpha} liveAlphas={appLiveAlphas} onListBeta={() => setShowListModal(true)} onOpenDrawer={setDrawerToken} onScrollToAlpha={handleScrollToAlpha} onCustomSearch={handleSearchCustomAlpha} customAlphaLoading={customAlphaLoading} customAlphaError={customAlphaError} />
+          : <BetaPanel alpha={selectedAlpha} liveAlphas={appLiveAlphas} onListBeta={() => setShowListModal(true)} onOpenDrawer={setDrawerToken} onScrollToAlpha={handleScrollToAlpha} onCustomSearch={handleSearchCustomAlpha} customAlphaLoading={customAlphaLoading} customAlphaError={customAlphaError} settings={settings} />
         }
       </div>
 
@@ -3678,6 +4029,14 @@ export default function App() {
         document.body
       )}
       <AppFooter />
+      {showSettings && (
+        <SettingsPanel
+          settings={settings}
+          onUpdate={updateSetting}
+          onReset={resetSettings}
+          onClose={() => setShowSettings(false)}
+        />
+      )}
     </div>
   )
 }

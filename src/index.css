@@ -23,6 +23,10 @@
   --red-glow:     rgba(255, 68, 102, 0.15);
   --cyan:         #00d4ff;
   --cyan-glow:    rgba(0, 212, 255, 0.12);
+  --purple:       #b464ff;
+  --purple-glow:  rgba(180, 100, 255, 0.12);
+  --sky:          #64c8ff;
+  --sky-glow:     rgba(100, 200, 255, 0.12);
 
   --font-display: 'Syne', sans-serif;
   --font-mono:    'Space Mono', monospace;

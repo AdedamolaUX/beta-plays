@@ -21,6 +21,7 @@ require('dotenv').config({ path: require('path').join(__dirname, '.env') })
 
 const telegramService = require('./telegramService')
 const twitterService  = require('./twitterService')
+const newsService     = require('./newsService')
 const db = require('./db')
 const { cacheGet, cacheSet, loadExpansionCache } = require('./db')
 
@@ -432,6 +433,32 @@ ANALYSIS (work through each step):
    What competing tokens or rival concepts exist in the same space?
    (zen → tao, buddha, monk as SECTOR rivals / ape → bayc, bored as UNIVERSE)
 
+8. CT SLANG EXPANSION — if the token name, symbol, or description contains CT/degen slang,
+   expand the slang itself into related concepts degens would recognise as connected.
+   You understand all crypto Twitter lingo — use it.
+
+   Key slang → expansion examples:
+   larp / larping → fake, cope, pretend, imposter, fraud, clout
+   cope / copium → denial, seethe, bags, rekt, ngmi
+   seethe → rage, mald, salt, butthurt, cope
+   rug / rugpull → exit, scam, dev, abandon, honeypot
+   degen → gamble, ape, yolo, risk, degenerate
+   wagmi → gm, gn, fren, ser, anon, ngmi (COUNTER)
+   ngmi → wagmi (COUNTER), cope, rekt, poor
+   rekt → liquidated, wrecked, loss, margin, leverage
+   fud → fear, doubt, uncertainty, bearish, fudder
+   based → chad, alpha, sigma, redpilled, gigachad
+   chad / gigachad → based, sigma, alpha, king, goat
+   wojak → pepe (UNIVERSE), doomer, boomer, soyjak, npc
+   npc → normie, sleeper, sheep, bot, mindless
+   wen / wen moon → soon, patience, hopium, moon
+   hopium → cope (COUNTER), hopeful, bullish, delusion
+   ser → anon, fren, gm, ct, degenerate
+   probably nothing → definitely something, hidden gem, alpha
+   this is fine → chaos, burning, disaster, meltdown
+   touch grass → neet, basement, terminally online, burnout
+   if a slang term is in the token → expand it AND include its opposite (COUNTER)
+
 RELATIONSHIP TYPES (assign each term one):
 TWIN=synonym/equivalent | COUNTER=direct opposite | ECHO=consequence/extension
 UNIVERSE=same cultural world | SECTOR=same category | SPIN=loose derivative
@@ -444,18 +471,24 @@ RULES:
 - 12-20 terms. Single words preferred. Compounds: output joined AND spaced forms, lowercase only.
 - Anti-drift: each term must complete "This token IS/IS A TYPE OF/IS THE OPPOSITE OF/LIVES IN/Degens CREATE ___ from it"
   Biological family and cultural crypto associations never drift.
+- NO evolutionary/taxonomic chaining: gorilla → primate → mammal → mouse is DRIFT. Stop at the direct family.
+  gorilla → chimp, orangutan, ape, bonobo = valid (same direct family)
+  gorilla → mouse, rat, hamster = INVALID (different family, connected only via taxonomy)
+- NO conceptual extension chains: horror → fear → anxiety → depression is DRIFT. One hop only.
+- NO property chains: big → large → giant → whale is DRIFT. The token IS the thing, not a property of it.
 
 SELF-CHECK before outputting — remove any term that:
 - Is a relationship label (opposite, synonym, twin, counter, echo, universe, sector)
 - Could describe any random Solana token (too generic)
 - You invented right now and likely doesn't exist as a real token name
 - Needs more than one reasoning hop to connect to this token
+- Is connected via taxonomy/evolution/property rather than direct narrative association
 
 ALSO VERIFY before outputting:
 - Do your relationshipHints include at least one COUNTER? If not — add one now.
 - Do your searchTerms include the direct antonym of the core concept? If not — add it.
 
-8. CATEGORY — name this token's primary narrative universe in ONE short lowercase word or phrase.
+9. CATEGORY — name this token's primary narrative universe in ONE short lowercase word or phrase.
    Use your own judgment — do NOT limit yourself to a fixed list. Examples of what good categories look like:
    "political" | "dogs" | "cats" | "frogs" | "space" | "ai" | "memes" | "anime" | "food" | "sports"
    "emoji" | "internet_culture" | "weather" | "chess" | "western" | "fitness" | "horror" | "gaming"
@@ -2186,6 +2219,59 @@ const DB_WRITE_QUEUE = (() => {
 // One request per refresh cycle instead of one per token — kills the connection
 // storm. Batched upserts keep connection usage low.
 // Body: { alphas: [{ address, symbol, name, logoUrl, marketCap, volume24h, priceChange24h, source, price }] }
+// POST /api/novel-narrative
+// Called by useNarrativeSzn when a novel Szn card forms (not in lore_map).
+// Writes to the narratives table so new categories persist across sessions.
+// Uses ON CONFLICT (slug) DO UPDATE to refresh token_count and last_seen.
+// Fails silently — novel narrative recording is non-fatal.
+app.post('/api/novel-narrative', async (req, res) => {
+  const { slug, label, category, tokenCount, tokens } = req.body
+  if (!slug || !label) return res.status(400).json({ error: 'slug and label required' })
+
+  try {
+    await db.query(`
+      INSERT INTO narratives (slug, label, category, token_count, first_seen, last_seen)
+      VALUES ($1, $2, $3, $4, NOW(), NOW())
+      ON CONFLICT (slug) DO UPDATE SET
+        token_count = EXCLUDED.token_count,
+        last_seen   = NOW()
+    `, [slug, label, category || slug, tokenCount || (tokens?.length || 0)])
+
+    // Also write individual tokens to the tokens table so they appear in past runners
+    if (Array.isArray(tokens) && tokens.length > 0) {
+      for (const t of tokens.slice(0, 20)) {
+        if (!t.address || !t.symbol) continue
+        db.query(`
+          INSERT INTO tokens (address, symbol, name, logo_url, last_seen)
+          VALUES ($1, $2, $3, $4, NOW())
+          ON CONFLICT (address) DO UPDATE SET last_seen = NOW()
+        `, [t.address, t.symbol, t.name || t.symbol, t.logoUrl || null])
+          .catch(() => {})
+      }
+    }
+
+    console.log(`[Narratives] Recorded novel narrative: "${label}" (${tokenCount} tokens)`)
+    res.json({ ok: true })
+  } catch (err) {
+    console.warn('[Narratives] Write failed (non-fatal):', err.message)
+    res.json({ ok: false, error: err.message })
+  }
+})
+
+// GET /api/news-narrative
+// Returns active real-world event categories derived from NewsAPI headlines.
+// Cached 30min server-side — zero cost per frontend call.
+// Response: { active: [{ category, confidence, matchCount, headline }] }
+app.get('/api/news-narrative', async (req, res) => {
+  try {
+    const active = await newsService.getNewsNarratives()
+    res.json({ active, cachedAt: new Date().toISOString() })
+  } catch (err) {
+    console.warn('[NewsNarrative] Error:', err.message)
+    res.json({ active: [] })
+  }
+})
+
 app.post('/api/record-alphas', async (req, res) => {
   if (!process.env.DATABASE_URL) return res.json({ ok: true, skipped: 'no db' })
   const { alphas } = req.body
@@ -2615,7 +2701,10 @@ app.post('/api/report-alphas', (req, res) => {
     ((a.volume24h || 0) * Math.abs(parseFloat(a.priceChange24h) || 0))
   )
 
-  const WARMUP_CAP = 30
+  // Cap warmup at the actual number of live tokens — no point warming more
+  // slots than there are tokens on the feed. Floor at 10 (cold start), ceil
+  // at 50 (quota protection). Was hardcoded at 30 regardless of feed size.
+  const WARMUP_CAP = Math.min(Math.max(alphas.length, 10), 50)
   for (const alpha of sortedAlphas) {
     if (queued >= WARMUP_CAP) break
     if (!alpha.address || !alpha.symbol) continue
@@ -3000,6 +3089,7 @@ app.listen(PORT, async () => {
   // Frontend calls report-alphas on every alpha refresh (every 30s).
   // Any alpha not in cache gets queued for background V0 expansion automatically.
   // No static seed list needed — cache always mirrors the live feed.
+  newsService.init()
   console.log('[Warmup] Cache warming driven by live feed via report-alphas')
   // Proactive beta scanner DISABLED — re-enable when Groq Developer tier active.
   // Scanner burns ~288 V8 calls/day (10 alphas × every 5min) against a 1,000/day

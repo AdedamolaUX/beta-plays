@@ -214,6 +214,7 @@ const useNarrativeSzn = (liveAlphas) => {
   const [aiEnrichments,  setAiEnrichments]  = useState({})
   const [metaEnrichments, setMetaEnrichments] = useState({})  // catKey → tokens from Metas
   const [novelMetaCards,  setNovelMetaCards]  = useState([])  // new metas not in our categories
+  const [newsEnrichments, setNewsEnrichments] = useState({})   // catKey → { headline, confidence }
   const liveAlphasRef = useRef(liveAlphas)
   liveAlphasRef.current = liveAlphas
 
@@ -405,8 +406,69 @@ const useNarrativeSzn = (liveAlphas) => {
 
         setMetaEnrichments(enrichments)
         setNovelMetaCards(novelCards)
+
+        // Write novel cards with 3+ tokens to Supabase narratives table.
+        // Persists new categories so they accumulate over time.
+        // Fire-and-forget — never blocks UI.
+        for (const card of novelCards) {
+          if (!card.tokens || card.tokens.length < 3) continue
+          fetch(`${BACKEND_URL}/api/novel-narrative`, {
+            method:  'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              slug:       card.key,
+              label:      card.label,
+              category:   card.key.replace('meta-', ''),
+              tokenCount: card.tokens.length,
+              tokens:     card.tokens.slice(0, 20).map(t => ({
+                address: t.address,
+                symbol:  t.symbol,
+                name:    t.name,
+                logoUrl: t.logoUrl,
+              })),
+            }),
+          }).catch(() => {})  // silent — non-fatal
+        }
       } catch (err) {
         console.warn('[SznMetas] Pass 3 failed (non-fatal):', err.message)
+      }
+    })()
+  }, [liveAlphas])
+
+  // ── Pass 4: News API narratives (async, free, non-blocking) ────
+  // Calls /api/news-narrative (cached 30min server-side — zero quota cost).
+  // Maps active news categories to existing Szn cards as event badges.
+  // Does NOT create new cards — only enriches existing ones with a 📰 badge
+  // and a real-world headline snippet so degens understand WHY a narrative is moving.
+  //
+  // Option C integration: the EVENT_TRIGGERS layer lives in newsService.js on the
+  // backend. Frontend just reads the result and applies badges — no keyword
+  // maintenance needed here.
+  useEffect(() => {
+    if (!liveAlphas || liveAlphas.length === 0) return
+    ;(async () => {
+      try {
+        const res  = await fetch(`${BACKEND_URL}/api/news-narrative`)
+        if (!res.ok) return
+        const data = await res.json()
+        const active = data.active || []
+        if (active.length === 0) {
+          console.log('[SznNews] No active news narratives right now')
+          return
+        }
+        console.log(`[SznNews] ${active.length} news narratives: [${active.map(a => a.category).join(', ')}]`)
+        // Build enrichment map — catKey → { headline, confidence, matchCount }
+        const enrichments = {}
+        for (const item of active) {
+          enrichments[item.category] = {
+            headline:   item.headline,
+            confidence: item.confidence,
+            matchCount: item.matchCount,
+          }
+        }
+        setNewsEnrichments(enrichments)
+      } catch (err) {
+        console.warn('[SznNews] Pass 4 failed (non-fatal):', err.message)
       }
     })()
   }, [liveAlphas])
@@ -417,31 +479,45 @@ const useNarrativeSzn = (liveAlphas) => {
       const aiExtra   = aiEnrichments[card.key]   || []
       const metaExtra = metaEnrichments[card.key] || []
       const extra     = [...aiExtra, ...metaExtra]
+      // Pass 4: attach news event badge if this category has an active news narrative
+      const newsEvent = newsEnrichments[card.key] || null
 
-      if (extra.length === 0) return card
+      if (extra.length === 0 && !newsEvent) return card
 
       // Deduplicate by address before merging
       const seen      = new Set(card.tokens.map(t => t.address))
       const newTokens = extra.filter(t => !seen.has(t.address))
-      if (newTokens.length === 0) return card
 
-      const allTokens = [...card.tokens, ...newTokens]
+      const allTokens = newTokens.length > 0 ? [...card.tokens, ...newTokens] : card.tokens
       const source    = metaExtra.length > 0 && aiExtra.length > 0 ? 'mixed'
                       : metaExtra.length > 0 ? 'meta'
-                      : 'mixed'
+                      : extra.length > 0 ? 'mixed'
+                      : card.source
       return {
         ...buildSznCard(card.key, card.label, allTokens, source),
         aiEnriched:   aiExtra.length,
         metaEnriched: metaExtra.length,
+        // News event badge — present only when real-world catalyst detected
+        newsEvent:    newsEvent ? {
+          headline:   newsEvent.headline,
+          confidence: newsEvent.confidence,
+          matchCount: newsEvent.matchCount,
+        } : null,
       }
     })
 
     // Novel AI cards + novel Meta cards — deduplicated by key
+    // Also badge novel cards with news event if category matches
     const novelKeys = new Set(merged.map(c => c.key))
-    const allNovel  = [...aiCards, ...novelMetaCards].filter(c => !novelKeys.has(c.key))
+    const allNovel  = [...aiCards, ...novelMetaCards]
+      .filter(c => !novelKeys.has(c.key))
+      .map(c => ({
+        ...c,
+        newsEvent: newsEnrichments[c.key] || null,
+      }))
 
     return [...merged, ...allNovel].sort((a, b) => b.sznScore - a.sznScore)
-  }, [keywordCards, aiEnrichments, aiCards, metaEnrichments, novelMetaCards])
+  }, [keywordCards, aiEnrichments, aiCards, metaEnrichments, novelMetaCards, newsEnrichments])
 
   return sznCards
 }

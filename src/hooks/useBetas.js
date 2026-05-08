@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
 import axios from 'axios'
-import { getSearchTerms, getConcepts, generateTickerVariants, detectCategory, NARRATIVE_CATEGORIES } from '../data/lore_map'
+import { getSearchTerms, getConcepts, generateTickerVariants, detectCategory, NARRATIVE_CATEGORIES, areCategoriesCompatible, inferCategoryFromTerms } from '../data/lore_map'
 import classifyRelationships from './useAIBetaScoring'
 import { compareLogos, shouldRunVision } from './useImageAnalysis'
 
@@ -1608,6 +1608,51 @@ const isActiveBeta = (p) => {
   return true
 }
 
+// ─── Dead beta detection ─────────────────────────────────────────
+// Multi-signal approach: a token needs 3+ signals to be marked dead.
+// Single signals are unreliable — a token can have low volume on a quiet
+// day, or a low 24h change after a large prior move, without being dead.
+// Convergence of multiple signals is the reliable dead indicator.
+//
+// Signals:
+//   1. Severe 24h price drop (≤ -75%) — approximates dump from peak
+//   2. Near-zero 24h volume (< $500) — no real trading activity
+//   3. Stalled transactions (< 3 txns in 24h) — market completely inactive
+//   4. Draining liquidity (< $1,000) — pool being pulled
+//   5. Old + dormant (> 30 days AND < $5,000 vol) — abandoned token
+//
+// Returns: { isDead: boolean, signals: string[], signalCount: number }
+// Callers can use signalCount for UI badges if needed.
+//
+// Does NOT replace isActiveBeta or isHealthyBetaLiquidity — those are
+// entry gates. This is a post-filter for tokens that passed entry but
+// have since decayed. Think of it as the difference between:
+//   entry gate: "is this token tradeable right now?"
+//   dead check:  "has this token stopped being tradeable since we found it?"
+const isDeadBeta = (b) => {
+  const signals    = []
+  const change24h  = parseFloat(b.priceChange24h) || 0
+  const vol24h     = b.volume24h  || 0
+  const txns24h    = b.txns24h    || 0
+  const liq        = b.liquidity  || 0
+  const ageMs      = b.ageMs      || (b.pairCreatedAt ? Date.now() - b.pairCreatedAt : null)
+  const ageDays    = ageMs ? ageMs / 86400000 : null
+
+  if (change24h  <= -75)                             signals.push('dumped')
+  if (vol24h     <  500)                             signals.push('no_volume')
+  if (txns24h    <  3)                               signals.push('no_txns')
+  if (liq        <  1000)                            signals.push('low_liq')
+  if (ageDays    !== null && ageDays > 30 && vol24h < 5000) signals.push('abandoned')
+
+  const isDead = signals.length >= 3
+  if (isDead) {
+    console.log(
+      `[DeadFilter] ☠️  $${b.symbol} — dead (${signals.length}/5 signals: ${signals.join(', ')})`
+    )
+  }
+  return { isDead, signals, signalCount: signals.length }
+}
+
 const fetchExactMatchOGs = async (alphaSymbol, alphaAddress) => {
   const results  = []
   const seen     = new Set()
@@ -1915,7 +1960,8 @@ const mergeAndScore = (rawResults, alphaSymbol, alphaMcap) => {
 // ─── Main hook ───────────────────────────────────────────────────
 // parentAlpha: if provided, also scans parent's namespace to find siblings
 // Siblings are tagged as RIVAL so they appear in the beta list with correct signal
-const useBetas = (alpha, parentAlpha = null) => {
+const useBetas = (alpha, parentAlpha = null, options = {}) => {
+  const { metaSeedEnabled = true } = options
   const [betas,     setBetas]     = useState([])
   const [loading,   setLoading]   = useState(false)
   const [error,     setError]     = useState(null)
@@ -2061,6 +2107,7 @@ const useBetas = (alpha, parentAlpha = null) => {
       // visualTerms must NEVER go to DEX text search — "green" or "cartoon"
       // returns thousands of unrelated tokens. They belong in the vision pipeline
       // where logos are compared image-to-image, not text-to-text.
+      if (!isStale()) setScanPhase('expanding')
       let v0SearchTerms     = []   // → DEX search vectors (1, 1b, 2, 4)
       let v0VisualTerms     = []   // → vision comparison + filtered DEX search
       let v0VisualCounters  = []   // → visual antonyms/opposites for counter beta search
@@ -2309,45 +2356,35 @@ const useBetas = (alpha, parentAlpha = null) => {
 
       // ── Active narrative meta seeding ─────────────────────────────
       // Reads the SZN cache to find what narrative dominates the live feed.
-      // Only injects if MetaSeed category COMPLEMENTS the token's own category.
+      // Skipped entirely when metaSeedEnabled = false (user preference).
+      // Compatibility is determined by CATEGORY_TRAITS overlap (lore_map.js) —
+      // no hardcoded pairs. Adding new categories to CATEGORY_TRAITS is all
+      // that's needed to keep injection correct as new metas emerge.
       //
       // Complement logic:
-      //   - Token has NO detected category → MetaSeed injects freely
-      //     (best signal available for ambiguous tokens like $XYZ)
-      //   - Token HAS a category AND MetaSeed matches/complements it → inject
-      //     (political token on political feed = additive signal)
-      //   - Token HAS a category AND MetaSeed is unrelated → BLOCKED
-      //     ($Dunald=political should never search animal terms)
+      //   - Token has NO detected category AND terms can't infer one → BLOCKED
+      //     (no identity = no basis for deciding compatibility)
+      //   - Token HAS a category (detected or inferred from terms):
+      //       same as dominant → BLOCKED (already in narrative, no injection needed)
+      //       compatible via trait overlap (≥2 shared traits) → INJECT
+      //       incompatible → BLOCKED
+      //
+      // Null fallthrough fix: when V0A category detection fails (e.g. Japanese-named
+      // tokens), we attempt to infer the category from V0 search terms before
+      // reaching MetaSeed. This prevents humor/unrelated metas from injecting
+      // into tokens like $Sasuke just because their name didn't match Latin keywords.
       //
       // Zero API cost — reads localStorage only.
-      // META_COMPLEMENTS: which token categories ALLOW a given dominant narrative to inject.
-      // Read as: "dominant X can inject into tokens of category Y"
-      // If a token's category is NOT in the list for the dominant → BLOCKED.
-      // If a token has NO detected category AND has own terms → allowed (ambiguous token).
-      // 'humor' and 'internet_culture' are very specific — only inject into same category.
-      // anime/gaming/sports/food/etc are NEVER complementary to humor — they have own universe.
-      const META_COMPLEMENTS = {
-        political:       ['political', 'memes', null],
-        animals:         ['animals', 'nature', 'frogs', 'dogs', 'cats', 'bears', 'penguins', 'aliens', null],
-        ai:              ['ai', 'tech', 'elon', null],
-        memes:           ['memes', 'political', 'humor', 'internet_culture', null],
-        humor:           ['humor', 'internet_culture', 'memes', null],  // strict — only humor tokens
-        internet_culture:['internet_culture', 'humor', 'memes', null],  // strict — only CT culture tokens
-        dogs:            ['dogs', 'animals', 'nature', null],
-        cats:            ['cats', 'animals', 'nature', null],
-        frogs:           ['frogs', 'animals', 'memes', null],
-        bears:           ['bears', 'animals', 'nature', null],
-        space:           ['space', 'ai', 'elon', 'aliens', null],
-        elon:            ['elon', 'ai', 'space', 'political', null],
-        trump:           ['trump', 'political', 'memes', null],
-        // Narrative-specific categories — only complement their own universe
-        anime:           ['anime', 'manga', 'japanese', null],
-        manga:           ['manga', 'anime', 'japanese', null],
-        gaming:          ['gaming', null],
-        sports:          ['sports', null],
-        food:            ['food', null],
-      }
-      try {
+      if (metaSeedEnabled) try {
+        // Attempt category inference from terms if V0A detection returned null
+        let resolvedTokenCat = detectedCat
+        if (!resolvedTokenCat && v0SearchTerms.length > 0) {
+          resolvedTokenCat = inferCategoryFromTerms(v0SearchTerms)
+          if (resolvedTokenCat) {
+            console.log(`[MetaSeed] Inferred category "${resolvedTokenCat}" from V0 terms (V0A returned null)`)
+          }
+        }
+
         const sznRaw = localStorage.getItem('betaplays_szn_cache_v1')
         if (sznRaw) {
           const sznCache = JSON.parse(sznRaw)
@@ -2364,33 +2401,26 @@ const useBetas = (alpha, parentAlpha = null) => {
           if (dominant) {
             const [dominantCat, dominantCount] = dominant
 
-            // Gate: only inject when token has own identity terms
+            // Gate: token must have own identity terms
             const hasOwnTerms = v0SearchTerms.length > 0 || descKeywords.length > 0 || categorySeeds.length > 0
             if (!hasOwnTerms) {
               console.log(`[MetaSeed] Skipped — no own identity terms, refusing narrative injection`)
-            } else {
-            // Complement check
-            const tokenCat = detectedCat
-            // null means the token has no detected category — use null sentinel in complement list
-            // Categories listed with null allow injection into unclassified tokens
-            // Niche categories (humor, anime, gaming) do NOT include null — they won't inject into blanks
-            const allowedComplements = META_COMPLEMENTS[dominantCat] || [dominantCat]
-            const isComplement = allowedComplements.includes(tokenCat)  // null is a valid value in the list
-
-            if (!isComplement) {
-              console.log(`[MetaSeed] Blocked — token is "${tokenCat}", dominant is "${dominantCat}" (not complementary)`)
-            } else if (dominantCat === tokenCat) {
+            } else if (!resolvedTokenCat) {
+              // Can't determine token category even after term inference — too risky to inject
+              console.log(`[MetaSeed] Blocked — token category unknown even after term inference`)
+            } else if (dominantCat === resolvedTokenCat) {
               console.log(`[MetaSeed] Skipped — token already in dominant category "${dominantCat}"`)
-            } else if (NARRATIVE_CATEGORIES[dominantCat]) {
-              const metaSeeds = (NARRATIVE_CATEGORIES[dominantCat].keywords || [])
+            } else if (areCategoriesCompatible(resolvedTokenCat, dominantCat)) {
+              const metaSeeds = (NARRATIVE_CATEGORIES[dominantCat]?.keywords || [])
                 .filter(k => !allV0Terms.includes(k) && isValidSearchTerm(k))
                 .slice(0, 6)
               if (metaSeeds.length > 0) {
-                console.log(`[MetaSeed] Active narrative "${dominantCat}" (${dominantCount} runners) → seeds: [${metaSeeds.join(', ')}]`)
+                console.log(`[MetaSeed] Active narrative "${dominantCat}" (${dominantCount} runners) → compatible with "${resolvedTokenCat}" → seeds: [${metaSeeds.join(', ')}]`)
                 allV0Terms = [...new Set([...allV0Terms, ...metaSeeds])]
               }
+            } else {
+              console.log(`[MetaSeed] Blocked — "${resolvedTokenCat}" and "${dominantCat}" share <2 traits (incompatible)`)
             }
-            } // end hasOwnTerms
           }
         }
       } catch { /* silent — meta seeding is non-fatal */ }
@@ -2885,8 +2915,28 @@ const useBetas = (alpha, parentAlpha = null) => {
           return true
         })
 
+        // ── Dead token filter ──────────────────────────────────────
+        // Runs after V8 — removes tokens that passed entry filters but
+        // have since decayed. Requires 3+ dead signals to avoid false positives.
+        // LP_PAIR and og_match tokens are immune — on-chain facts override decay signals.
+        const alive = filtered.reduce((acc, b) => {
+          const isProtected = b.signalSources?.includes('lp_pair') ||
+                              b.signalSources?.includes('og_match')
+          if (isProtected) {
+            acc.push(b)
+            return acc
+          }
+          const { isDead, signals, signalCount } = isDeadBeta(b)
+          if (!isDead) {
+            // Attach decay signals even on live tokens — useful for UI warnings
+            // e.g. a token with 2/5 signals could show a ⚠️ COOLING badge
+            acc.push({ ...b, decaySignals: signals, decayCount: signalCount })
+          }
+          return acc
+        }, [])
+
         // ── Recompute ranks now that relationshipType is set ───────
-        const reranked = filtered.map(b => ({ ...b, betaRank: computeBetaRank(b) }))
+        const reranked = alive.map(b => ({ ...b, betaRank: computeBetaRank(b) }))
 
         // ── Final sort: LP_PAIR → rank → recency ──────────────────
         finalList = reranked
