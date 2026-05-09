@@ -132,6 +132,35 @@ const SLUG_TO_CATEGORY = {
 }
 
 // Map slug to our category key — direct match first, then partial
+// Maps a DEXScreener meta slug to a display emoji for novel meta cards.
+// Keeps the app visually consistent — every Szn card needs an emoji prefix.
+// Falls back to 🔥 (the META source badge emoji) for unmapped slugs.
+const slugToEmoji = (slug = '') => {
+  const s = slug.toLowerCase()
+  if (s.includes('ai') || s.includes('agent'))          return '🤖'
+  if (s.includes('dog') || s.includes('wif'))           return '🐕'
+  if (s.includes('cat') || s.includes('feline'))        return '🐱'
+  if (s.includes('frog') || s.includes('pepe'))         return '🐸'
+  if (s.includes('bird') || s.includes('duck'))         return '🐦'
+  if (s.includes('bear') || s.includes('panda'))        return '🐻'
+  if (s.includes('ape') || s.includes('monkey'))        return '🦍'
+  if (s.includes('space') || s.includes('astro'))       return '🚀'
+  if (s.includes('trump') || s.includes('maga'))        return '🇺🇸'
+  if (s.includes('elon') || s.includes('musk'))         return '⚡'
+  if (s.includes('game') || s.includes('gaming'))       return '🎮'
+  if (s.includes('sport') || s.includes('ball'))        return '⚽'
+  if (s.includes('food') || s.includes('eat'))          return '🍕'
+  if (s.includes('music') || s.includes('sound'))       return '🎵'
+  if (s.includes('war') || s.includes('milit'))         return '⚔️'
+  if (s.includes('virus') || s.includes('disease'))     return '🦠'
+  if (s.includes('rwa') || s.includes('real-world'))    return '🏛️'
+  if (s.includes('defi') || s.includes('finance'))      return '💰'
+  if (s.includes('nft') || s.includes('art'))           return '🎨'
+  if (s.includes('meme') || s.includes('humor'))        return '😂'
+  if (s.includes('anime') || s.includes('manga'))       return '⛩️'
+  return '🔥'  // default — matches META source badge
+}
+
 const slugToCategory = (slug) => {
   if (!slug) return null
   const lower = slug.toLowerCase()
@@ -218,6 +247,15 @@ const useNarrativeSzn = (liveAlphas) => {
   const liveAlphasRef = useRef(liveAlphas)
   liveAlphasRef.current = liveAlphas
 
+  // ── Already-tried guard for Pass 2 ────────────────────────────
+  // Tracks which token addresses AI has already attempted to categorise.
+  // Resets after 30 minutes or when the dominant narrative changes.
+  // Prevents re-running Groq on the same unmatched tokens every 30s
+  // refresh cycle — was burning quota with zero new signal each time.
+  const aiAttemptedRef   = useRef(new Set())
+  const aiAttemptResetAt = useRef(0)
+  const aiDominantRef    = useRef(null)
+
   // ── Pass 1: keyword matching (synchronous, instant) ────────────
   const { keywordCards, unmatched } = useMemo(() => {
     if (!liveAlphas || liveAlphas.length === 0) return { keywordCards: [], unmatched: [] }
@@ -273,11 +311,38 @@ const useNarrativeSzn = (liveAlphas) => {
       return
     }
 
+    // ── Already-tried guard ────────────────────────────────────────
+    // Reset the attempted set if:
+    //   a) 30 minutes have passed (stale — new tokens may have appeared)
+    //   b) The dominant narrative changed (new context = re-evaluate)
+    const now = Date.now()
+    const dominantRaw = localStorage.getItem('betaplays_dominant_narrative')
+    const dominant    = dominantRaw ? JSON.parse(dominantRaw)?.category : null
+    const RESET_MS    = 30 * 60 * 1000  // 30 minutes
+
+    if (now - aiAttemptResetAt.current > RESET_MS || dominant !== aiDominantRef.current) {
+      aiAttemptedRef.current   = new Set()
+      aiAttemptResetAt.current = now
+      aiDominantRef.current    = dominant
+    }
+
+    // Filter to only tokens AI hasn't tried yet
+    const novelUnmatched = unmatched.filter(t => !aiAttemptedRef.current.has(t.address))
+
+    if (novelUnmatched.length === 0) {
+      // All unmatched tokens already attempted — skip AI call entirely
+      return
+    }
+
+    // Mark these tokens as attempted before firing
+    novelUnmatched.forEach(t => aiAttemptedRef.current.add(t.address))
+    console.log(`[SznAI] Pass 2: ${novelUnmatched.length} new unmatched tokens (${unmatched.length - novelUnmatched.length} already tried)`)
+
     setAiCards([])
     setAiEnrichments({})
 
     categorizeWithAI(
-      unmatched,
+      novelUnmatched,
       NARRATIVE_CATEGORIES,
       (categorized, novelGroups) => {
         const enrichments = {}
@@ -294,8 +359,8 @@ const useNarrativeSzn = (liveAlphas) => {
       }
     ).catch(err => console.warn('[SznAI] Failed (non-fatal):', err))
 
-    // Vision pass — logo-based classification
-    const visionCandidates = unmatched.filter(t => shouldRunVision(t, 0))
+    // Vision pass — logo-based classification on novel unmatched tokens only
+    const visionCandidates = novelUnmatched.filter(t => shouldRunVision(t, 0))
     if (visionCandidates.length > 0) {
       classifyLogos(visionCandidates)
         .then(results => {
@@ -389,7 +454,7 @@ const useNarrativeSzn = (liveAlphas) => {
               const novelKey = `meta-${meta.slug}`
               novelCards.push(buildSznCard(
                 novelKey,
-                `${meta.name}`,
+                `${slugToEmoji(meta.slug)} ${meta.name}`,
                 tokens,
                 'meta',
                 {
@@ -440,10 +505,6 @@ const useNarrativeSzn = (liveAlphas) => {
   // Maps active news categories to existing Szn cards as event badges.
   // Does NOT create new cards — only enriches existing ones with a 📰 badge
   // and a real-world headline snippet so degens understand WHY a narrative is moving.
-  //
-  // Option C integration: the EVENT_TRIGGERS layer lives in newsService.js on the
-  // backend. Frontend just reads the result and applies badges — no keyword
-  // maintenance needed here.
   useEffect(() => {
     if (!liveAlphas || liveAlphas.length === 0) return
     ;(async () => {
@@ -457,7 +518,6 @@ const useNarrativeSzn = (liveAlphas) => {
           return
         }
         console.log(`[SznNews] ${active.length} news narratives: [${active.map(a => a.category).join(', ')}]`)
-        // Build enrichment map — catKey → { headline, confidence, matchCount }
         const enrichments = {}
         for (const item of active) {
           enrichments[item.category] = {
@@ -497,7 +557,6 @@ const useNarrativeSzn = (liveAlphas) => {
         ...buildSznCard(card.key, card.label, allTokens, source),
         aiEnriched:   aiExtra.length,
         metaEnriched: metaExtra.length,
-        // News event badge — present only when real-world catalyst detected
         newsEvent:    newsEvent ? {
           headline:   newsEvent.headline,
           confidence: newsEvent.confidence,

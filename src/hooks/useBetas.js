@@ -199,7 +199,7 @@ const fetchAlphaExpansion = async (alpha, { skipVision = false } = {}) => {
   // If server returned a cached result but we suspect the prompt has been updated
   // (indicated by a PROMPT_VERSION mismatch), force a fresh expansion.
   // This prevents stale cached expansions from bleeding old terms after prompt fixes.
-  const PROMPT_VERSION = 'v6'  // Bump this whenever the expansion prompt changes
+  const PROMPT_VERSION = 'v7'  // Bump this whenever the expansion prompt changes
   const data = res.data || {}
   if (data.fromCache && data.promptVersion && data.promptVersion !== PROMPT_VERSION) {
     console.log(`[Vector0] Prompt version mismatch for $${alpha.symbol} — forcing refresh`)
@@ -1464,9 +1464,32 @@ const fetchDEXSearchBetas = async (alpha, descKeywords = [], extraTerms = [], vi
 }
 
 // ─── Signal 3: Morphology engine ────────────────────────────────
-const fetchMorphologyBetas = async (alphaSymbol) => {
-  const variants = generateTickerVariants(alphaSymbol)
-    .filter(isValidSearchTerm)  // Drops any sub-3-char ticker variants
+// Runs ticker variant generation on BOTH the alpha symbol AND its key V0 terms.
+// This catches meme-suffix derivatives like $RATWIF when $HANTA is the alpha:
+//   $HANTA → V0 generates "rat" → morphology on "rat" → searches RATWIF, RATCAT, etc.
+// Only the most distinctive V0 terms are used (not all 15-20) to avoid DEX spam.
+const MEME_SUFFIXES = ['WIF', 'CAT', 'HAT', 'INU', 'MASK', 'PEPE', 'BABY', 'EVIL', 'DARK']
+const buildCrossTermVariants = (v0Terms = []) => {
+  // Take up to 5 most distinctive V0 terms (skip generic ones)
+  const SKIP = new Set(['coin','token','sol','solana','crypto','meme','baby','evil','dark','the','a','of'])
+  const distinctive = v0Terms
+    .filter(t => t.length >= 3 && !SKIP.has(t.toLowerCase()))
+    .slice(0, 5)
+  const variants = []
+  for (const term of distinctive) {
+    for (const suffix of MEME_SUFFIXES) {
+      const joined = `${term}${suffix}`.toLowerCase()
+      if (joined.length >= 5 && isValidSearchTerm(joined)) variants.push(joined)
+    }
+  }
+  return [...new Set(variants)]
+}
+
+const fetchMorphologyBetas = async (alphaSymbol, v0SearchTerms = []) => {
+  const symbolVariants = generateTickerVariants(alphaSymbol)
+    .filter(isValidSearchTerm)
+  const crossTermVariants = buildCrossTermVariants(v0SearchTerms)
+  const variants = [...new Set([...symbolVariants, ...crossTermVariants])]
   const results  = []
   // Instead of batched Promise.allSettled (which fires everything at once),
   // send variants through the shared DEX queue one at a time — the queue
@@ -2354,6 +2377,51 @@ const useBetas = (alpha, parentAlpha = null, options = {}) => {
       // Merge category seeds into V0A search terms
       let allV0Terms = [...new Set([...v0SearchTerms, ...categorySeeds])]
 
+      // ── CT suffix variant expansion (subject-scoped) ────────────
+      // Degens construct token names by appending CT suffixes to narrative SUBJECTS.
+      // Only terms tagged TWIN or UNIVERSE in relationshipHints are subjects —
+      // concrete entities degens actually name tokens after.
+      //
+      // TWIN/UNIVERSE = subjects (rat, naruto, pepe, gorilla) → expand with wif/inu/cat
+      // COUNTER/SECTOR/ECHO = abstracts/orgs/symptoms (cdc, fever, outbreak) → NO expansion
+      //
+      // This prevents $VIRUSWIF, $FEVERWIF, $CDCWIF from entering the search pool
+      // while still generating $RATWIF, $RATPEPE, $BABYRAT for genuine subject terms.
+      // Generated variants are search-only — never affect scoring or signals.
+      const CT_SUFFIXES  = ['wif', 'inu', 'cat', 'pepe', 'sol']
+      const CT_PREFIXES  = ['baby', 'evil', 'dark', 'mini']
+      const SUBJECT_TYPES = new Set(['TWIN', 'UNIVERSE', 'ECHO'])  // ECHO included — derivatives are subjects too
+      const GENERIC_SKIP  = new Set(['coin','token','sol','the','and','wif','inu','cat','pepe','dog','moon','pump'])
+
+      // Build subject term set from relationshipHints
+      const subjectTerms = new Set(
+        Object.entries(relationshipHints)
+          .filter(([, type]) => SUBJECT_TYPES.has(type))
+          .map(([term]) => term.toLowerCase().trim())
+      )
+
+      const ctVariants = new Set()
+      for (const term of subjectTerms) {
+        const t = term.toLowerCase().trim()
+        if (t.length < 3 || t.length > 9)        continue  // too short or too long
+        if (t.includes(' ') || t.includes('-'))   continue  // compounds don't work as CT prefixes
+        if (GENERIC_SKIP.has(t))                  continue  // skip noise generators
+        for (const suffix of CT_SUFFIXES) {
+          if (!t.endsWith(suffix)) ctVariants.add(`${t}${suffix}`)
+        }
+        for (const prefix of CT_PREFIXES) {
+          if (!t.startsWith(prefix)) ctVariants.add(`${prefix}${t}`)
+        }
+      }
+
+      const ctVariantList = [...ctVariants].slice(0, 12)  // hard cap — quality over quantity
+      if (ctVariantList.length > 0) {
+        allV0Terms = [...new Set([...allV0Terms, ...ctVariantList])]
+        console.log(`[CTSuffix] ${ctVariantList.length} subject variants from ${subjectTerms.size} subjects: [${ctVariantList.slice(0,6).join(', ')}]`)
+      } else if (subjectTerms.size === 0) {
+        console.log('[CTSuffix] No TWIN/UNIVERSE/ECHO terms in hints — skipping suffix expansion')
+      }
+
       // ── Active narrative meta seeding ─────────────────────────────
       // Reads the SZN cache to find what narrative dominates the live feed.
       // Skipped entirely when metaSeedEnabled = false (user preference).
@@ -2480,7 +2548,7 @@ const useBetas = (alpha, parentAlpha = null, options = {}) => {
             enrichedAlpha, descKeywords, allV0Terms, v0VisualTerms, v0VisualCounters,
             (hits) => pushPartial(hits)  // onHit: stream each term's results immediately
           ),
-          fetchMorphologyBetas(enrichedAlpha.symbol),
+          fetchMorphologyBetas(enrichedAlpha.symbol, v0SearchTerms),
           fetchPumpFunBetas(enrichedAlpha.symbol, descKeywords, enrichedAlpha.name, allV0Terms),
           fetchLPPairBetas(enrichedAlpha),
           fetchExactMatchOGs(enrichedAlpha.symbol, enrichedAlpha.address),
@@ -2615,7 +2683,7 @@ const useBetas = (alpha, parentAlpha = null, options = {}) => {
           // signal, those betas are also valid plays when $CLAWCARD is selected.
           const [sibKeyword, sibLore, sibMorph, sibPump, sibLP, sibOG, sibTelegram, sibTwitter] = await Promise.allSettled([
             fetchDEXSearchBetas({ symbol: parentAlphaRef.current.symbol, name: parentAlphaRef.current.name, address: '' }, [], [], [], []),
-            fetchMorphologyBetas(parentAlphaRef.current.symbol),
+            fetchMorphologyBetas(parentAlphaRef.current.symbol, []),
             fetchPumpFunBetas(parentAlphaRef.current.symbol, [], parentAlphaRef.current.name),
             fetchLPPairBetas(parentAlphaRef.current),
             fetchExactMatchOGs(parentAlphaRef.current.symbol, parentAlphaRef.current.address),

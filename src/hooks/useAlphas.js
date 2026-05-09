@@ -147,7 +147,7 @@ const loadHistoricalByPriceAction = async (currentAddresses, preloadedHistory = 
 
       if (dumped) {
         const peakDistance = peak > 0 ? Math.round((mcap / peak) * 100) : null
-        historicalCooling.push({
+        const dumpedObj = {
           ...a,
           priceChange24h: cappedChange,
           isCooling:      true,
@@ -156,7 +156,24 @@ const loadHistoricalByPriceAction = async (currentAddresses, preloadedHistory = 
           cooledAt:       a.priceRefreshedAt || a.lastSeen || now,
           peakDistance,
           coolingLabel:   `Dumped — ${Math.round((1 - mcap/peak) * 100)}% from peak`,
-        })
+        }
+
+        // Reversal check — dumped token may be recovering
+        const { isReversing, recoveryPct } = detectReversal(dumpedObj)
+        if (isReversing) {
+          // Promote back to live feed with REVIVAL flag
+          historicalLive.push({
+            ...dumpedObj,
+            isReversing:  true,
+            isRevival:    true,
+            recoveryPct,
+            isCooling:    false,
+            isDumped:     false,
+            coolingLabel: null,
+          })
+        } else {
+          historicalCooling.push(dumpedObj)
+        }
         return
       }
 
@@ -176,7 +193,7 @@ const loadHistoricalByPriceAction = async (currentAddresses, preloadedHistory = 
             ? `Cooled ${cooledAgoH}h ago`
             : `Cooled ${Math.floor(cooledAgoH / 24)}d ago`
         const peakDistance = peak > 0 && mcap > 0 ? Math.round((mcap / peak) * 100) : null
-        historicalCooling.push({
+        const coolingObj = {
           ...a,
           priceChange24h: cappedChange,
           isCooling:      true,
@@ -185,7 +202,22 @@ const loadHistoricalByPriceAction = async (currentAddresses, preloadedHistory = 
           peakDistance,
           volumeRising:   a.volumeRising || false,
           coolingLabel:   isStale ? `Last seen ${ageLabel}` : cooledLabel,
-        })
+        }
+
+        // Reversal check — cooling token may be recovering
+        const { isReversing, recoveryPct } = detectReversal(coolingObj)
+        if (isReversing) {
+          historicalLive.push({
+            ...coolingObj,
+            isReversing:  true,
+            isRevival:    true,
+            recoveryPct,
+            isCooling:    false,
+            coolingLabel: null,
+          })
+        } else {
+          historicalCooling.push(coolingObj)
+        }
       }
     })
 
@@ -595,6 +627,46 @@ const isDumped = (alpha) => {
   return (current / peak) < 0.25     // Lost 75%+ from peak = dumped
 }
 
+// ─── Dead alpha detection ─────────────────────────────────────────
+// Multi-signal approach — same philosophy as isDeadBeta in useBetas.js.
+// A token needs 3+ signals to be removed. Single signals are unreliable:
+// a token can have low volume on a quiet day without being dead.
+// Convergence of multiple signals is the reliable dead indicator.
+//
+// Alpha-specific signals (richer than beta — we track peakMarketCap):
+//   1. dumped       — lost 75%+ from tracked peak (isDumped above)
+//   2. no_volume    — vol24h < $1K (alphas need more activity than betas)
+//   3. no_txns      — txns24h < 5 (higher bar than betas)
+//   4. low_liq      — liquidity < $2K (higher bar — alphas need real pools)
+//   5. abandoned    — age > 14 days AND vol < $10K (shorter window than betas)
+//
+// Returns { isDead, signals, signalCount }
+// isDumped tokens are NOT auto-dead — they go to cooling. isDead = truly
+// inactive tokens that should be removed from cooling too.
+const isDeadAlpha = (alpha) => {
+  const signals   = []
+  const change24h = parseFloat(alpha.priceChange24h) || 0
+  const vol24h    = alpha.volume24h  || 0
+  const txns24h   = alpha.txns24h    || 0
+  const liq       = alpha.liquidity  || 0
+  const ageMs     = Date.now() - (alpha.firstSeen || Date.now())
+  const ageDays   = ageMs / 86400000
+
+  if (isDumped(alpha))                               signals.push('dumped')
+  if (vol24h    <  1_000)                            signals.push('no_volume')
+  if (txns24h   <  5)                                signals.push('no_txns')
+  if (liq       <  2_000)                            signals.push('low_liq')
+  if (ageDays   >  14 && vol24h < 10_000)            signals.push('abandoned')
+
+  const isDead = signals.length >= 3
+  if (isDead) {
+    console.log(
+      `[DeadAlpha] ☠️  $${alpha.symbol} — dead (${signals.length}/5: ${signals.join(', ')})`
+    )
+  }
+  return { isDead, signals, signalCount: signals.length }
+}
+
 // Approximate weekly performance from stored mcap data
 // Not exact (we don't have OHLC) but meaningful directional signal
 const getWeeklyContext = (alpha) => {
@@ -618,6 +690,46 @@ const getWeeklyContext = (alpha) => {
 }
 
 // ─── Core: Price action classifies fresh tokens ──────────────────
+// ─── Reversal detector ───────────────────────────────────────────
+// Identifies cooling/dumped tokens that are genuinely recovering.
+// Runs on historical tokens already classified as cooling — no new API calls.
+//
+// Criteria (all must pass):
+//   1. Currently in cooling or dumped state
+//   2. 24h price change meaningfully positive (> +5%) — not noise
+//   3. Volume alive (> $5K) — real buying, not wash trading
+//   4. Liquidity tradeable (> $2K)
+//   5. Recovered to ≥15% of peak mcap — filters dead cat bounces
+//      ($1M peak → $10K dump → $15K bounce = NOT a revival)
+//
+// Returns { isReversing, recoveryPct }
+const detectReversal = (alpha) => {
+  if (!alpha.isCooling && !alpha.isDumped) return { isReversing: false }
+
+  const change = parseFloat(alpha.priceChange24h) || 0
+  const vol    = alpha.volume24h    || 0
+  const liq    = alpha.liquidity    || 0
+  const mcap   = alpha.marketCap    || 0
+  const peak   = alpha.peakMarketCap || 0
+
+  if (change <= 5)    return { isReversing: false }  // not moving up meaningfully
+  if (vol  < 5_000)  return { isReversing: false }  // no real buying pressure
+  if (liq  < 2_000)  return { isReversing: false }  // pool too thin to trade
+
+  // Dead cat bounce filter — must have recovered to ≥15% of peak
+  if (peak > 50_000 && mcap > 0 && (mcap / peak) < 0.15) {
+    return { isReversing: false }
+  }
+
+  const recoveryPct = peak > 0 && mcap > 0 ? Math.round((mcap / peak) * 100) : null
+  console.log(
+    `[Reversal] 🔄 $${alpha.symbol} — ` +
+    `+${change.toFixed(1)}% 24h | vol $${Math.round(vol / 1000)}K` +
+    (recoveryPct !== null ? ` | ${recoveryPct}% of peak recovered` : '')
+  )
+  return { isReversing: true, recoveryPct }
+}
+
 const classifyByPriceAction = (alphas) => {
   const live    = []
   const cooling = []
@@ -631,16 +743,38 @@ const classifyByPriceAction = (alphas) => {
     const dumped  = isDumped(alpha)
     const weekCtx = getWeeklyContext(alpha)
 
+    // Dead check runs first — truly inactive tokens are removed entirely.
+    // Dead = 3+ signals. Dumped alone is NOT dead (goes to cooling for reversal watch).
+    // This avoids the old problem of removing live tokens that just had a quiet day.
+    const { isDead, signals: deadSignals, signalCount: deadCount } = isDeadAlpha(alpha)
+    if (isDead) return  // silently drop — logged inside isDeadAlpha
+
     // Dumped tokens go straight to cooling regardless of 24h %
     // This fixes the $Wisoldman problem: +1164% 24h but down 95% from peak
     if (dumped) {
-      cooling.push({
+      const dumpedObj = {
         ...alpha,
         isCooling:      true,
-        isDumped:        true,
-        weeklyContext:   weekCtx,
-        coolingLabel:    `Dumped — ${weekCtx?.drawdownFromPeak?.toFixed(0) || '?'}% from peak`,
-      })
+        isDumped:       true,
+        weeklyContext:  weekCtx,
+        decaySignals:  deadSignals,
+        decayCount:    deadCount,
+        coolingLabel:  `Dumped — ${weekCtx?.drawdownFromPeak?.toFixed(0) || '?'}% from peak`,
+      }
+      const { isReversing, recoveryPct } = detectReversal({ ...dumpedObj, priceChange24h: change })
+      if (isReversing) {
+        live.push({
+          ...dumpedObj,
+          isReversing:  true,
+          isRevival:    true,
+          recoveryPct,
+          isCooling:    false,
+          isDumped:     false,
+          coolingLabel: null,
+        })
+      } else {
+        cooling.push(dumpedObj)
+      }
       return
     }
 
@@ -662,12 +796,25 @@ const classifyByPriceAction = (alphas) => {
     if (change > LIVE_MIN_CHANGE && volume >= LIVE_MIN_VOLUME) {
       live.push({ ...alpha, weeklyContext: weekCtx })
     } else if (change < 0 && volume >= COOLING_MIN_VOLUME && mcap >= COOLING_MIN_MCAP) {
-      cooling.push({
+      const coolingObj = {
         ...alpha,
         isCooling:    true,
         weeklyContext: weekCtx,
         coolingLabel: 'Watching for reversal',
-      })
+      }
+      const { isReversing, recoveryPct } = detectReversal({ ...coolingObj, priceChange24h: change })
+      if (isReversing) {
+        live.push({
+          ...coolingObj,
+          isReversing:  true,
+          isRevival:    true,
+          recoveryPct,
+          isCooling:    false,
+          coolingLabel: null,
+        })
+      } else {
+        cooling.push(coolingObj)
+      }
     }
   })
 
@@ -1256,6 +1403,27 @@ const useAlphas = () => {
                 }))
             }),
           }).catch(() => {})
+
+          // ── Re-entry counter — fetch run counts for live tokens ──────
+          // How many times each token has appeared on the alpha feed.
+          // Tokens with high run counts show genuine staying power.
+          // Fire-and-forget — updates alpha objects in state when ready.
+          const liveAddresses = freshRaw
+            .filter(a => a.address)
+            .map(a => a.address)
+            .join(',')
+          if (liveAddresses) {
+            fetch(`${BACKEND_URL}/api/run-counts?addresses=${encodeURIComponent(liveAddresses)}`)
+              .then(r => r.json())
+              .then(({ counts }) => {
+                if (!counts || Object.keys(counts).length === 0) return
+                setLiveAlphas(prev => prev.map(a => ({
+                  ...a,
+                  runCount: counts[a.address] || a.runCount || 1,
+                })))
+              })
+              .catch(() => {})
+          }
         } catch { /* non-fatal */ }
       })()
 

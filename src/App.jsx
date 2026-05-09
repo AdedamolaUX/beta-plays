@@ -465,6 +465,7 @@ const DEFAULT_SETTINGS = {
   metaSeedEnabled:   true,    // MetaSeed narrative injection
   compactBetas:      false,   // compact beta card layout
   defaultBetaSort:   'rank',  // default beta sort column
+  theme:             'dark',  // 'dark' | 'light'
 }
 
 const useSettings = () => {
@@ -479,6 +480,13 @@ const useSettings = () => {
     setSettings(prev => {
       const next = { ...prev, [key]: value }
       try { localStorage.setItem(SETTINGS_KEY, JSON.stringify(next)) } catch {}
+      // Apply DOM-level settings immediately
+      if (key === 'theme') {
+        document.body.setAttribute('data-theme', value)
+      }
+      if (key === 'compactBetas') {
+        document.body.setAttribute('data-compact-betas', value ? 'true' : 'false')
+      }
       return next
     })
   }
@@ -487,6 +495,12 @@ const useSettings = () => {
     try { localStorage.removeItem(SETTINGS_KEY) } catch {}
     setSettings(DEFAULT_SETTINGS)
   }
+
+  // Apply initial DOM-level settings on mount
+  useEffect(() => {
+    document.body.setAttribute('data-theme', settings.theme || 'dark')
+    document.body.setAttribute('data-compact-betas', settings.compactBetas ? 'true' : 'false')
+  }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
   return { settings, updateSetting, resetSettings }
 }
@@ -591,6 +605,35 @@ const SettingsPanel = ({ settings, onUpdate, onReset, onClose }) => {
           </div>
         </div>
 
+        {/* Appearance */}
+        <div>
+          <div style={{ fontFamily: 'var(--font-mono)', fontSize: 9, color: 'var(--text-muted)', letterSpacing: 1, marginBottom: 12 }}>APPEARANCE</div>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+            <div style={row}>
+              <div>
+                <div style={label}>Theme</div>
+                <div style={sublabel}>Light or dark interface</div>
+              </div>
+              <div style={{ display: 'flex', gap: 4 }}>
+                {['dark', 'light'].map(t => (
+                  <button
+                    key={t}
+                    onClick={() => onUpdate('theme', t)}
+                    style={{
+                      padding: '3px 10px', borderRadius: 6, cursor: 'pointer',
+                      fontFamily: 'var(--font-display)', fontSize: 10, fontWeight: 700,
+                      border: `1px solid ${settings.theme === t ? 'var(--cyan)' : 'rgba(255,255,255,0.1)'}`,
+                      background: settings.theme === t ? 'rgba(0,212,255,0.12)' : 'transparent',
+                      color: settings.theme === t ? 'var(--cyan)' : 'var(--text-muted)',
+                      textTransform: 'capitalize',
+                    }}
+                  >{t === 'dark' ? '🌙 Dark' : '☀️ Light'}</button>
+                ))}
+              </div>
+            </div>
+          </div>
+        </div>
+
         {/* Discovery */}
         <div>
           <div style={{ fontFamily: 'var(--font-mono)', fontSize: 9, color: 'var(--text-muted)', letterSpacing: 1, marginBottom: 12 }}>DISCOVERY</div>
@@ -680,6 +723,16 @@ const SznCard = ({ szn, isSelected, onClick }) => {
   const leader      = szn.leader
   const topThree    = szn.tokens.slice(0, 3)
 
+  // Defensive label parsing — every Szn card needs [emoji, ...words].
+  // Meta cards from DEXScreener now have emoji prefix via slugToEmoji,
+  // but guard against any future label without one.
+  const labelParts  = szn.label.split(' ')
+  const hasEmoji    = labelParts[0] && /\p{Emoji}/u.test(labelParts[0])
+  const cardEmoji   = hasEmoji ? labelParts[0] : (heat.emoji || '🔥')
+  const cardTitle   = hasEmoji
+    ? labelParts.slice(1).join(' ')
+    : szn.label  // no emoji — use full label as title
+
   return (
     <div
       className={`card szn-card ${isSelected ? 'active' : ''}`}
@@ -693,11 +746,11 @@ const SznCard = ({ szn, isSelected, onClick }) => {
       {/* Header row */}
       <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', marginBottom: 6 }}>
         <div style={{ display: 'flex', alignItems: 'flex-start', gap: 7, flex: 1, minWidth: 0 }}>
-          <span style={{ fontSize: 17, flexShrink: 0 }}>{szn.label.split(' ')[0]}</span>
+          <span style={{ fontSize: 17, flexShrink: 0 }}>{cardEmoji}</span>
           <div style={{ minWidth: 0 }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 5, flexWrap: 'wrap' }}>
               <div style={{ fontFamily: 'var(--font-display)', fontWeight: 800, fontSize: 13, color: 'var(--cyan)' }}>
-                {szn.label.split(' ').slice(1).join(' ')} Szn
+                {cardTitle} Szn
               </div>
               {szn.source === 'ai' && (
                 <Tooltip text="AI-grouped — this entire narrative was identified and categorised by AI.">
@@ -1053,6 +1106,54 @@ const AlphaCard = ({ alpha, isSelected, onClick, isWatched, onToggleWatch }) => 
               )}
               {alpha.source === 'dex_new' && (
                 <span className="badge badge-new-pair" style={{ fontSize: 7, padding: '1px 5px' }}>✨ NEW</span>
+              )}
+              {/* Revival badge — token returned from cooling/dumped state */}
+              {alpha.isRevival && (
+                <Tooltip text={
+                  alpha.recoveryPct != null
+                    ? `Returning runner — recovered to ${alpha.recoveryPct}% of peak. Previously cooled/dumped, now reversing.`
+                    : `Returning runner — previously cooled/dumped, now reversing upward.`
+                }>
+                  <span style={{
+                    fontFamily:  'var(--font-display)', fontSize: 7,
+                    padding:     '1px 6px', borderRadius: 3, cursor: 'default',
+                    background:  'rgba(0,255,153,0.12)',
+                    border:      '1px solid rgba(0,255,153,0.4)',
+                    color:       'var(--neon-green)',
+                    fontWeight:  800, letterSpacing: 0.4,
+                    animation:   'pulse 2s infinite',
+                  }}>
+                    ↑ REVIVAL
+                  </span>
+                </Tooltip>
+              )}
+
+              {/* Re-entry strength badge — how many times token has appeared on the runner feed */}
+              {(alpha.runCount || 0) >= 3 && (
+                <Tooltip text={`Appeared ${alpha.runCount}× on the runner feed — repeated runner signals strength and investor confidence`}>
+                  <span style={{
+                    fontFamily:  'var(--font-mono)', fontSize: 7,
+                    padding:     '1px 5px', borderRadius: 3, cursor: 'default',
+                    background:  alpha.runCount >= 10
+                      ? 'rgba(0,255,153,0.15)'
+                      : alpha.runCount >= 5
+                      ? 'rgba(0,212,255,0.12)'
+                      : 'rgba(255,255,255,0.07)',
+                    border: alpha.runCount >= 10
+                      ? '1px solid rgba(0,255,153,0.4)'
+                      : alpha.runCount >= 5
+                      ? '1px solid rgba(0,212,255,0.35)'
+                      : '1px solid rgba(255,255,255,0.15)',
+                    color: alpha.runCount >= 10
+                      ? 'var(--neon-green)'
+                      : alpha.runCount >= 5
+                      ? 'var(--cyan)'
+                      : 'var(--text-muted)',
+                    fontWeight: 700,
+                  }}>
+                    🔄 {alpha.runCount}×
+                  </span>
+                </Tooltip>
               )}
             </div>
             <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
@@ -2913,6 +3014,18 @@ const BetaRow = ({ beta, alpha, isPinned, trenchOnly, onOpenDrawer }) => {
       <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
         <span className="mono" style={{ fontSize: 12, color: 'var(--text-primary)' }}>{formatNum(beta.marketCap)}</span>
         <McapRatioBadge ratio={beta.mcapRatio} />
+        {/* ATH — only shown when peak_mcap is known (token was previously an alpha) */}
+        {(beta.peakMarketCap || 0) > 0 && (beta.peakMarketCap || 0) > (beta.marketCap || 0) && (
+          <Tooltip text={`All-time high mcap: ${formatNum(beta.peakMarketCap)} — currently ${Math.round((beta.marketCap / beta.peakMarketCap) * 100)}% of ATH`}>
+            <span style={{
+              fontFamily:   'var(--font-mono)', fontSize: 8,
+              color:        'var(--text-muted)', cursor: 'default',
+              letterSpacing: 0.2,
+            }}>
+              ATH {formatNum(beta.peakMarketCap)}
+            </span>
+          </Tooltip>
+        )}
       </div>
 
       <span className="mono" style={{ fontSize: 12, color: 'var(--text-secondary)' }}>{formatNum(beta.volume24h)}</span>

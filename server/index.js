@@ -433,6 +433,22 @@ ANALYSIS (work through each step):
    What competing tokens or rival concepts exist in the same space?
    (zen → tao, buddha, monk as SECTOR rivals / ape → bayc, bored as UNIVERSE)
 
+7b. DISEASE / HORROR / THREAT EXPANSION — if the token references a disease, virus,
+    biological threat, horror concept, or real-world danger event:
+    A. CARRIERS & VECTORS: What animals or organisms carry/spread this?
+       (hantavirus → rat, mouse, rodent, deer mouse / rabies → bat, dog, wolf)
+    B. SYMPTOMS & EFFECTS: What does it cause?
+       (hantavirus → fever, lung, respiratory / plague → death, blackdeath, skull)
+    C. PHARMACEUTICAL RESPONSE: What drugs, vaccines, or companies are associated?
+       (hantavirus → vaccine, antiviral, pfizer, mrna / covid → moderna, astrazeneca)
+    D. CONTAINMENT & RESPONSE: What organisations or measures respond to it?
+       (outbreak → cdc, who, quarantine, mask, hazmat, biohazard)
+    E. NARRATIVE VILLAINS: What are the antagonists in this threat narrative?
+       (virus → lab, bioweapon, china, bat, patient zero)
+    These terms surface the DERIVATIVE tokens degens spin up when a threat narrative runs.
+    $HANTA pumping → degens immediately launch $RAT, $RATWIF, $PFIZER, $VACCINE, $CDC.
+    A degen scanning $HANTA should find ALL of these. Generate them proactively.
+
 8. CT SLANG EXPANSION — if the token name, symbol, or description contains CT/degen slang,
    expand the slang itself into related concepts degens would recognise as connected.
    You understand all crypto Twitter lingo — use it.
@@ -658,7 +674,13 @@ app.post('/api/score-betas', async (req, res) => {
     const { prompt } = req.body
     if (!prompt) return res.status(400).json({ error: 'prompt required' })
 
-    const SYSTEM = 'You are a crypto analyst. Always respond with valid JSON only — no explanation, no markdown fences.'
+    const SYSTEM = `You are a crypto-native degen on Solana CT. You have encyclopedic knowledge of:
+- Meme token naming conventions: wif, inu, cat, pepe, sol, baby, evil, dark prefixes/suffixes
+- How CT spins derivative tokens from any narrative: disease → rat carrier → ratwif → pharma response
+- Real-world entities that get tokenised: pharma companies, government agencies, historical figures
+- Anime, gaming, political, animal, horror, and internet culture token universes
+- How degens think: "if X pumps, what else would I ape into immediately?"
+Always respond with valid JSON only — no explanation, no markdown fences.`
 
     // ── Unified fallback chain ────────────────────────────────────
     // Order: strongest/most-available first, weakest last.
@@ -880,7 +902,7 @@ const expandTokenToCache = async (token) => {
 
   const OR_KEY = process.env.OPENROUTER_API_KEY
   const expansionPrompt = buildExpansionPrompt(token)
-  const expansionSystem = 'You are a crypto narrative analyst. Always respond with valid JSON only — no explanation, no markdown.'
+  const expansionSystem = `You are a crypto-native degen and narrative analyst on Solana CT. You deeply understand meme token naming conventions, CT culture, and how narratives spawn derivative tokens. Always respond with valid JSON only — no explanation, no markdown.`
   let textResult = null
 
   if (isGroq70bAvailable()) {
@@ -915,7 +937,7 @@ const expandTokenToCache = async (token) => {
       relationshipHints: textResult.relationshipHints || {},
       detectedCategory:  textResult.category          || null,
       visualTerms: [], visualCounters: [], visualHints: {}, mood: null,
-      promptVersion: 'v6',
+      promptVersion: 'v7',
     }
     expansionCache.set(token.address, { data: cacheData, timestamp: Date.now(), mcap: token.marketCap || 0 })
     // Persist to Supabase — survives server restarts (6h TTL matches in-memory TTL)
@@ -1028,7 +1050,7 @@ app.post('/api/expand-alpha', async (req, res) => {
 
     try {
       const expansionPrompt = buildExpansionPrompt({ symbol, name, description })
-      const expansionSystem = 'You are a crypto narrative analyst. Always respond with valid JSON only — no explanation, no markdown.'
+      const expansionSystem = `You are a crypto-native degen and narrative analyst on Solana CT. You deeply understand meme token naming conventions, CT culture, and how narratives spawn derivative tokens. Always respond with valid JSON only — no explanation, no markdown.`
 
       let textResult = null
 
@@ -1248,7 +1270,7 @@ Respond ONLY with valid JSON. No markdown:
       }
     }
 
-    const PROMPT_VERSION = 'v6'  // Bump when expansion prompt changes significantly
+    const PROMPT_VERSION = 'v7'  // Bump when expansion prompt changes significantly
     const data = {
       searchTerms,
       visualTerms,
@@ -1293,26 +1315,38 @@ app.post('/api/categorize-szn', async (req, res) => {
       return parts
     }).join('\n')
 
-    const prompt = `You are analyzing Solana meme tokens to detect narrative themes for a crypto analytics tool.
+    const prompt = `You are a CT degen categorising Solana meme tokens into narrative themes.
+These tokens FAILED keyword matching — they need semantic understanding to classify.
 
 KNOWN NARRATIVE CATEGORIES:
 ${categoryList}
 
-UNMATCHED TOKENS (did not match any keyword filter — categorize these):
+TOKENS TO CATEGORISE:
 ${tokenList}
 
-For each token, determine:
-1. Does it fit one of the KNOWN categories above? (use semantic understanding — $WHISKERS → cats, $BARKY → dogs)
-2. If not, does it belong to a genuinely novel narrative that should get its own category?
+YOUR TASK for each token:
+1. MATCH TO KNOWN CATEGORY — be aggressive with semantic matching:
+   - $WHISKERS, $MEOW, $PURRFI → cats
+   - $BARKY, $WOOFCOIN, $DOGWIF → dogs
+   - $RATWIFMASK, $RATPEPE → animals (rats)
+   - $NGMI, $COPIUM, $WAGMI → internet_culture or humor
+   - $LARPER, $SIMP → internet_culture
+   - $PFIZER, $VACCINE → (match to relevant health/political category or novel)
+   - CT naming patterns: [subject]wif[item], baby[subject], evil[subject] — look past the suffix to the SUBJECT
 
-Rules:
-- Be generous with existing categories.
-- Only create a "newNarrative" if it clearly doesn't fit anything above.
-- newNarrative.key must be a short lowercase identifier (e.g. "gork", "foxes")
-- newNarrative.label must be emoji + short name (e.g. "🦊 Foxes", "🦕 Gork")
-- If a token is genuinely random with no clear theme, set both to null.
+2. CREATE NOVEL NARRATIVE — only when the token clearly doesn't fit any known category
+   AND there are signals of a specific sub-narrative worth surfacing (e.g. a new creature,
+   a specific political figure, a specific game/anime character)
+   - newNarrative.key: short lowercase slug (e.g. "gork", "foxes", "hanta")
+   - newNarrative.label: emoji + short name (e.g. "🦊 Foxes", "🦠 Hanta", "🦕 Gork")
+   - Choose the emoji a CT degen would use for this narrative
 
-Respond ONLY with a JSON array. No explanation, no markdown. Example:
+3. NULL — only for genuinely random tokens with no identifiable theme
+
+IMPORTANT: Prefer matching to an existing category over creating a new narrative.
+A novel narrative should only be created when you're confident other tokens exist in that space.
+
+Respond ONLY with a JSON array:
 [
   {"index":0,"category":"cats","newNarrative":null},
   {"index":1,"category":null,"newNarrative":{"key":"foxes","label":"🦊 Foxes"}},
@@ -1321,7 +1355,7 @@ Respond ONLY with a JSON array. No explanation, no markdown. Example:
 
     const GROQ_KEY = process.env.GROQ_API_KEY
     const OR_KEY   = process.env.OPENROUTER_API_KEY
-    const SYSTEM   = 'You are a crypto analyst. Always respond with valid JSON only — no explanation, no markdown fences.'
+    const SYSTEM   = `You are a crypto-native degen on Solana CT. You deeply understand how meme narratives cluster and what degens call things. You know that $WHISKERS = cats, $BARKY = dogs, $GORK = a novel creature narrative, $NGMI = internet culture, $COPE = humor/CT slang. You understand CT naming conventions — wif, inu, pepe, baby, evil prefixes/suffixes. Always respond with valid JSON only — no explanation, no markdown fences.`
     const messages = [
       { role: 'system', content: SYSTEM },
       { role: 'user',   content: prompt },
@@ -2225,36 +2259,76 @@ const DB_WRITE_QUEUE = (() => {
 // Uses ON CONFLICT (slug) DO UPDATE to refresh token_count and last_seen.
 // Fails silently — novel narrative recording is non-fatal.
 app.post('/api/novel-narrative', async (req, res) => {
-  const { slug, label, category, tokenCount, tokens } = req.body
+  const { slug, label, tokenCount, tokens } = req.body
   if (!slug || !label) return res.status(400).json({ error: 'slug and label required' })
 
   try {
-    await db.query(`
-      INSERT INTO narratives (slug, label, category, token_count, first_seen, last_seen)
-      VALUES ($1, $2, $3, $4, NOW(), NOW())
-      ON CONFLICT (slug) DO UPDATE SET
-        token_count = EXCLUDED.token_count,
-        last_seen   = NOW()
-    `, [slug, label, category || slug, tokenCount || (tokens?.length || 0)])
+    // Schema: key, label, tokens (JSONB), total_volume, score, timestamp
+    // No UNIQUE constraint on key — insert only if key not already seen today
+    const existing = await db.query(
+      `SELECT id FROM narratives WHERE key = $1 AND timestamp > NOW() - INTERVAL '24 hours'`,
+      [slug]
+    )
+    if (existing.rows.length === 0) {
+      await db.query(
+        `INSERT INTO narratives (key, label, tokens, total_volume, score)
+         VALUES ($1, $2, $3, $4, $5)`,
+        [
+          slug,
+          label,
+          JSON.stringify((tokens || []).slice(0, 20)),
+          0,
+          tokenCount || (tokens?.length || 0),
+        ]
+      )
+      console.log(`[Narratives] Recorded novel narrative: "${label}" (${tokenCount} tokens)`)
+    }
 
-    // Also write individual tokens to the tokens table so they appear in past runners
+    // Also write individual tokens to the tokens table
     if (Array.isArray(tokens) && tokens.length > 0) {
       for (const t of tokens.slice(0, 20)) {
         if (!t.address || !t.symbol) continue
-        db.query(`
-          INSERT INTO tokens (address, symbol, name, logo_url, last_seen)
-          VALUES ($1, $2, $3, $4, NOW())
-          ON CONFLICT (address) DO UPDATE SET last_seen = NOW()
-        `, [t.address, t.symbol, t.name || t.symbol, t.logoUrl || null])
-          .catch(() => {})
+        db.query(
+          `INSERT INTO tokens (address, symbol, name, logo_url, last_seen)
+           VALUES ($1, $2, $3, $4, NOW())
+           ON CONFLICT (address) DO UPDATE SET last_seen = NOW()`,
+          [t.address, t.symbol, t.name || t.symbol, t.logoUrl || null]
+        ).catch(() => {})
       }
     }
 
-    console.log(`[Narratives] Recorded novel narrative: "${label}" (${tokenCount} tokens)`)
     res.json({ ok: true })
   } catch (err) {
     console.warn('[Narratives] Write failed (non-fatal):', err.message)
     res.json({ ok: false, error: err.message })
+  }
+})
+
+// GET /api/run-counts?addresses=addr1,addr2,...
+// Returns how many times each token address has appeared in alpha_runs.
+// Used to show re-entry strength badge on live alpha cards.
+// Cached 5 minutes — run counts don't change faster than feed refresh.
+app.get('/api/run-counts', async (req, res) => {
+  const raw       = (req.query.addresses || '').trim()
+  const addresses = raw.split(',').map(a => a.trim()).filter(Boolean).slice(0, 100)
+  if (addresses.length === 0) return res.json({ counts: {} })
+
+  try {
+    const result = await db.query(
+      `SELECT token_address, COUNT(*)::int AS run_count
+       FROM alpha_runs
+       WHERE token_address = ANY($1)
+       GROUP BY token_address`,
+      [addresses]
+    )
+    const counts = {}
+    for (const row of result.rows) {
+      counts[row.token_address] = row.run_count
+    }
+    res.json({ counts })
+  } catch (err) {
+    console.warn('[RunCounts] Query failed:', err.message)
+    res.json({ counts: {} })
   }
 })
 
@@ -2509,12 +2583,15 @@ app.get('/api/beta-history', async (req, res) => {
         t.symbol,
         t.name,
         t.logo_url        AS "logoUrl",
+        t.peak_mcap       AS "peakMarketCap",
         br.signals,
         br.score,
         br.relationship_type AS "relationshipType",
         br.first_seen     AS "firstSeen",
         br.last_seen      AS "lastSeen",
-        br.confirmed_count AS "confirmedCount"
+        br.confirmed_count AS "confirmedCount",
+        br.beta_price_at_detection  AS "priceAtDetection",
+        br.beta_mcap_at_detection   AS "mcapAtDetection"
       FROM beta_relations br
       JOIN tokens t ON t.address = br.beta_address
       WHERE br.alpha_address = $1

@@ -45,6 +45,57 @@
   --navbar-height: 70px;
 }
 
+/* ─── Light Mode Theme ───────────────────────────────────────────
+   Applied when <body data-theme="light"> is set.
+   Accent colours (neon-green, amber, cyan etc) stay the same —
+   only surfaces, borders, and text flip to light equivalents.
+   The app identity is preserved; just the background inverts.
+───────────────────────────────────────────────────────────────── */
+[data-theme="light"] {
+  --black:        #f0f4f8;
+  --surface-1:    #ffffff;
+  --surface-2:    #f5f7fa;
+  --surface-3:    #eaeff5;
+  --border:       rgba(0, 0, 0, 0.08);
+  --border-lit:   rgba(0, 180, 120, 0.3);
+
+  --text-primary:   #0d1017;
+  --text-secondary: #4a5568;
+  --text-muted:     #8896a8;
+
+  --neon-glow:    rgba(0, 200, 120, 0.12);
+  --amber-glow:   rgba(200, 130, 0, 0.12);
+  --red-glow:     rgba(200, 40, 70, 0.12);
+  --cyan-glow:    rgba(0, 160, 210, 0.1);
+  --purple-glow:  rgba(140, 80, 220, 0.1);
+  --sky-glow:     rgba(80, 160, 220, 0.1);
+}
+
+[data-theme="light"] body {
+  background: var(--surface-2);
+}
+
+/* ─── Compact Beta Mode ───────────────────────────────────────────
+   Applied when <body data-compact-betas="true"> is set.
+   Reduces padding and font sizes on beta rows for higher density.
+───────────────────────────────────────────────────────────────── */
+[data-compact-betas="true"] .beta-row {
+  padding:    7px 12px;
+  gap:        8px;
+  border-radius: var(--radius-sm);
+}
+
+[data-compact-betas="true"] .beta-row .token-icon {
+  width:  22px !important;
+  height: 22px !important;
+  font-size: 7px !important;
+}
+
+[data-compact-betas="true"] .beta-row .token-icon img {
+  width:  22px;
+  height: 22px;
+}
+
 *, *::before, *::after {
   box-sizing: border-box;
   margin: 0;
