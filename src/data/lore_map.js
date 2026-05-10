@@ -235,6 +235,21 @@ const LORE_MAP = {
 
   // ── Expanded anime ───────────────────────────────────────────────
   LUFFY:   { terms: ['luffy','onepiece','zoro','nami','pirate','nakama'], concepts: ['luffy','onepiece','anime'], category: 'anime', universe: 'onepiece' },
+
+  // ── Disease / Virus / Threat narrative ───────────────────────────
+  // When a disease/threat token pumps, degens immediately spin up tokens for:
+  // the carrier animal, the pharma response, the symptoms, the antagonists.
+  // These lore entries surface those derivative tokens correctly.
+  HANTA:    { terms: ['rat','mouse','rodent','deermouse','virus','hantavirus','fever','lung','outbreak','vaccine','pfizer','cdc','who','hazmat','biohazard','ratwif','ratcat','viruswif','mask'], concepts: ['hanta','virus','rodent','disease'], category: 'horror', universe: 'disease-narrative' },
+  VIRUS:    { terms: ['covid','plague','outbreak','pandemic','infected','pathogen','bacteria','germ','sick','disease','hanta','ebola','flu','contagion','vaccine','pfizer','moderna','cdc'], concepts: ['virus','disease','outbreak'], category: 'horror', universe: 'disease-narrative' },
+  PLAGUE:   { terms: ['blackdeath','rat','flea','medieval','death','skull','pandemic','epidemic','infected','pox','cholera','pestilence','biohazard'], concepts: ['plague','death','disease'], category: 'horror', universe: 'disease-narrative' },
+  EBOLA:    { terms: ['virus','outbreak','africa','fever','hemorrhagic','infected','quarantine','biohazard','hazmat','cdc','who','vaccine'], concepts: ['ebola','virus','disease'], category: 'horror', universe: 'disease-narrative' },
+  COVID:    { terms: ['corona','pandemic','vaccine','pfizer','moderna','astrazeneca','mrna','lockdown','mask','variant','delta','omicron','bat','wuhan','cdc','who'], concepts: ['covid','corona','pandemic'], category: 'horror', universe: 'disease-narrative' },
+  ZOMBIE:   { terms: ['undead','walker','dead','brain','apocalypse','infected','horde','shambler','ghoul','necro','rotten','corpse','revive'], concepts: ['zombie','undead','horror'], category: 'horror', universe: 'zombie-apocalypse' },
+  SKULL:    { terms: ['bones','death','dead','grim','reaper','crossbones','skeleton','undead','zombie','ghost','pirate','cursed'], concepts: ['skull','death','horror'], category: 'horror', universe: 'dark-narrative' },
+  // Pharma / vaccine tokens that spawn from disease narratives
+  PFIZER:   { terms: ['vaccine','mrna','moderna','astrazeneca','jab','shot','pharma','drug','antiviral','covid','hanta','virus','cdc','who','fauci'], concepts: ['pfizer','vaccine','pharma'], category: 'pharma', universe: 'disease-narrative' },
+  VACCINE:  { terms: ['pfizer','moderna','jab','shot','mrna','antiviral','pharma','immunity','booster','cdc','fauci','mandate'], concepts: ['vaccine','pharma','jab'], category: 'pharma', universe: 'disease-narrative' },
 }
 
 // ─── Narrative Categories (Vector 16) ───────────────────────────
@@ -248,6 +263,8 @@ const LORE_MAP = {
 export const NARRATIVE_CATEGORIES = {
   // ── Tier 1: Highly specific — unique keywords, low overlap ──────
   aliens:    { label: '👽 Aliens',    priority: 1, keywords: ['alien','ufo','disclosure','area51','extraterrestrial','greys','abduct','roswell','saucer'] },
+  horror:    { label: '☠️ Horror',    priority: 1, keywords: ['zombie','skull','dead','undead','ghost','horror','cursed','demon','dark','evil','plague','virus','hanta','ebola','infected','outbreak'] },
+  pharma:    { label: '💊 Pharma',    priority: 1, keywords: ['vaccine','pfizer','moderna','mrna','pharma','drug','antiviral','jab','shot','cdc','fauci','astrazeneca'] },
   frogs:     { label: '🐸 Frog',     priority: 1, keywords: ['pepe','frog','toad','feels','kek','peepo','ribbit','kermit'] },
   dogs:      { label: '🐕 Dog',      priority: 1, keywords: ['wif','bonk','shib','doge','inu','pup','mutt','puppy','doggo','woofie','dawg','dog','doggy','dogg','pupper','hound','canine','woof','shiba'] },
   cats:      { label: '🐱 Cat',      priority: 1, keywords: ['cat','mew','nyan','kitty','meow','kitten','purr','whisker'] },
@@ -334,19 +351,21 @@ export const NARRATIVE_CATEGORIES = {
 //   latin        — token is rooted in Latin/Spanish language or culture
 export const CATEGORY_TRAITS = {
   aliens:           ['fictional', 'creature', 'sci_fi', 'meme'],
-  frogs:            ['creature', 'meme', 'internet', 'culture'],
+  horror:           ['culture', 'meme', 'real_world', 'creature'],
+  pharma:           ['real_world', 'tech', 'political'],
+  frogs:            ['creature', 'meme', 'nature', 'internet', 'culture'],
   dogs:             ['creature', 'meme', 'nature', 'culture'],
   cats:             ['creature', 'meme', 'nature', 'culture'],
   bears:            ['creature', 'nature', 'meme'],
   penguins:         ['creature', 'nature', 'meme'],
-  animals:          ['creature', 'nature'],
+  animals:          ['creature', 'nature', 'meme'],
   nature:           ['nature', 'creature'],
-  elon:             ['real_world', 'character', 'tech', 'political', 'meme'],
+  elon:             ['real_world', 'character', 'tech', 'political', 'meme', 'internet', 'culture', 'sci_fi'],
   trump:            ['real_world', 'character', 'political', 'meme', 'culture'],
   political:        ['real_world', 'political', 'meme', 'culture'],
   celebrity:        ['real_world', 'character', 'culture', 'meme'],
-  ai:               ['tech', 'sci_fi', 'culture', 'internet'],
-  space:            ['sci_fi', 'tech', 'fictional', 'nature'],
+  ai:               ['tech', 'sci_fi', 'culture', 'internet', 'fictional'],
+  space:            ['sci_fi', 'tech', 'fictional', 'nature', 'culture'],
   anime:            ['fictional', 'character', 'japanese', 'culture'],
   gaming:           ['fictional', 'character', 'culture', 'internet'],
   movies:           ['fictional', 'character', 'culture', 'meme'],
@@ -365,14 +384,31 @@ export const CATEGORY_TRAITS = {
 }
 
 // Minimum shared traits required for MetaSeed injection.
-// 2 = meaningful overlap. 1 = too loose (nearly everything shares 'meme').
-const MIN_SHARED_TRAITS = 2
+// Raised from 2 → 3: tighter compatibility, fewer borderline bleeds.
+// 3 = genuine narrative overlap (dogs+animals share creature,nature = 2 — still blocked as desired)
+// Wait — dogs+animals: creature,nature = 2, below 3. Adjust: dogs also gets 'meme' trait.
+// With MIN=3: humor+ai share meme,internet = 2 → BLOCKED. dogs+animals share creature,nature,meme = 3 → OK.
+const MIN_SHARED_TRAITS = 3
+
+// Categories that BLOCK MetaSeed injection when they are the DOMINANT narrative.
+// These are ambient Solana categories — always present, not meaningful trend signals.
+// When humor or internet_culture dominates, it's background noise, not a real wave.
+// Injecting their terms pollutes every scan indiscriminately.
+const METASEED_BLOCKED_AS_DOMINANT = new Set([
+  'humor',
+  'internet_culture',
+  'memes',
+])
 
 // Returns true if dominantCat narratively complements tokenCat.
 // Neither can be null — call site must handle null before calling this.
 export const areCategoriesCompatible = (tokenCat, dominantCat) => {
   if (!tokenCat || !dominantCat) return false
-  if (tokenCat === dominantCat) return false  // already in same category — no injection needed
+  if (tokenCat === dominantCat) return false  // already in same narrative — no injection needed
+
+  // Hard block: ambient categories should never be treated as meaningful dominant narratives
+  if (METASEED_BLOCKED_AS_DOMINANT.has(dominantCat)) return false
+
   const tokenTraits    = new Set(CATEGORY_TRAITS[tokenCat]    || [])
   const dominantTraits = new Set(CATEGORY_TRAITS[dominantCat] || [])
   if (tokenTraits.size === 0 || dominantTraits.size === 0) return false
@@ -383,6 +419,9 @@ export const areCategoriesCompatible = (tokenCat, dominantCat) => {
   }
   return false
 }
+
+// Export for external use (e.g. testing or future admin tooling)
+export { METASEED_BLOCKED_AS_DOMINANT }
 
 // Infers category from a list of search terms when V0A detection returned null.
 // Useful for tokens with non-Latin names (Japanese, Chinese) where symbol/name
