@@ -1033,11 +1033,19 @@ const fetchDescriptionKeywords = async (alpha) => {
 // the alpha token (not SOL/USDC). If $HARVEY/$SHIRLEY pool exists,
 // that's an undeniable relationship. No ambiguity, no scoring.
 
+// Well-known base tokens that appear in almost every pool — not beta signals
+const COMMON_BASE_TOKENS = new Set([
+  'So11111111111111111111111111111111111111112',  // SOL (wrapped)
+  'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v', // USDC
+  'Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB', // USDT
+  'mSoLzYCxHdYgdzU16g5QSh3i5K3z3KZK7ytfqcJm7So',  // mSOL
+  'bSo13r4TkiE4KumL71LsHTPpL2euBYLFx6h9HP3piy1',  // bSOL
+])
+
 const fetchLPPairBetas = async (alpha) => {
   if (!alpha.address) return []
 
   try {
-    // Search for tokens that have a pair with the alpha's address
     const res = await DEX_QUEUE.get(
       `${DEXSCREENER_BASE}/latest/dex/search?q=${alpha.address}`
     )
@@ -1050,19 +1058,24 @@ const fetchLPPairBetas = async (alpha) => {
         if ((p.liquidity?.usd || 0) < MIN_LIQUIDITY) return false
         if (!isHealthyBetaLiquidity(p)) return false
 
-        // The key check: is the alpha token one of the pair tokens?
-        const quoteAddr  = p.quoteToken?.address || ''
-        const baseAddr   = p.baseToken?.address  || ''
-        const alphaAddr  = alpha.address
+        const quoteAddr = p.quoteToken?.address || ''
+        const baseAddr  = p.baseToken?.address  || ''
+        const alphaAddr = alpha.address
 
-        const isDirectPair =
-          quoteAddr === alphaAddr ||
-          baseAddr  === alphaAddr
+        // Alpha must be one side of the pair
+        const isDirectPair = quoteAddr === alphaAddr || baseAddr === alphaAddr
+        if (!isDirectPair) return false
 
-        // Exclude the alpha itself
-        const isNotAlpha  = baseAddr !== alphaAddr
+        // The OTHER token must not be the alpha itself
+        const otherAddr = baseAddr === alphaAddr ? quoteAddr : baseAddr
+        if (!otherAddr || otherAddr === alphaAddr) return false
 
-        return isDirectPair && isNotAlpha
+        // The OTHER token must not be a common base currency (SOL, USDC, USDT etc)
+        // A token paired with SOL is just a normal AMM pool — not a beta signal
+        // We want: Alpha/Beta pairs, not Alpha/SOL pairs
+        if (COMMON_BASE_TOKENS.has(otherAddr)) return false
+
+        return true
       })
       .map(p => ({ pair: p, sources: ['lp_pair'] }))
   } catch (err) {

@@ -17,8 +17,8 @@ const axios = require('axios')
 
 const NEWS_API_KEY        = process.env.NEWS_API_KEY
 const CACHE_TTL_MS        = 30 * 60 * 1000
-const MIN_HEADLINES       = 3
-const MAX_HEADLINE_AGE_MS = 2 * 60 * 60 * 1000
+const MIN_HEADLINES       = 2                      // lowered from 3 — free tier returns fewer recent headlines
+const MAX_HEADLINE_AGE_MS = 6 * 60 * 60 * 1000   // extended from 2h to 6h — free tier headlines are older
 
 const EVENT_KEYWORD_MAP = {
   space: [

@@ -691,41 +691,37 @@ const getWeeklyContext = (alpha) => {
 
 // ─── Core: Price action classifies fresh tokens ──────────────────
 // ─── Reversal detector ───────────────────────────────────────────
-// Identifies cooling/dumped tokens that are genuinely recovering.
-// Runs on historical tokens already classified as cooling — no new API calls.
+// A token has reversed when it pumped significantly after dumping.
+// Simple rules — not too tight. An 80% dump + 50% rally = real reversal.
 //
-// Criteria (all must pass):
-//   1. Currently in cooling or dumped state
-//   2. 24h price change meaningfully positive (> +5%) — not noise
-//   3. Volume alive (> $5K) — real buying, not wash trading
-//   4. Liquidity tradeable (> $2K)
-//   5. Recovered to ≥15% of peak mcap — filters dead cat bounces
-//      ($1M peak → $10K dump → $15K bounce = NOT a revival)
+// Criteria (ALL must pass):
+//   1. Token was dumped (lost 50%+ from peak) — isCooling alone is not enough
+//   2. Current 24h change > +15% — meaningful rally, not a quiet up day
+//   3. Volume > $5K — some real buying activity
+//   4. Liquidity > $2K — pool is tradeable
 //
 // Returns { isReversing, recoveryPct }
 const detectReversal = (alpha) => {
-  if (!alpha.isCooling && !alpha.isDumped) return { isReversing: false }
+  if (!alpha.isDumped) return { isReversing: false }
 
   const change = parseFloat(alpha.priceChange24h) || 0
-  const vol    = alpha.volume24h    || 0
-  const liq    = alpha.liquidity    || 0
-  const mcap   = alpha.marketCap    || 0
+  const vol    = alpha.volume24h     || 0
+  const liq    = alpha.liquidity     || 0
+  const mcap   = alpha.marketCap     || 0
   const peak   = alpha.peakMarketCap || 0
 
-  if (change <= 5)    return { isReversing: false }  // not moving up meaningfully
-  if (vol  < 5_000)  return { isReversing: false }  // no real buying pressure
-  if (liq  < 2_000)  return { isReversing: false }  // pool too thin to trade
+  if (change <= 15)   return { isReversing: false }
+  if (vol    < 5_000) return { isReversing: false }
+  if (liq    < 2_000) return { isReversing: false }
 
-  // Dead cat bounce filter — must have recovered to ≥15% of peak
-  if (peak > 50_000 && mcap > 0 && (mcap / peak) < 0.15) {
-    return { isReversing: false }
-  }
+  const recoveryPct = peak > 0 && mcap > 0
+    ? Math.round((mcap / peak) * 100)
+    : null
 
-  const recoveryPct = peak > 0 && mcap > 0 ? Math.round((mcap / peak) * 100) : null
   console.log(
     `[Reversal] 🔄 $${alpha.symbol} — ` +
     `+${change.toFixed(1)}% 24h | vol $${Math.round(vol / 1000)}K` +
-    (recoveryPct !== null ? ` | ${recoveryPct}% of peak recovered` : '')
+    (recoveryPct !== null ? ` | ${recoveryPct}% of peak` : '')
   )
   return { isReversing: true, recoveryPct }
 }

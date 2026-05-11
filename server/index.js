@@ -2315,7 +2315,8 @@ app.get('/api/run-counts', async (req, res) => {
 
   try {
     const result = await db.query(
-      `SELECT token_address, COUNT(*)::int AS run_count
+      `SELECT token_address,
+              COUNT(DISTINCT DATE(timestamp))::int AS run_count
        FROM alpha_runs
        WHERE token_address = ANY($1)
        GROUP BY token_address`,
@@ -2383,12 +2384,20 @@ app.post('/api/record-alphas', async (req, res) => {
         console.error('[DB] record-alphas token upsert error:', err.message)
       }
 
-      // Insert alpha_run rows — one per token, ignore conflicts on same address+minute
+      // Insert alpha_run rows — deduplicated to ONE row per token per DAY.
+      // runCount = distinct days a token has been a runner. This is meaningful
+      // to degens: "ran for 7 days" signals a recurring narrative token.
+      // "appeared 168 times" (hourly) is just polling noise — meaningless.
       for (const a of chunk) {
         try {
           await db.query(`
             INSERT INTO alpha_runs (token_address, mcap, volume_24h, price_change_24h, source, price)
-            VALUES ($1, $2, $3, $4, $5, $6)
+            SELECT $1, $2, $3, $4, $5, $6
+            WHERE NOT EXISTS (
+              SELECT 1 FROM alpha_runs
+              WHERE token_address = $1
+                AND timestamp > NOW() - INTERVAL '24 hours'
+            )
           `, [a.address, a.marketCap || null, a.volume24h || null, a.priceChange24h || null, a.source || null, a.price || null])
         } catch { /* non-fatal per-token */ }
       }
@@ -2421,7 +2430,12 @@ app.post('/api/record-alpha', async (req, res) => {
       `, [address, symbol, name || null, logoUrl || null, marketCap || 0])
       await db.query(`
         INSERT INTO alpha_runs (token_address, mcap, volume_24h, price_change_24h, source, price)
-        VALUES ($1, $2, $3, $4, $5, $6)
+        SELECT $1, $2, $3, $4, $5, $6
+        WHERE NOT EXISTS (
+          SELECT 1 FROM alpha_runs
+          WHERE token_address = $1
+            AND timestamp > NOW() - INTERVAL '24 hours'
+        )
       `, [address, marketCap || null, volume24h || null, priceChange24h || null, source || null, price || null])
     } catch (err) {
       console.error('[DB] record-alpha error:', err.message)
@@ -2446,6 +2460,7 @@ app.get('/api/history/full', async (req, res) => {
         t.name,
         t.logo_url         AS "logoUrl",
         t.peak_mcap        AS "peakMarketCap",
+        (SELECT COUNT(DISTINCT DATE(r2.timestamp)) FROM alpha_runs r2 WHERE r2.token_address = t.address)::int AS "runCount",
         t.first_seen       AS "firstSeen",
         t.last_seen        AS "lastSeen",
         r.mcap             AS "marketCap",

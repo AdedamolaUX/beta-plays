@@ -47,32 +47,152 @@
 
 /* ─── Light Mode Theme ───────────────────────────────────────────
    Applied when <body data-theme="light"> is set.
-   Accent colours (neon-green, amber, cyan etc) stay the same —
-   only surfaces, borders, and text flip to light equivalents.
-   The app identity is preserved; just the background inverts.
+   Warm parchment palette — feels intentional, not clinical.
+   Accent colours unchanged. Borders subtle warm-tone.
 ───────────────────────────────────────────────────────────────── */
 [data-theme="light"] {
-  --black:        #f0f4f8;
-  --surface-1:    #ffffff;
-  --surface-2:    #f5f7fa;
-  --surface-3:    #eaeff5;
-  --border:       rgba(0, 0, 0, 0.08);
-  --border-lit:   rgba(0, 180, 120, 0.3);
+  --black:        #f5f0e8;
+  --surface-1:    #fdf8f0;
+  --surface-2:    #f0ebe0;
+  --surface-3:    #e8e2d5;
+  --border:       rgba(80, 60, 30, 0.1);
+  --border-lit:   rgba(0, 180, 120, 0.35);
 
-  --text-primary:   #0d1017;
-  --text-secondary: #4a5568;
-  --text-muted:     #8896a8;
+  --text-primary:   #1a1410;
+  --text-secondary: #4a3f30;
+  --text-muted:     #8a7a68;
 
-  --neon-glow:    rgba(0, 200, 120, 0.12);
-  --amber-glow:   rgba(200, 130, 0, 0.12);
-  --red-glow:     rgba(200, 40, 70, 0.12);
-  --cyan-glow:    rgba(0, 160, 210, 0.1);
-  --purple-glow:  rgba(140, 80, 220, 0.1);
-  --sky-glow:     rgba(80, 160, 220, 0.1);
+  --neon-glow:    rgba(0, 180, 100, 0.15);
+  --amber-glow:   rgba(180, 110, 0, 0.15);
+  --red-glow:     rgba(180, 30, 50, 0.15);
+  --cyan-glow:    rgba(0, 140, 190, 0.12);
+  --purple-glow:  rgba(120, 60, 200, 0.12);
+  --sky-glow:     rgba(60, 140, 200, 0.12);
 }
 
 [data-theme="light"] body {
   background: var(--surface-2);
+}
+
+[data-theme="light"] .card {
+  box-shadow: 0 1px 4px rgba(80, 60, 30, 0.08);
+}
+
+[data-theme="light"] .beta-row {
+  background: var(--surface-1);
+}
+
+[data-theme="light"] .beta-row:hover {
+  background: var(--surface-3);
+}
+
+/* Light mode component overrides — fix hardcoded rgba(255,255,255,x) values */
+[data-theme="light"] .navbar {
+  background: var(--surface-1);
+  border-bottom: 1px solid var(--border);
+  box-shadow: 0 1px 8px rgba(80,60,30,0.08);
+}
+
+[data-theme="light"] .szn-card {
+  background: var(--surface-1);
+  border-color: rgba(80,60,30,0.12);
+}
+
+[data-theme="light"] .szn-card:hover {
+  background: var(--surface-2);
+}
+
+[data-theme="light"] .alpha-card {
+  background: var(--surface-1);
+  border-color: var(--border);
+}
+
+[data-theme="light"] .alpha-card:hover,
+[data-theme="light"] .alpha-card.selected {
+  border-color: var(--neon-green);
+  background: var(--surface-2);
+}
+
+/* Narrative ticker bar */
+[data-theme="light"] .narrative-ticker-wrap {
+  background: var(--surface-3);
+  border-color: var(--border);
+}
+
+/* Tab buttons */
+[data-theme="light"] .tab-btn {
+  color: var(--text-muted);
+}
+
+[data-theme="light"] .tab-btn.active {
+  color: var(--cyan);
+  border-color: var(--cyan);
+}
+
+/* Input fields */
+[data-theme="light"] input {
+  color: var(--text-primary);
+}
+
+[data-theme="light"] input::placeholder {
+  color: var(--text-muted);
+}
+
+/* Scrollbars */
+[data-theme="light"] ::-webkit-scrollbar-track {
+  background: var(--surface-2);
+}
+
+[data-theme="light"] ::-webkit-scrollbar-thumb {
+  background: rgba(80,60,30,0.2);
+}
+
+/* Dim mode navbar */
+[data-theme="dim"] .navbar {
+  background: var(--surface-1);
+  border-bottom: 1px solid var(--border);
+}
+
+[data-theme="dim"] .beta-row {
+  background: var(--surface-1);
+}
+
+[data-theme="dim"] .beta-row:hover {
+  background: var(--surface-2);
+}
+
+[data-theme="dim"] .alpha-card {
+  background: var(--surface-1);
+}
+
+/* ─── Dim Mode Theme ─────────────────────────────────────────────
+   Applied when <body data-theme="dim"> is set.
+   Softer dark — lighter surfaces, less contrast, easier on eyes.
+   Same accent colours and identity as dark. Good for extended use.
+   Inspired by Twitter's "Dim" mode.
+───────────────────────────────────────────────────────────────── */
+[data-theme="dim"] {
+  --black:        #151c2c;
+  --surface-1:    #1e2740;
+  --surface-2:    #252f4a;
+  --surface-3:    #2d3858;
+  --border:       rgba(255, 255, 255, 0.08);
+  --border-lit:   rgba(0, 255, 153, 0.2);
+
+  --text-primary:   #e8edf5;
+  --text-secondary: #a8b4c8;
+  --text-muted:     #6a7a94;
+
+  --neon-glow:    rgba(0, 255, 153, 0.12);
+  --amber-glow:   rgba(255, 170, 0, 0.12);
+  --red-glow:     rgba(255, 68, 102, 0.12);
+  --cyan-glow:    rgba(0, 212, 255, 0.1);
+  --purple-glow:  rgba(180, 100, 255, 0.1);
+  --sky-glow:     rgba(100, 200, 255, 0.1);
+}
+
+[data-theme="dim"] body {
+  background: var(--black);
 }
 
 /* ─── Compact Beta Mode ───────────────────────────────────────────
