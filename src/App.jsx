@@ -2291,8 +2291,6 @@ const AlphaBoard = ({ selectedAlpha, onSelect, onNewRunners, onLiveAlphas, onSzn
           )
         })}
 
-        })}
-
         {/* Past Runners tab */}
         {activeTab === 'runners' && (
           <div style={{ padding: '0 4px' }}>
