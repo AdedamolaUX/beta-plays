@@ -2950,7 +2950,7 @@ const SwapModal = ({ token, onClose }) => {
     window.Jupiter.init({
       displayMode: 'integrated',
       integratedTargetId: 'jupiter-terminal-container',
-      endpoint: 'https://mainnet.helius-rpc.com/?api-key=public',
+      endpoint: 'https://api.mainnet-beta.solana.com',
       defaultExplorer: 'Solana Explorer',
       formProps: {
         initialOutputMint: token.address,
