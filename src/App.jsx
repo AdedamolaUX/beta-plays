@@ -2931,27 +2931,57 @@ const NominateSearchBar = () => {
 }
 
 // ─── Jupiter Swap Helper ─────────────────────────────────────────
-// Calls window.Jupiter.init() directly — no React wrapper needed for modal mode.
-// Jupiter manages its own overlay, z-index, and close button.
+// Uses Jupiter Plugin v4 (Ultra mode — RPC-less, no endpoint needed).
+// Mount divs live permanently in index.html — never clipped by React overflow.
 const JUPITER_REFERRAL_KEY = 'FgbeqthZUTuATuSWZ5P2NmUrP9vFCjLVDuyzARq2Qsze'
+let isJupiterOpen = false
 
-const openJupiterSwap = (token, onClose) => {
+const openJupiterSwap = (token) => {
   if (!token?.address) return
-  if (typeof window === 'undefined' || !window.Jupiter) {
-    console.warn('[Jupiter] Terminal script not loaded yet — check index.html')
+
+  const Jupiter = window.Jupiter
+  if (!Jupiter) {
+    console.warn('[Jupiter] Plugin not loaded — check index.html script tag')
     return
   }
-  window.Jupiter.init({
-    displayMode: 'modal',
-    endpoint: 'https://rpc.ankr.com/solana',
-    defaultExplorer: 'Solana Explorer',
+
+  const backdrop = document.getElementById('jupiter-plugin-mount')
+  const inner    = document.getElementById('jupiter-plugin-inner')
+  if (!backdrop || !inner) {
+    console.warn('[Jupiter] Mount divs missing from index.html')
+    return
+  }
+
+  // If already open — just update the output mint
+  if (isJupiterOpen) {
+    try {
+      Jupiter.syncProps({
+        formProps: { initialOutputMint: token.address, fixedOutputMint: false }
+      })
+    } catch {}
+    return
+  }
+
+  const handleClose = () => {
+    isJupiterOpen = false
+    backdrop.style.display = 'none'
+    try { Jupiter.close() } catch {}
+  }
+
+  backdrop.style.display = 'flex'
+  backdrop.onclick = (e) => { if (e.target === backdrop) handleClose() }
+  isJupiterOpen = true
+
+  Jupiter.init({
+    displayMode: 'integrated',
+    integratedTargetId: 'jupiter-plugin-inner',
     formProps: {
       initialOutputMint: token.address,
       fixedOutputMint: false,
     },
     referralAccount: JUPITER_REFERRAL_KEY,
     referralName: 'BetaPlays',
-    onClose,
+    onClose: handleClose,
   })
 }
 // ─── Beta Row ────────────────────────────────────────────────────
@@ -4143,7 +4173,7 @@ export default function App() {
         <AlphaBoard selectedAlpha={selectedAlpha} onSelect={handleSelectAlpha} onNewRunners={handleNewRunners} onLiveAlphas={setAppLiveAlphas} onSznCards={setAppSznCards} onCoolingAlphas={setAppCoolingAlphas} onCustomSearch={handleSearchCustomAlpha} customAlphaLoading={customAlphaLoading} onRegisterClearSearch={fn => { clearAlphaBoardSearch.current = fn }} alphaListRef={alphaListRef} searchResults={searchResults} onSelectSearchResult={(token) => { if (!token) { setSearchResults([]); return }; setSelectedAlpha(token); setSearchResults([]) }} defaultTab={settings.defaultTab} />
         {isSzn
           ? <SznPanel  szn={selectedAlpha}   onListBeta={() => setShowListModal(true)} onOpenDrawer={setDrawerToken} />
-          : <BetaPanel alpha={selectedAlpha} liveAlphas={appLiveAlphas} onListBeta={() => setShowListModal(true)} onOpenDrawer={setDrawerToken} onSwap={(t) => openJupiterSwap(t, () => {})} onScrollToAlpha={handleScrollToAlpha} onCustomSearch={handleSearchCustomAlpha} customAlphaLoading={customAlphaLoading} customAlphaError={customAlphaError} settings={settings} />
+          : <BetaPanel alpha={selectedAlpha} liveAlphas={appLiveAlphas} onListBeta={() => setShowListModal(true)} onOpenDrawer={setDrawerToken} onSwap={(t) => openJupiterSwap(t)} onScrollToAlpha={handleScrollToAlpha} onCustomSearch={handleSearchCustomAlpha} customAlphaLoading={customAlphaLoading} customAlphaError={customAlphaError} settings={settings} />
         }
       </div>
 
@@ -4169,7 +4199,7 @@ export default function App() {
             token={drawerToken}
             alpha={selectedAlpha}
             onClose={() => setDrawerToken(null)}
-            onSwap={(t) => { setDrawerToken(null); openJupiterSwap(t, () => {}) }}
+            onSwap={(t) => { setDrawerToken(null); openJupiterSwap(t) }}
           />
         </>,
         document.body
