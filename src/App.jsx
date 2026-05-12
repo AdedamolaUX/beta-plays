@@ -2935,7 +2935,7 @@ const NominateSearchBar = () => {
 // Uses window.Jupiter loaded via <script> tag in index.html.
 // REFERRAL_KEY: replace placeholder with your Jupiter referral account pubkey
 // once created at https://referral.jup.ag
-const JUPITER_REFERRAL_KEY = 'FgbeqthZUTuATuSWZ5P2NmUrP9vFCjLVDuyzARq2Qsze'
+const JUPITER_REFERRAL_KEY = 'PLACEHOLDER_REPLACE_WITH_YOUR_REFERRAL_PUBKEY'
 
 const SwapModal = ({ token, onClose }) => {
   const containerRef = useRef(null)
@@ -2948,17 +2948,16 @@ const SwapModal = ({ token, onClose }) => {
     }
 
     window.Jupiter.init({
-      displayMode: 'integrated',
-      integratedTargetId: 'jupiter-terminal-container',
+      displayMode: 'modal',
       endpoint: 'https://api.mainnet-beta.solana.com',
       defaultExplorer: 'Solana Explorer',
       formProps: {
         initialOutputMint: token.address,
         fixedOutputMint: false,
       },
-      // Uncomment once you have your referral pubkey from referral.jup.ag:
-       referralAccount: JUPITER_REFERRAL_KEY,
-       referralName: 'BetaPlays',
+      referralAccount: JUPITER_REFERRAL_KEY,
+      referralName: 'BetaPlays',
+      onClose,
     })
 
     return () => {
@@ -2966,79 +2965,10 @@ const SwapModal = ({ token, onClose }) => {
     }
   }, [token?.address])
 
+  // Jupiter modal mode manages its own UI — we just call init() and close()
+  // onClose is called when user clicks our invisible backdrop or Jupiter's own close
   if (!token) return null
-
-  return createPortal(
-    <>
-      {/* Backdrop */}
-      <div
-        onClick={onClose}
-        style={{
-          position: 'fixed', inset: 0, zIndex: 10000,
-          background: 'rgba(0,0,0,0.7)',
-          backdropFilter: 'blur(4px)',
-        }}
-      />
-      {/* Modal */}
-      <div style={{
-        position: 'fixed', top: '50%', left: '50%',
-        transform: 'translate(-50%, -50%)',
-        zIndex: 10001,
-        width: 420, maxWidth: '95vw',
-        background: 'var(--surface-1)',
-        border: '1px solid rgba(0,212,255,0.3)',
-        borderRadius: 16,
-        overflow: 'hidden',
-        boxShadow: '0 0 40px rgba(0,212,255,0.15), 0 20px 60px rgba(0,0,0,0.8)',
-      }}>
-        {/* Header */}
-        <div style={{
-          display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-          padding: '14px 18px',
-          borderBottom: '1px solid var(--border)',
-        }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-            {token.logoUrl && (
-              <img src={token.logoUrl} alt={token.symbol}
-                style={{ width: 28, height: 28, borderRadius: '50%', objectFit: 'cover' }} />
-            )}
-            <div>
-              <div style={{
-                fontFamily: 'var(--font-display)', fontWeight: 800, fontSize: 15,
-                color: 'var(--text-primary)',
-              }}>
-                Swap → ${token.symbol}
-              </div>
-              <div style={{
-                fontFamily: 'var(--font-mono)', fontSize: 9,
-                color: 'var(--text-muted)', marginTop: 1,
-              }}>
-                via Jupiter · best route auto-selected
-              </div>
-            </div>
-          </div>
-          <button
-            onClick={onClose}
-            style={{
-              background: 'none', border: 'none', cursor: 'pointer',
-              color: 'var(--text-muted)', fontSize: 18, lineHeight: 1,
-              padding: '4px 6px', borderRadius: 6,
-              transition: 'color 0.15s',
-            }}
-            onMouseEnter={e => e.currentTarget.style.color = 'var(--text-primary)'}
-            onMouseLeave={e => e.currentTarget.style.color = 'var(--text-muted)'}
-          >✕</button>
-        </div>
-        {/* Jupiter mounts here */}
-        <div
-          id="jupiter-terminal-container"
-          ref={containerRef}
-          style={{ minHeight: 440 }}
-        />
-      </div>
-    </>,
-    document.body
-  )
+  return null
 }
 
 // ─── Beta Row ────────────────────────────────────────────────────
