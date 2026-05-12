@@ -766,7 +766,7 @@ Always respond with valid JSON only — no explanation, no markdown fences.`
     // 4. OR DeepSeek V3 — R1:free removed from OR April 2026, V3-5 is replacement
     if (OR_KEY) {
       try {
-        const result = await tryOpenAI('https://openrouter.ai/api/v1/chat/completions', OR_KEY, 'deepseek/deepseek-chat-v3-5:free', OR_HEADERS)
+        const result = await tryOpenAI('https://openrouter.ai/api/v1/chat/completions', OR_KEY, 'deepseek/deepseek-chat-v3-0324:free', OR_HEADERS)
         console.log('[Vector8] OR fallback: deepseek-v3-5:free')
         return res.json(result)
       } catch (e) { if (e.message !== '429') throw e; console.warn('[Vector8] OR deepseek-v3-5 quota hit') }
@@ -1384,7 +1384,7 @@ Respond ONLY with a JSON array:
       { url: 'https://api.groq.com/openai/v1/chat/completions',   key: GROQ_KEY, model: 'llama-3.3-70b-versatile',                      headers: {},         tag: 'Groq 70b'           },
       { url: 'https://api.groq.com/openai/v1/chat/completions',   key: GROQ_KEY, model: 'meta-llama/llama-4-scout-17b-16e-instruct',     headers: {},         tag: 'Groq Scout'         },
       { url: 'https://openrouter.ai/api/v1/chat/completions',     key: OR_KEY,   model: 'meta-llama/llama-3.3-70b-instruct:free',        headers: OR_HEADERS, tag: 'OR llama-70b'       },
-      { url: 'https://openrouter.ai/api/v1/chat/completions',     key: OR_KEY,   model: 'deepseek/deepseek-chat-v3-5:free',                 headers: OR_HEADERS, tag: 'OR deepseek-v3-5'  },
+      { url: 'https://openrouter.ai/api/v1/chat/completions',     key: OR_KEY,   model: 'deepseek/deepseek-chat-v3-0324:free',                 headers: OR_HEADERS, tag: 'OR deepseek-v3-5'  },
       { url: 'https://openrouter.ai/api/v1/chat/completions',     key: OR_KEY,   model: 'moonshotai/kimi-k2.5',                          headers: OR_HEADERS, tag: 'Kimi K2.5'          },
       { url: 'https://openrouter.ai/api/v1/chat/completions',     key: OR_KEY,   model: 'qwen/qwen-2.5-72b-instruct:free',               headers: OR_HEADERS, tag: 'OR qwen-72b'        },
       { url: 'https://openrouter.ai/api/v1/chat/completions',     key: OR_KEY,   model: 'xiaomi/mimo-v2-omni',                              headers: OR_HEADERS, tag: 'MiMo V2 Omni'       },
@@ -2003,6 +2003,11 @@ app.get('/api/pumpfun-metadata', async (req, res) => {
 
 // ─── PumpFun proxy ────────────────────────────────────────────────
 app.get('/api/pumpfun', async (req, res) => {
+  // PumpFun API disabled — CDN has been returning 530 consistently.
+  // All fallbacks (PumpPortal, DEXScreener pump) also failing.
+  // Re-enable when PumpFun stabilises their API infrastructure.
+  return res.status(503).json({ error: 'PumpFun source disabled — CDN outage' })
+
   const { path: apiPath, ...params } = req.query
   if (!apiPath) return res.status(400).json({ error: 'path required' })
 

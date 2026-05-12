@@ -387,186 +387,17 @@ const fetchProfileAlphas = async () => {
   }
 }
 
-// ─── Source 3: PumpFun graduating tokens ────────────────────────
-// ─── Source 3: PumpFun bonded tokens → real DEX data ────────────
-// PumpFun tokens graduate at ~$35K bonding. After migration they live
-// on Raydium and DEXScreener shows real price action.
-//
-// Two-phase fetch:
-//   Phase A: PumpFun API → get recently bonded coins (complete: true)
-//            with their raydium_pool address
-//   Phase B: DEXScreener → fetch real pair data using raydium_pool
-//            This replaces the frozen bonding curve snapshot with
-//            actual post-bond price action, volume, and mcap
-//
-// Also keeps a pre-graduation watch: tokens approaching bonding
-// are surfaced as early signal (source: 'pumpfun_pre')
-
+// ─── Source 3: PumpFun — DISABLED ───────────────────────────────
+// PumpFun's CDN (frontend-api.pump.fun) has been returning 530 errors
+// consistently. PumpPortal fallback also 404s. DEXScreener pump fallback
+// returns empty pairs. All 3 sources dead — disabling to save timeout budget.
+// Re-enable when PumpFun stabilises their API.
 const fetchPumpFunBonded = async () => {
-  try {
-    // Fetch recently bonded coins (last 48h activity, sorted by migration time)
-    const res = await axios.get(
-      `${BACKEND_URL}/api/pumpfun?path=coins&sort=last_trade_timestamp&order=DESC&limit=100&includeNsfw=false`,
-      { timeout: 8000 }
-    )
-
-    const coins = res.data || []
-
-    // Split: bonded (complete=true) vs approaching graduation
-    // PumpFun now graduates to EITHER Raydium OR PumpSwap (their own DEX)
-    // We handle both pool types
-    const bonded      = coins.filter(c => c.complete && (c.raydium_pool || c.pool_address))
-    const approaching = coins.filter(c => !c.complete && (c.usd_market_cap || 0) >= 20_000 && (c.usd_market_cap || 0) <= 34_000)
-
-    // ── Phase B: fetch real DEX data for bonded tokens ───────────
-    // raydium_pool = graduated to Raydium (old flow)
-    // pool_address = graduated to PumpSwap (new flow, their own DEX)
-    // Both are indexed by DEXScreener — same fetch works for both
-    const bondedResults = []
-    if (bonded.length > 0) {
-      const pairFetches = await Promise.allSettled(
-        bonded.slice(0, 20).map(coin => {
-          const poolAddr = coin.raydium_pool || coin.pool_address
-          return axios.get(`${DEXSCREENER_BASE}/latest/dex/tokens/${poolAddr}`, { timeout: 6000 })
-            .then(r => ({ coin, pairs: r.data?.pairs || [] }))
-        })
-      )
-
-      // Collect any tokens whose pool lookup returned nothing — we'll retry by mint
-      const missedCoins = []
-
-      pairFetches.forEach(result => {
-        if (result.status !== 'fulfilled') return
-        const { coin, pairs } = result.value
-
-        // Find the best Solana pair by volume
-        const best = pairs
-          .filter(p => p.chainId === 'solana')
-          .sort((a, b) => (b.volume?.h24 || 0) - (a.volume?.h24 || 0))[0]
-
-        if (!best) {
-          // Pool address lookup failed — queue retry by token mint address
-          missedCoins.push(coin)
-          return
-        }
-
-        const postBondMcap = best.marketCap || best.fdv || 0
-
-        // Real post-bond data from DEXScreener — no more frozen snapshot
-        bondedResults.push({
-          id:              best.pairAddress || coin.mint,
-          symbol:          best.baseToken?.symbol || coin.symbol || '???',
-          name:            best.baseToken?.name   || coin.name   || 'Unknown',
-          address:         best.baseToken?.address || coin.mint  || '',
-          pairAddress:     best.pairAddress || '',
-          priceUsd:        best.priceUsd || '0',
-          priceChange24h:  parseFloat(best.priceChange?.h24 || 0),  // REAL 24h change
-          volume24h:       best.volume?.h24    || 0,                 // REAL volume
-          marketCap:       postBondMcap,                             // REAL mcap
-          liquidity:       best.liquidity?.usd || 0,
-          logoUrl:         best.info?.imageUrl || coin.image_uri || null,
-          description:     best.info?.description || coin.description || '',
-          pairCreatedAt:   best.pairCreatedAt || coin.created_timestamp || null,
-          isHistorical:    false,
-          isLegend:        false,
-          isCooling:       false,
-          coolingLabel:    null,
-          source:          'pumpfun_bonded',
-          bondedAt:        coin.created_timestamp || null,
-          poolAddress:     coin.raydium_pool || coin.pool_address,
-          isPumpSwap:      !coin.raydium_pool && !!coin.pool_address,
-          dexUrl:          best.baseToken?.address
-            ? `https://dexscreener.com/solana/${best.baseToken.address}`
-            : (best.url || `https://dexscreener.com/solana/${best.pairAddress}`),
-        })
-      })
-    }
-
-    // ── Pre-graduation tokens approaching bonding ─────────────────
-    // Surfaced as early narrative signal — $20K–$34K mcap on bonding curve
-    // These are NOT shown with real price data (we don't have it yet)
-    // but they flag narratives about to graduate and spawn betas
-    const preGradResults = approaching.slice(0, 8).map(coin => ({
-      id:              coin.mint,
-      symbol:          coin.symbol || '???',
-      name:            coin.name   || 'Unknown',
-      address:         coin.mint   || '',
-      pairAddress:     coin.mint   || '',
-      priceUsd:        coin.usd_market_cap ? String(coin.usd_market_cap / (coin.total_supply || 1e9)) : '0',
-      priceChange24h:  0,           // Bonding curve — not real price action
-      volume24h:       coin.volume || 0,
-      marketCap:       coin.usd_market_cap || 0,
-      liquidity:       coin.virtual_sol_reserves ? coin.virtual_sol_reserves * 150 : 0,
-      logoUrl:         coin.image_uri || null,
-      description:     coin.description || '',
-      pairCreatedAt:   coin.created_timestamp || null,
-      isHistorical:    false,
-      isLegend:        false,
-      isCooling:       false,
-      coolingLabel:    null,
-      source:          'pumpfun_pre',   // pre-graduation — approaching bonding
-      bondingProgress: Math.round(((coin.usd_market_cap || 0) / 35_000) * 100),
-      dexUrl:          `https://pump.fun/${coin.mint}`,
-    }))
-
-    // ── Retry missed bonded tokens by mint address ──────────────
-    // When the pool address lookup fails (DEXScreener doesn't index it yet),
-    // try fetching by the token's own mint address instead — more reliable.
-    if (missedCoins.length > 0) {
-      const retryFetches = await Promise.allSettled(
-        missedCoins.slice(0, 10).map(coin =>
-          axios.get(`${DEXSCREENER_BASE}/latest/dex/tokens/${coin.mint}`, { timeout: 6000 })
-            .then(r => ({ coin, pairs: r.data?.pairs || [] }))
-        )
-      )
-      retryFetches.forEach(result => {
-        if (result.status !== 'fulfilled') return
-        const { coin, pairs } = result.value
-        const best = pairs
-          .filter(p => p.chainId === 'solana')
-          .sort((a, b) => (b.volume?.h24 || 0) - (a.volume?.h24 || 0))[0]
-        if (!best) return
-        const postBondMcap = best.marketCap || best.fdv || 0
-        bondedResults.push({
-          id:              best.pairAddress || coin.mint,
-          symbol:          best.baseToken?.symbol || coin.symbol || '???',
-          name:            best.baseToken?.name   || coin.name   || 'Unknown',
-          address:         best.baseToken?.address || coin.mint  || '',
-          pairAddress:     best.pairAddress || '',
-          priceUsd:        best.priceUsd || '0',
-          priceChange24h:  parseFloat(best.priceChange?.h24 || 0),
-          volume24h:       best.volume?.h24    || 0,
-          marketCap:       postBondMcap,
-          liquidity:       best.liquidity?.usd || 0,
-          logoUrl:         best.info?.imageUrl || coin.image_uri || null,
-          description:     best.info?.description || coin.description || '',
-          pairCreatedAt:   best.pairCreatedAt || coin.created_timestamp || null,
-          isHistorical:    false,
-          isLegend:        false,
-          isCooling:       false,
-          coolingLabel:    null,
-          source:          'pumpfun_bonded',
-          bondedAt:        coin.created_timestamp || null,
-          poolAddress:     coin.raydium_pool || coin.pool_address,
-          isPumpSwap:      !coin.raydium_pool && !!coin.pool_address,
-          dexUrl:          best.baseToken?.address
-            ? `https://dexscreener.com/solana/${best.baseToken.address}`
-            : (best.url || `https://dexscreener.com/solana/${best.pairAddress}`),
-        })
-      })
-      console.log(`[PumpFun] Retry by mint: ${bondedResults.length - (bondedResults.length - retryFetches.filter(r => r.status === 'fulfilled').length)} recovered`)
-    }
-
-    console.log(`[PumpFun] ${bondedResults.length} bonded (real DEX data), ${preGradResults.length} approaching graduation`)
-    return [...bondedResults, ...preGradResults]
-
-  } catch (err) {
-    console.warn('PumpFun bonded fetch failed:', err.message)
-    return []
-  }
+  // console.log('[PumpFun] Source disabled — CDN outage')
+  return []
 }
 
-// ─── Source 4: DEXScreener new pairs — universal launchpad coverage ─
+// ─── Source 4:// ─── Source 4: DEXScreener new pairs — universal launchpad coverage ─
 // Catches graduates from ALL launchpads: PumpFun, Bonk.fun, Bags, Moonshot,
 // LetsBonk, etc. without needing individual API integrations.
 // DEXScreener indexes every new Solana pair within minutes of creation.
@@ -598,6 +429,49 @@ const fetchNewPairs = async () => {
     return results
   } catch (err) {
     console.warn('DEXScreener new pairs fetch failed:', err.message)
+    return []
+  }
+}
+
+// ─── Source 9: DEXScreener gainers via keyword searches ──────────
+// DEXScreener /search doesn't sort by gainers — instead we search
+// common degen keywords and filter the results for runners.
+// Multiple searches catch different narrative clusters.
+const fetchDexScreenerGainers = async () => {
+  try {
+    const keywords = ['pump', 'pepe', 'dog', 'cat', 'ai', 'trump']
+    const searches = await Promise.allSettled(
+      keywords.map(kw =>
+        axios.get(`${DEXSCREENER_BASE}/latest/dex/search?q=${kw}`, { timeout: 6000 })
+          .then(r => r.data?.pairs || [])
+      )
+    )
+
+    const seen = new Set()
+    const results = []
+
+    for (const s of searches) {
+      if (s.status !== 'fulfilled') continue
+      for (const p of s.value) {
+        if (p.chainId !== 'solana') continue
+        if (seen.has(p.baseToken?.address)) continue
+        if (parseFloat(p.priceChange?.h24 || 0) < 30) continue
+        if ((p.volume?.h24    || 0) < 10_000) continue
+        if ((p.liquidity?.usd || 0) < 2_000)  continue
+        if (!(p.marketCap     || 0))           continue
+        seen.add(p.baseToken?.address)
+        results.push(formatAlpha(p, 'dex_gainers'))
+      }
+    }
+
+    results.sort((a, b) =>
+      parseFloat(b.priceChange24h || 0) - parseFloat(a.priceChange24h || 0)
+    )
+
+    console.log(`[Source9/DexGainers] ${results.length} top gainers on Solana`)
+    return results.slice(0, 40)
+  } catch (err) {
+    console.warn('[Source9/DexGainers] Failed:', err.message)
     return []
   }
 }
@@ -702,24 +576,31 @@ const getWeeklyContext = (alpha) => {
 //
 // Returns { isReversing, recoveryPct }
 const detectReversal = (alpha) => {
-  if (!alpha.isDumped) return { isReversing: false }
-
+  // Works on dumped tokens AND historical tokens that cooled and are now recovering.
+  // isDumped gate removed — any token with strong positive action after cooling qualifies.
   const change = parseFloat(alpha.priceChange24h) || 0
   const vol    = alpha.volume24h     || 0
   const liq    = alpha.liquidity     || 0
   const mcap   = alpha.marketCap     || 0
   const peak   = alpha.peakMarketCap || 0
 
-  if (change <= 15)   return { isReversing: false }
-  if (vol    < 5_000) return { isReversing: false }
+  // Must have meaningful positive action — not just a quiet green day
+  if (change <= 20)   return { isReversing: false }
+  if (vol    < 10_000) return { isReversing: false }  // Must meet live feed vol floor
   if (liq    < 2_000) return { isReversing: false }
+
+  // For non-dumped tokens: only promote if they were actually cooling
+  // (isCooling or isHistorical) — don't pull in random positive tokens
+  if (!alpha.isDumped && !alpha.isCooling && !alpha.isHistorical) {
+    return { isReversing: false }
+  }
 
   const recoveryPct = peak > 0 && mcap > 0
     ? Math.round((mcap / peak) * 100)
     : null
 
   console.log(
-    `[Reversal] 🔄 $${alpha.symbol} — ` +
+    `[Revival] ✅ $${alpha.symbol} — ` +
     `+${change.toFixed(1)}% 24h | vol $${Math.round(vol / 1000)}K` +
     (recoveryPct !== null ? ` | ${recoveryPct}% of peak` : '')
   )
@@ -731,7 +612,10 @@ const classifyByPriceAction = (alphas) => {
   const cooling = []
 
   alphas.forEach((alpha) => {
-    if (isJunk(alpha)) return
+    if (isJunk(alpha)) {
+      console.log(`[Classify] ❌ JUNK $${alpha.symbol}`)
+      return
+    }
 
     const change  = Math.min(Math.max(parseFloat(alpha.priceChange24h) || 0, -100), 5000)
     const volume  = alpha.volume24h || 0
@@ -739,11 +623,22 @@ const classifyByPriceAction = (alphas) => {
     const dumped  = isDumped(alpha)
     const weekCtx = getWeeklyContext(alpha)
 
-    // Dead check runs first — truly inactive tokens are removed entirely.
-    // Dead = 3+ signals. Dumped alone is NOT dead (goes to cooling for reversal watch).
-    // This avoids the old problem of removing live tokens that just had a quiet day.
     const { isDead, signals: deadSignals, signalCount: deadCount } = isDeadAlpha(alpha)
-    if (isDead) return  // silently drop — logged inside isDeadAlpha
+    if (isDead) return  // logged inside isDeadAlpha
+
+    if (dumped) {
+      console.log(`[Classify] 📉 DUMPED $${alpha.symbol} — going to cooling`)
+    } else if (change <= LIVE_MIN_CHANGE && volume >= LIVE_MIN_VOLUME * 5) {
+      // High volume + zero/negative 24h = likely stale price data from DEXScreener.
+      // Don't drop these — they're active tokens. Surface as live with a stale flag.
+      console.log(`[Classify] ⚠️  STALE PRICE $${alpha.symbol} — 24h: ${change.toFixed(1)}% but vol: $${Math.round(volume/1000)}K — treating as live`)
+    } else if (change <= LIVE_MIN_CHANGE) {
+      console.log(`[Classify] ⬇️  NEG/ZERO $${alpha.symbol} — 24h: ${change.toFixed(1)}% → cooling`)
+    } else if (volume < LIVE_MIN_VOLUME) {
+      console.log(`[Classify] 📊 LOW VOL $${alpha.symbol} — vol: $${Math.round(volume).toLocaleString()} < $${LIVE_MIN_VOLUME.toLocaleString()} → cooling`)
+    } else {
+      console.log(`[Classify] ✅ LIVE $${alpha.symbol} — 24h: ${change.toFixed(1)}% | vol: $${Math.round(volume/1000)}K`)
+    }
 
     // Dumped tokens go straight to cooling regardless of 24h %
     // This fixes the $Wisoldman problem: +1164% 24h but down 95% from peak
@@ -789,7 +684,10 @@ const classifyByPriceAction = (alphas) => {
 
     // pumpfun_bonded falls through to normal classification below (has real priceChange24h)
 
-    if (change > LIVE_MIN_CHANGE && volume >= LIVE_MIN_VOLUME) {
+    // High volume + stale/zero 24h change = active token with bad price snapshot
+    // $MUNITY case: $304K vol but 0% change from stale boosted data → rescue to live
+    const highVolStalePricE = change === 0 && volume >= LIVE_MIN_VOLUME * 5
+    if ((change > LIVE_MIN_CHANGE || highVolStalePricE) && volume >= LIVE_MIN_VOLUME) {
       live.push({ ...alpha, weeklyContext: weekCtx })
     } else if (change < 0 && volume >= COOLING_MIN_VOLUME && mcap >= COOLING_MIN_MCAP) {
       const coolingObj = {
@@ -1294,16 +1192,30 @@ const useAlphas = () => {
     setError(null)
 
     try {
-    const [boosted, profiles, pumpfun, newPairs, gainers, cto, recentProfiles, metaTokens] = await Promise.allSettled([
+    const [boosted, profiles, pumpfun, newPairs, gainers, cto, recentProfiles, metaTokens, dexGainers] = await Promise.allSettled([
         fetchBoostedAlphas(),
         fetchProfileAlphas(),
-        fetchPumpFunBonded(),
+        fetchPumpFunBonded(),        // Source 3: disabled — returns [] until PumpFun API recovers
         fetchNewPairs(),
         fetchGainersAlphas(),        // Source 5: Birdeye top gainers
         fetchCTOAlphas(),            // Source 6: DEXScreener community takeovers
         fetchRecentProfileAlphas(),  // Source 7: recently updated token profiles
         fetchMetaAlphas(),           // Source 8: tokens from confirmed trending metas
+        fetchDexScreenerGainers(),   // Source 9: DEXScreener top gainers by 24h %
       ])
+
+      // Log per-source counts to diagnose low runner count
+      console.log('[Sources] Raw counts:',
+        `boosted=${boosted.status==='fulfilled'?boosted.value.length:'ERR'}`,
+        `profiles=${profiles.status==='fulfilled'?profiles.value.length:'ERR'}`,
+        `pumpfun=${pumpfun.status==='fulfilled'?pumpfun.value.length:'ERR'}`,
+        `newPairs=${newPairs.status==='fulfilled'?newPairs.value.length:'ERR'}`,
+        `gainers=${gainers.status==='fulfilled'?gainers.value.length:'ERR'}`,
+        `cto=${cto.status==='fulfilled'?cto.value.length:'ERR'}`,
+        `recentProfiles=${recentProfiles.status==='fulfilled'?recentProfiles.value.length:'ERR'}`,
+        `metaTokens=${metaTokens.status==='fulfilled'?metaTokens.value.length:'ERR'}`,
+        `dexGainers=${dexGainers.status==='fulfilled'?dexGainers.value.length:'ERR'}`
+      )
 
       const freshRaw = deduplicateAlphas([
         ...(boosted.status        === 'fulfilled' ? boosted.value        : []),
@@ -1314,7 +1226,9 @@ const useAlphas = () => {
         ...(cto.status            === 'fulfilled' ? cto.value            : []),
         ...(recentProfiles.status === 'fulfilled' ? recentProfiles.value : []),
         ...(metaTokens.status     === 'fulfilled' ? metaTokens.value     : []),
+        ...(dexGainers.status     === 'fulfilled' ? dexGainers.value     : []),
       ])
+      console.log('[Sources] After dedup:', freshRaw.length, 'raw tokens')
 
       // ── Immediate bonding-price fix for freshly migrated tokens ──
       // Tokens like $Reggae arrive in freshRaw at exactly $35K (the graduation

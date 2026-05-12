@@ -1741,7 +1741,8 @@ const AlphaBoard = ({ selectedAlpha, onSelect, onNewRunners, onLiveAlphas, onSzn
   useEffect(() => {
     if (!liveAlphas.length) return
 
-    const allAlphas = [...liveAlphas, ...coolingAlphas].map(a => ({
+    // Warmup live alphas only — cooling tokens are not actionable and waste AI compute
+    const allAlphas = [...liveAlphas].map(a => ({
       symbol:      a.symbol,
       name:        a.name,
       address:     a.address,
@@ -2931,9 +2932,9 @@ const NominateSearchBar = () => {
 }
 
 // ─── Jupiter Swap Helper ─────────────────────────────────────────
-// Uses Jupiter Plugin v4 (Ultra mode — RPC-less, no endpoint needed).
-// Mount divs live permanently in index.html — never clipped by React overflow.
-const JUPITER_REFERRAL_KEY = 'FgbeqthZUTuATuSWZ5P2NmUrP9vFCjLVDuyzARq2Qsze'
+// Jupiter Plugin v4 — Ultra mode, RPC-less.
+// No referralAccount for now — causes init error until properly registered
+// under the Plugin project. Re-add once confirmed working end-to-end.
 let isJupiterOpen = false
 
 const openJupiterSwap = (token) => {
@@ -2952,11 +2953,13 @@ const openJupiterSwap = (token) => {
     return
   }
 
-  // If already open — just update the output mint
   if (isJupiterOpen) {
     try {
       Jupiter.syncProps({
-        formProps: { initialOutputMint: token.address, fixedOutputMint: false }
+        formProps: {
+          initialInputMint: 'So11111111111111111111111111111111111111112',
+          initialOutputMint: token.address,
+        }
       })
     } catch {}
     return
@@ -2976,12 +2979,17 @@ const openJupiterSwap = (token) => {
     displayMode: 'integrated',
     integratedTargetId: 'jupiter-plugin-inner',
     formProps: {
+      initialInputMint: 'So11111111111111111111111111111111111111112',
       initialOutputMint: token.address,
-      fixedOutputMint: false,
     },
-    referralAccount: JUPITER_REFERRAL_KEY,
-    referralName: 'BetaPlays',
-    onClose: handleClose,
+    defaultExplorer: 'Solana Explorer',
+    onSuccess: ({ txid }) => {
+      console.log('[Jupiter] Swap success:', txid)
+      handleClose()
+    },
+    onSwapError: ({ error }) => {
+      console.warn('[Jupiter] Swap error:', error)
+    },
   })
 }
 // ─── Beta Row ────────────────────────────────────────────────────
@@ -3938,7 +3946,7 @@ const TokenDrawer = ({ token, alpha, onClose, onSwap }) => {
           <NominateButton address={token.address} symbol={token.symbol} name={token.name} compact />
         </div>
 
-        {/* Swap button */}
+        {/* Swap button — only show if token has enough liquidity for Jupiter to route */}
         {onSwap && (
           <button
             onClick={() => onSwap(token)}
