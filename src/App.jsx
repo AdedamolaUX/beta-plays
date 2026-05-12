@@ -2930,47 +2930,30 @@ const NominateSearchBar = () => {
   )
 }
 
-// ─── Swap Modal (Jupiter Terminal) ───────────────────────────────
-// Opens Jupiter Terminal with the beta token pre-filled as output mint.
-// Uses window.Jupiter loaded via <script> tag in index.html.
-// REFERRAL_KEY: replace placeholder with your Jupiter referral account pubkey
-// once created at https://referral.jup.ag
-const JUPITER_REFERRAL_KEY = 'PLACEHOLDER_REPLACE_WITH_YOUR_REFERRAL_PUBKEY'
+// ─── Jupiter Swap Helper ─────────────────────────────────────────
+// Calls window.Jupiter.init() directly — no React wrapper needed for modal mode.
+// Jupiter manages its own overlay, z-index, and close button.
+const JUPITER_REFERRAL_KEY = 'FgbeqthZUTuATuSWZ5P2NmUrP9vFCjLVDuyzARq2Qsze'
 
-const SwapModal = ({ token, onClose }) => {
-  const containerRef = useRef(null)
-
-  useEffect(() => {
-    if (!token?.address) return
-    if (typeof window === 'undefined' || !window.Jupiter) {
-      console.warn('[SwapModal] Jupiter Terminal not loaded yet')
-      return
-    }
-
-    window.Jupiter.init({
-      displayMode: 'modal',
-      endpoint: 'https://api.mainnet-beta.solana.com',
-      defaultExplorer: 'Solana Explorer',
-      formProps: {
-        initialOutputMint: token.address,
-        fixedOutputMint: false,
-      },
-      referralAccount: JUPITER_REFERRAL_KEY,
-      referralName: 'BetaPlays',
-      onClose,
-    })
-
-    return () => {
-      try { window.Jupiter.close() } catch {}
-    }
-  }, [token?.address])
-
-  // Jupiter modal mode manages its own UI — we just call init() and close()
-  // onClose is called when user clicks our invisible backdrop or Jupiter's own close
-  if (!token) return null
-  return null
+const openJupiterSwap = (token, onClose) => {
+  if (!token?.address) return
+  if (typeof window === 'undefined' || !window.Jupiter) {
+    console.warn('[Jupiter] Terminal script not loaded yet — check index.html')
+    return
+  }
+  window.Jupiter.init({
+    displayMode: 'modal',
+    endpoint: 'https://rpc.ankr.com/solana',
+    defaultExplorer: 'Solana Explorer',
+    formProps: {
+      initialOutputMint: token.address,
+      fixedOutputMint: false,
+    },
+    referralAccount: JUPITER_REFERRAL_KEY,
+    referralName: 'BetaPlays',
+    onClose,
+  })
 }
-
 // ─── Beta Row ────────────────────────────────────────────────────
 
 const BetaRow = ({ beta, alpha, isPinned, trenchOnly, onOpenDrawer, onSwap }) => {
@@ -4128,7 +4111,7 @@ export default function App() {
   }
   const [showListModal, setShowListModal]  = useState(false)
   const [drawerToken,   setDrawerToken]    = useState(null)
-  const [swapToken,     setSwapToken]      = useState(null)
+
   const [newRunners,    setNewRunners]     = useState(false)
   const [appLiveAlphas, setAppLiveAlphas] = useState([])
   const [appSznCards,     setAppSznCards]     = useState([])
@@ -4160,7 +4143,7 @@ export default function App() {
         <AlphaBoard selectedAlpha={selectedAlpha} onSelect={handleSelectAlpha} onNewRunners={handleNewRunners} onLiveAlphas={setAppLiveAlphas} onSznCards={setAppSznCards} onCoolingAlphas={setAppCoolingAlphas} onCustomSearch={handleSearchCustomAlpha} customAlphaLoading={customAlphaLoading} onRegisterClearSearch={fn => { clearAlphaBoardSearch.current = fn }} alphaListRef={alphaListRef} searchResults={searchResults} onSelectSearchResult={(token) => { if (!token) { setSearchResults([]); return }; setSelectedAlpha(token); setSearchResults([]) }} defaultTab={settings.defaultTab} />
         {isSzn
           ? <SznPanel  szn={selectedAlpha}   onListBeta={() => setShowListModal(true)} onOpenDrawer={setDrawerToken} />
-          : <BetaPanel alpha={selectedAlpha} liveAlphas={appLiveAlphas} onListBeta={() => setShowListModal(true)} onOpenDrawer={setDrawerToken} onSwap={setSwapToken} onScrollToAlpha={handleScrollToAlpha} onCustomSearch={handleSearchCustomAlpha} customAlphaLoading={customAlphaLoading} customAlphaError={customAlphaError} settings={settings} />
+          : <BetaPanel alpha={selectedAlpha} liveAlphas={appLiveAlphas} onListBeta={() => setShowListModal(true)} onOpenDrawer={setDrawerToken} onSwap={(t) => openJupiterSwap(t, () => {})} onScrollToAlpha={handleScrollToAlpha} onCustomSearch={handleSearchCustomAlpha} customAlphaLoading={customAlphaLoading} customAlphaError={customAlphaError} settings={settings} />
         }
       </div>
 
@@ -4186,14 +4169,12 @@ export default function App() {
             token={drawerToken}
             alpha={selectedAlpha}
             onClose={() => setDrawerToken(null)}
-            onSwap={(t) => { setDrawerToken(null); setSwapToken(t) }}
+            onSwap={(t) => { setDrawerToken(null); openJupiterSwap(t, () => {}) }}
           />
         </>,
         document.body
       )}
-      {swapToken && (
-        <SwapModal token={swapToken} onClose={() => setSwapToken(null)} />
-      )}
+
       <AppFooter />
       {showSettings && (
         <SettingsPanel
