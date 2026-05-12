@@ -2930,9 +2930,120 @@ const NominateSearchBar = () => {
   )
 }
 
+// ─── Swap Modal (Jupiter Terminal) ───────────────────────────────
+// Opens Jupiter Terminal with the beta token pre-filled as output mint.
+// Uses window.Jupiter loaded via <script> tag in index.html.
+// REFERRAL_KEY: replace placeholder with your Jupiter referral account pubkey
+// once created at https://referral.jup.ag
+const JUPITER_REFERRAL_KEY = 'FgbeqthZUTuATuSWZ5P2NmUrP9vFCjLVDuyzARq2Qsze'
+
+const SwapModal = ({ token, onClose }) => {
+  const containerRef = useRef(null)
+
+  useEffect(() => {
+    if (!token?.address) return
+    if (typeof window === 'undefined' || !window.Jupiter) {
+      console.warn('[SwapModal] Jupiter Terminal not loaded yet')
+      return
+    }
+
+    window.Jupiter.init({
+      displayMode: 'integrated',
+      integratedTargetId: 'jupiter-terminal-container',
+      endpoint: 'https://mainnet.helius-rpc.com/?api-key=public',
+      defaultExplorer: 'Solana Explorer',
+      formProps: {
+        initialOutputMint: token.address,
+        fixedOutputMint: false,
+      },
+      // Uncomment once you have your referral pubkey from referral.jup.ag:
+       referralAccount: JUPITER_REFERRAL_KEY,
+       referralName: 'BetaPlays',
+    })
+
+    return () => {
+      try { window.Jupiter.close() } catch {}
+    }
+  }, [token?.address])
+
+  if (!token) return null
+
+  return createPortal(
+    <>
+      {/* Backdrop */}
+      <div
+        onClick={onClose}
+        style={{
+          position: 'fixed', inset: 0, zIndex: 10000,
+          background: 'rgba(0,0,0,0.7)',
+          backdropFilter: 'blur(4px)',
+        }}
+      />
+      {/* Modal */}
+      <div style={{
+        position: 'fixed', top: '50%', left: '50%',
+        transform: 'translate(-50%, -50%)',
+        zIndex: 10001,
+        width: 420, maxWidth: '95vw',
+        background: 'var(--surface-1)',
+        border: '1px solid rgba(0,212,255,0.3)',
+        borderRadius: 16,
+        overflow: 'hidden',
+        boxShadow: '0 0 40px rgba(0,212,255,0.15), 0 20px 60px rgba(0,0,0,0.8)',
+      }}>
+        {/* Header */}
+        <div style={{
+          display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+          padding: '14px 18px',
+          borderBottom: '1px solid var(--border)',
+        }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+            {token.logoUrl && (
+              <img src={token.logoUrl} alt={token.symbol}
+                style={{ width: 28, height: 28, borderRadius: '50%', objectFit: 'cover' }} />
+            )}
+            <div>
+              <div style={{
+                fontFamily: 'var(--font-display)', fontWeight: 800, fontSize: 15,
+                color: 'var(--text-primary)',
+              }}>
+                Swap → ${token.symbol}
+              </div>
+              <div style={{
+                fontFamily: 'var(--font-mono)', fontSize: 9,
+                color: 'var(--text-muted)', marginTop: 1,
+              }}>
+                via Jupiter · best route auto-selected
+              </div>
+            </div>
+          </div>
+          <button
+            onClick={onClose}
+            style={{
+              background: 'none', border: 'none', cursor: 'pointer',
+              color: 'var(--text-muted)', fontSize: 18, lineHeight: 1,
+              padding: '4px 6px', borderRadius: 6,
+              transition: 'color 0.15s',
+            }}
+            onMouseEnter={e => e.currentTarget.style.color = 'var(--text-primary)'}
+            onMouseLeave={e => e.currentTarget.style.color = 'var(--text-muted)'}
+          >✕</button>
+        </div>
+        {/* Jupiter mounts here */}
+        <div
+          id="jupiter-terminal-container"
+          ref={containerRef}
+          style={{ minHeight: 440 }}
+        />
+      </div>
+    </>,
+    document.body
+  )
+}
+
 // ─── Beta Row ────────────────────────────────────────────────────
 
-const BetaRow = ({ beta, alpha, isPinned, trenchOnly, onOpenDrawer }) => {
+const BetaRow = ({ beta, alpha, isPinned, trenchOnly, onOpenDrawer, onSwap }) => {
   const change     = parseFloat(beta.priceChange24h) || 0
   const isPositive = change >= 0
   const wave       = getWavePhase(alpha, beta)
@@ -3018,6 +3129,7 @@ const BetaRow = ({ beta, alpha, isPinned, trenchOnly, onOpenDrawer }) => {
       </span>
       <span className="mono" style={{ fontSize: 11, color: 'var(--text-muted)' }}>{beta.ageLabel}</span>
       <SignalBadge beta={beta} />
+
     </div>
   )
 }
@@ -3187,7 +3299,7 @@ const SznPanel = ({ szn, onListBeta, onOpenDrawer }) => {
 
 // ─── Beta Panel ──────────────────────────────────────────────────
 
-const BetaPanel = ({ alpha, liveAlphas, onListBeta, onOpenDrawer, onScrollToAlpha, onCustomSearch, customAlphaLoading, customAlphaError, settings = {} }) => {
+const BetaPanel = ({ alpha, liveAlphas, onListBeta, onOpenDrawer, onSwap, onScrollToAlpha, onCustomSearch, customAlphaLoading, customAlphaError, settings = {} }) => {
   const { parent, loading: parentLoading }               = useParentAlpha(alpha, liveAlphas)
   const { betas, loading: betasLoading, error, scanPhase, refresh } = useBetas(alpha, parent, { metaSeedEnabled: settings.metaSeedEnabled ?? true })
   const { birdeye }                                       = useBirdeye(alpha?.address)
@@ -3442,6 +3554,7 @@ const BetaPanel = ({ alpha, liveAlphas, onListBeta, onOpenDrawer, onScrollToAlph
                 isPinned={false}
                 trenchOnly={trenchOnly}
                 onOpenDrawer={onOpenDrawer}
+                onSwap={onSwap}
               />
             ))}
 
@@ -3669,7 +3782,7 @@ const FlagWarningBadge = ({ address }) => {
 //   - Community flags
 //   - Quick links: DEX, Birdeye, PumpFun
 
-const TokenDrawer = ({ token, alpha, onClose }) => {
+const TokenDrawer = ({ token, alpha, onClose, onSwap }) => {
   const { birdeye } = useBirdeye(token?.address)
 
   if (!token) return null
@@ -3882,6 +3995,36 @@ const TokenDrawer = ({ token, alpha, onClose }) => {
           <NominateButton address={token.address} symbol={token.symbol} name={token.name} compact />
         </div>
 
+        {/* Swap button */}
+        {onSwap && (
+          <button
+            onClick={() => onSwap(token)}
+            style={{
+              width: '100%',
+              background: 'linear-gradient(135deg, rgba(0,212,255,0.18), rgba(0,255,136,0.12))',
+              border: '1px solid rgba(0,212,255,0.45)',
+              borderRadius: 10, padding: '12px 16px',
+              cursor: 'pointer',
+              fontFamily: 'var(--font-display)', fontSize: 13, fontWeight: 800,
+              color: 'var(--cyan)', letterSpacing: '0.06em',
+              transition: 'all 0.15s ease',
+              display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8,
+            }}
+            onMouseEnter={e => {
+              e.currentTarget.style.background = 'linear-gradient(135deg, rgba(0,212,255,0.28), rgba(0,255,136,0.2))'
+              e.currentTarget.style.borderColor = 'rgba(0,212,255,0.7)'
+              e.currentTarget.style.boxShadow = '0 0 20px rgba(0,212,255,0.2)'
+            }}
+            onMouseLeave={e => {
+              e.currentTarget.style.background = 'linear-gradient(135deg, rgba(0,212,255,0.18), rgba(0,255,136,0.12))'
+              e.currentTarget.style.borderColor = 'rgba(0,212,255,0.45)'
+              e.currentTarget.style.boxShadow = 'none'
+            }}
+          >
+            ⚡ SWAP ${token.symbol} <span style={{ fontSize: 9, opacity: 0.7, fontWeight: 400 }}>via Jupiter</span>
+          </button>
+        )}
+
         {/* Quick links */}
         <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
           {[
@@ -4055,6 +4198,7 @@ export default function App() {
   }
   const [showListModal, setShowListModal]  = useState(false)
   const [drawerToken,   setDrawerToken]    = useState(null)
+  const [swapToken,     setSwapToken]      = useState(null)
   const [newRunners,    setNewRunners]     = useState(false)
   const [appLiveAlphas, setAppLiveAlphas] = useState([])
   const [appSznCards,     setAppSznCards]     = useState([])
@@ -4086,7 +4230,7 @@ export default function App() {
         <AlphaBoard selectedAlpha={selectedAlpha} onSelect={handleSelectAlpha} onNewRunners={handleNewRunners} onLiveAlphas={setAppLiveAlphas} onSznCards={setAppSznCards} onCoolingAlphas={setAppCoolingAlphas} onCustomSearch={handleSearchCustomAlpha} customAlphaLoading={customAlphaLoading} onRegisterClearSearch={fn => { clearAlphaBoardSearch.current = fn }} alphaListRef={alphaListRef} searchResults={searchResults} onSelectSearchResult={(token) => { if (!token) { setSearchResults([]); return }; setSelectedAlpha(token); setSearchResults([]) }} defaultTab={settings.defaultTab} />
         {isSzn
           ? <SznPanel  szn={selectedAlpha}   onListBeta={() => setShowListModal(true)} onOpenDrawer={setDrawerToken} />
-          : <BetaPanel alpha={selectedAlpha} liveAlphas={appLiveAlphas} onListBeta={() => setShowListModal(true)} onOpenDrawer={setDrawerToken} onScrollToAlpha={handleScrollToAlpha} onCustomSearch={handleSearchCustomAlpha} customAlphaLoading={customAlphaLoading} customAlphaError={customAlphaError} settings={settings} />
+          : <BetaPanel alpha={selectedAlpha} liveAlphas={appLiveAlphas} onListBeta={() => setShowListModal(true)} onOpenDrawer={setDrawerToken} onSwap={setSwapToken} onScrollToAlpha={handleScrollToAlpha} onCustomSearch={handleSearchCustomAlpha} customAlphaLoading={customAlphaLoading} customAlphaError={customAlphaError} settings={settings} />
         }
       </div>
 
@@ -4112,9 +4256,13 @@ export default function App() {
             token={drawerToken}
             alpha={selectedAlpha}
             onClose={() => setDrawerToken(null)}
+            onSwap={(t) => { setDrawerToken(null); setSwapToken(t) }}
           />
         </>,
         document.body
+      )}
+      {swapToken && (
+        <SwapModal token={swapToken} onClose={() => setSwapToken(null)} />
       )}
       <AppFooter />
       {showSettings && (
