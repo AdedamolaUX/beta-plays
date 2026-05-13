@@ -1080,9 +1080,9 @@ const AlphaCard = ({ alpha, isSelected, onClick, isWatched, onToggleWatch }) => 
             <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
               <div className="token-name">${alpha.symbol}</div>
               {derivative && (
-                <span className="badge badge-new" style={{ fontSize: 7, padding: '1px 5px' }}>
-                  DERIV{parentSymbol ? ` of $${parentSymbol}` : ''}
-                </span>
+                <Tooltip text={parentSymbol ? `Derivative of $${parentSymbol}` : 'Derivative token — shares narrative with a parent alpha'}>
+                  <span className="badge badge-new" style={{ fontSize: 10, padding: '1px 4px', cursor: 'default' }}>🔗</span>
+                </Tooltip>
               )}
               {alpha.isLegend && (
                 <span className="badge badge-verified" style={{ fontSize: 7, padding: '1px 5px' }}>🏆 LEGEND</span>
@@ -1103,8 +1103,10 @@ const AlphaCard = ({ alpha, isSelected, onClick, isWatched, onToggleWatch }) => 
                   🔥 {alpha.bondingProgress}% bonding
                 </span>
               )}
-              {alpha.source === 'birdeye_trending' && (
-                <span className="badge badge-organic" style={{ fontSize: 7, padding: '1px 5px' }}>🦅 ORGANIC</span>
+              {(alpha.source === 'birdeye_trending' || alpha.source === 'dex_gainers') && (
+                <Tooltip text="Organic runner — found via momentum, not paid promotion">
+                  <span className="badge badge-organic" style={{ fontSize: 10, padding: '1px 4px', cursor: 'default' }}>🦅</span>
+                </Tooltip>
               )}
               {alpha.source === 'dex_new' && (
                 <span className="badge badge-new-pair" style={{ fontSize: 7, padding: '1px 5px' }}>✨ NEW</span>
@@ -1113,19 +1115,16 @@ const AlphaCard = ({ alpha, isSelected, onClick, isWatched, onToggleWatch }) => 
               {alpha.isRevival && (
                 <Tooltip text={
                   alpha.recoveryPct != null
-                    ? `↑ Revival — ${alpha.recoveryPct}% of peak recovered`
-                    : `↑ Revival — recovering from dump`
+                    ? `Revived Token — ${alpha.recoveryPct}% of peak recovered`
+                    : `Revived Token — recovering from cooling`
                 }>
                   <span style={{
-                    fontFamily:  'var(--font-display)', fontSize: 7,
-                    padding:     '1px 6px', borderRadius: 3, cursor: 'default',
-                    background:  'rgba(0,255,153,0.12)',
-                    border:      '1px solid rgba(0,255,153,0.4)',
-                    color:       'var(--neon-green)',
-                    fontWeight:  800, letterSpacing: 0.4,
-                    animation:   'pulse 2s infinite',
+                    fontSize: 13, padding: '0px 3px', borderRadius: 3,
+                    cursor: 'default', lineHeight: 1,
+                    animation: 'pulse 2s infinite',
+                    display: 'inline-block',
                   }}>
-                    ↑ REVIVAL
+                    🔄
                   </span>
                 </Tooltip>
               )}
@@ -1793,6 +1792,36 @@ const AlphaBoard = ({ selectedAlpha, onSelect, onNewRunners, onLiveAlphas, onSzn
     return searchQuery ? valid.filter(a => matchesSearch(a, searchQuery)) : valid
   }, [rawList, searchQuery])
 
+
+
+  // ── Alpha filter + sort state (live tab only) ─────────────────────
+  const [alphaFilter, setAlphaFilter] = useState('all')  // all | organic | revival | boosted | deriv | new
+  const [alphaSort,   setAlphaSort]   = useState('momentum')  // momentum | change | volume | mcap | age
+
+  const filteredSortedLive = useMemo(() => {
+    if (activeTab !== 'live') return displayList
+    let list = [...displayList]
+
+    // Filter
+    if (alphaFilter === 'organic')  list = list.filter(a => a.source === 'birdeye_trending' || a.source === 'dex_gainers')
+    if (alphaFilter === 'revival')  list = list.filter(a => a.isRevival)
+    if (alphaFilter === 'boosted')  list = list.filter(a => a.source === 'dexscreener_boosted' || a.source === 'boost')
+    if (alphaFilter === 'deriv')    list = list.filter(a => a.isDerivative || a.parentAlpha)
+    if (alphaFilter === 'new')      list = list.filter(a => a.source === 'dex_new')
+
+    // Sort
+    if (alphaSort === 'change')   list.sort((a, b) => parseFloat(b.priceChange24h || 0) - parseFloat(a.priceChange24h || 0))
+    if (alphaSort === 'volume')   list.sort((a, b) => (b.volume24h || 0) - (a.volume24h || 0))
+    if (alphaSort === 'mcap')     list.sort((a, b) => (b.marketCap || 0) - (a.marketCap || 0))
+    if (alphaSort === 'age')      list.sort((a, b) => (a.pairCreatedAt || 0) - (b.pairCreatedAt || 0))
+    // momentum is default — already sorted by backend
+
+    return list
+  }, [displayList, activeTab, alphaFilter, alphaSort])
+
+  // Final list shown in the alpha panel — uses filter/sort on live tab
+  const finalDisplayList = activeTab === 'live' && !searchQuery ? filteredSortedLive : displayList
+
   // Also filter szn cards
   // Deduplicate tokens across szn cards — a token should only appear
   // in the highest-scoring szn card it belongs to, not multiple.
@@ -2055,9 +2084,53 @@ const AlphaBoard = ({ selectedAlpha, onSelect, onNewRunners, onLiveAlphas, onSzn
       {!searchQuery && (
         <div style={{ flexShrink: 0, paddingBottom: 4 }}>
           {activeTab === 'live' && (
-            <p style={{ fontFamily: 'var(--font-mono)', fontSize: 10, color: 'var(--text-muted)', lineHeight: 1.6, margin: 0 }}>
-              Tokens with positive price action right now.
-            </p>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+              <p style={{ fontFamily: 'var(--font-mono)', fontSize: 10, color: 'var(--text-muted)', lineHeight: 1.6, margin: 0 }}>
+                Tokens with positive price action right now.
+              </p>
+              {/* Filter + Sort bar */}
+              <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center' }}>
+                {/* Filter pills */}
+                <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>
+                  {[
+                    { key: 'all',     label: 'All' },
+                    { key: 'organic', label: '🦅 Organic' },
+                    { key: 'revival', label: '🔄 Revival' },
+                    { key: 'boosted', label: '⚡ Boosted' },
+                    { key: 'deriv',   label: '🔗 Deriv' },
+                    { key: 'new',     label: '✨ New' },
+                  ].map(f => (
+                    <button key={f.key} onClick={() => setAlphaFilter(f.key)} style={{
+                      fontFamily: 'var(--font-display)', fontSize: 8, fontWeight: 700,
+                      padding: '2px 7px', borderRadius: 4, cursor: 'pointer', border: '1px solid',
+                      background: alphaFilter === f.key ? 'rgba(0,212,255,0.2)' : 'transparent',
+                      borderColor: alphaFilter === f.key ? 'rgba(0,212,255,0.6)' : 'rgba(255,255,255,0.1)',
+                      color: alphaFilter === f.key ? 'var(--cyan)' : 'var(--text-muted)',
+                      transition: 'all 0.15s',
+                    }}>{f.label}</button>
+                  ))}
+                </div>
+                {/* Divider */}
+                <span style={{ color: 'var(--border)', fontSize: 10 }}>|</span>
+                {/* Sort select */}
+                <select
+                  value={alphaSort}
+                  onChange={e => setAlphaSort(e.target.value)}
+                  style={{
+                    fontFamily: 'var(--font-mono)', fontSize: 8,
+                    background: 'var(--surface-2)', color: 'var(--text-muted)',
+                    border: '1px solid rgba(255,255,255,0.1)', borderRadius: 4,
+                    padding: '2px 6px', cursor: 'pointer', outline: 'none',
+                  }}
+                >
+                  <option value="momentum">Sort: Momentum</option>
+                  <option value="change">Sort: 24h %</option>
+                  <option value="volume">Sort: Volume</option>
+                  <option value="mcap">Sort: Market Cap</option>
+                  <option value="age">Sort: Newest</option>
+                </select>
+              </div>
+            </div>
           )}
           {activeTab === 'cooling' && (
             <p style={{ fontFamily: 'var(--font-mono)', fontSize: 10, color: 'var(--text-muted)', lineHeight: 1.6, margin: 0, borderLeft: '2px solid var(--cyan)', paddingLeft: 8 }}>
@@ -2263,7 +2336,7 @@ const AlphaBoard = ({ selectedAlpha, onSelect, onNewRunners, onLiveAlphas, onSzn
           </div>
         )}
 
-        {!loading && displayList.map((alpha) => {
+        {!loading && finalDisplayList.map((alpha) => {
           if (!alpha?.address || !alpha?.symbol) return null
           const watched = watchedAddresses.has(alpha.address)
           if (activeTab === 'positioning' || alpha.isPositioning) {

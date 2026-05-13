@@ -177,7 +177,28 @@ const loadHistoricalByPriceAction = async (currentAddresses, preloadedHistory = 
         return
       }
 
-      if (cappedChange > LIVE_MIN_CHANGE && volume >= LIVE_MIN_VOLUME && !isStale) {
+      // Check for reversal on non-dumped historical/cooling tokens too
+      const coolingObj = {
+        ...a,
+        priceChange24h: cappedChange,
+        isCooling:      true,
+        isHistorical:   true,
+      }
+      const { isReversing: isReviving, recoveryPct: revPct } = detectReversal(coolingObj)
+
+      if (isReviving) {
+        // Token was cooling but is now recovering — promote to live with REVIVAL badge
+        historicalLive.push({
+          ...a,
+          priceChange24h: cappedChange,
+          isHistorical:   true,
+          isRevival:      true,
+          isReversing:    true,
+          recoveryPct:    revPct,
+          isCooling:      false,
+          coolingLabel:   null,
+        })
+      } else if (cappedChange > LIVE_MIN_CHANGE && volume >= LIVE_MIN_VOLUME && !isStale) {
         historicalLive.push({
           ...a,
           priceChange24h: cappedChange,
@@ -433,43 +454,32 @@ const fetchNewPairs = async () => {
   }
 }
 
-// ─── Source 9: DEXScreener gainers via keyword searches ──────────
-// DEXScreener /search doesn't sort by gainers — instead we search
-// common degen keywords and filter the results for runners.
-// Multiple searches catch different narrative clusters.
+// ─── Source 9: DEXScreener gainers via token-profiles endpoint ───
+// Uses DEXScreener's token boosts endpoint which lists recently active
+// tokens — filter for Solana gainers with strong momentum.
 const fetchDexScreenerGainers = async () => {
   try {
-    const keywords = ['pump', 'pepe', 'dog', 'cat', 'ai', 'trump']
-    const searches = await Promise.allSettled(
-      keywords.map(kw =>
-        axios.get(`${DEXSCREENER_BASE}/latest/dex/search?q=${kw}`, { timeout: 6000 })
-          .then(r => r.data?.pairs || [])
+    // DEXScreener latest pairs on Solana — most active pairs right now
+    const res = await axios.get(
+      `${DEXSCREENER_BASE}/latest/dex/pairs/solana`,
+      { timeout: 8000 }
+    )
+    const pairs = (res.data?.pairs || [])
+      .filter(p =>
+        p.chainId === 'solana' &&
+        parseFloat(p.priceChange?.h24 || 0) >= 30 &&
+        (p.volume?.h24    || 0) >= 10_000 &&
+        (p.liquidity?.usd || 0) >= 2_000 &&
+        (p.marketCap      || 0) > 0
       )
-    )
+      .sort((a, b) =>
+        parseFloat(b.priceChange?.h24 || 0) - parseFloat(a.priceChange?.h24 || 0)
+      )
+      .slice(0, 40)
 
-    const seen = new Set()
-    const results = []
-
-    for (const s of searches) {
-      if (s.status !== 'fulfilled') continue
-      for (const p of s.value) {
-        if (p.chainId !== 'solana') continue
-        if (seen.has(p.baseToken?.address)) continue
-        if (parseFloat(p.priceChange?.h24 || 0) < 30) continue
-        if ((p.volume?.h24    || 0) < 10_000) continue
-        if ((p.liquidity?.usd || 0) < 2_000)  continue
-        if (!(p.marketCap     || 0))           continue
-        seen.add(p.baseToken?.address)
-        results.push(formatAlpha(p, 'dex_gainers'))
-      }
-    }
-
-    results.sort((a, b) =>
-      parseFloat(b.priceChange24h || 0) - parseFloat(a.priceChange24h || 0)
-    )
-
+    const results = pairs.map(p => formatAlpha(p, 'dex_gainers'))
     console.log(`[Source9/DexGainers] ${results.length} top gainers on Solana`)
-    return results.slice(0, 40)
+    return results
   } catch (err) {
     console.warn('[Source9/DexGainers] Failed:', err.message)
     return []
@@ -599,6 +609,14 @@ const detectReversal = (alpha) => {
     ? Math.round((mcap / peak) * 100)
     : null
 
+  // No meaningful peak data = can't confirm this is a genuine revival.
+  // recoveryPct=null means peakMarketCap was 0/missing.
+  // recoveryPct>=95 means peak ≈ current — peak defaulted to current value, no real history.
+  // Both cases produce false revivals. Require real peak data with meaningful drawdown.
+  if (recoveryPct === null || recoveryPct >= 95) {
+    return { isReversing: false }
+  }
+
   console.log(
     `[Revival] ✅ $${alpha.symbol} — ` +
     `+${change.toFixed(1)}% 24h | vol $${Math.round(vol / 1000)}K` +
@@ -628,9 +646,9 @@ const classifyByPriceAction = (alphas) => {
 
     if (dumped) {
       console.log(`[Classify] 📉 DUMPED $${alpha.symbol} — going to cooling`)
-    } else if (change <= LIVE_MIN_CHANGE && volume >= LIVE_MIN_VOLUME * 5) {
-      // High volume + zero/negative 24h = likely stale price data from DEXScreener.
-      // Don't drop these — they're active tokens. Surface as live with a stale flag.
+    } else if (change > -15 && change <= LIVE_MIN_CHANGE && volume >= LIVE_MIN_VOLUME * 5) {
+      // Near-zero 24h change + very high volume = stale DEXScreener price snapshot.
+      // Only rescue tokens within -15% — bigger drops are real negatives, not stale data.
       console.log(`[Classify] ⚠️  STALE PRICE $${alpha.symbol} — 24h: ${change.toFixed(1)}% but vol: $${Math.round(volume/1000)}K — treating as live`)
     } else if (change <= LIVE_MIN_CHANGE) {
       console.log(`[Classify] ⬇️  NEG/ZERO $${alpha.symbol} — 24h: ${change.toFixed(1)}% → cooling`)
@@ -686,8 +704,15 @@ const classifyByPriceAction = (alphas) => {
 
     // High volume + stale/zero 24h change = active token with bad price snapshot
     // $MUNITY case: $304K vol but 0% change from stale boosted data → rescue to live
-    const highVolStalePricE = change === 0 && volume >= LIVE_MIN_VOLUME * 5
-    if ((change > LIVE_MIN_CHANGE || highVolStalePricE) && volume >= LIVE_MIN_VOLUME) {
+    // Near-zero + very high volume = stale price, not a dump. Only within -15%.
+    // Also check txns to filter dead tokens with historical volume but no activity.
+    const txns = alpha.txns24h || alpha.transactions24h || 0
+    const highVolStalePrice = (
+      change > -15 && change <= LIVE_MIN_CHANGE &&
+      volume >= LIVE_MIN_VOLUME * 5 &&
+      txns >= 5  // Must have recent transactions — pure vol without txns = dead
+    )
+    if ((change > LIVE_MIN_CHANGE || highVolStalePrice) && volume >= LIVE_MIN_VOLUME) {
       live.push({ ...alpha, weeklyContext: weekCtx })
     } else if (change < 0 && volume >= COOLING_MIN_VOLUME && mcap >= COOLING_MIN_MCAP) {
       const coolingObj = {
@@ -1438,9 +1463,16 @@ const useAlphas = () => {
         return a
       })
 
+      // Revival tokens get boosted momentum so they survive the sort+slice.
+      // Without this they score low (stored priceChange24h is negative/stale)
+      // and get cut from the top 100 even though they're actively recovering.
       const sortedLive = patchedLive
-
-        .map(a => ({ ...a, momentumScore: getMomentumScore(a) }))
+        .map(a => ({
+          ...a,
+          momentumScore: a.isRevival
+            ? 999  // Pin revivals to top of list — always surface them
+            : getMomentumScore(a)
+        }))
         .sort((a, b) => b.momentumScore - a.momentumScore)
         .slice(0, 100)
 
@@ -1459,7 +1491,24 @@ const useAlphas = () => {
         setError('No live runners detected. Trenches might be cooked.')
       }
 
-      setLiveAlphas(sortedLive)
+      // Merge revival tokens from previous state — fetchLive must NOT wipe them.
+      // Revival tokens come from loadHistoricalByPriceAction (separate path).
+      // Without this merge, every fetchLive poll overwrites and loses revivals.
+      setLiveAlphas(prev => {
+        const freshAddresses = new Set(sortedLive.map(a => a.address))
+        // Keep revival tokens from previous state that aren't in fresh feed
+        const survivingRevivals = (prev || []).filter(a =>
+          a.isRevival && !freshAddresses.has(a.address)
+        )
+        const merged = [...sortedLive, ...survivingRevivals]
+          .map(a => ({
+            ...a,
+            momentumScore: a.isRevival ? 999 : getMomentumScore(a)
+          }))
+          .sort((a, b) => b.momentumScore - a.momentumScore)
+          .slice(0, 100)
+        return merged
+      })
       liveAlphasRef.current = sortedLive
       setCoolingAlphas(sortedCooling)
       setPositioningAlphas(await loadPositioningPlays())
