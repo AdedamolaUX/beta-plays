@@ -1077,26 +1077,32 @@ const AlphaCard = ({ alpha, isSelected, onClick, isWatched, onToggleWatch }) => 
               : alpha.symbol.slice(0, 3)}
           </div>
           <div>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
-              <div className="token-name">${alpha.symbol}</div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 4, flexWrap: 'nowrap', overflow: 'hidden' }}>
+              <div className="token-name" style={{ flexShrink: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>${alpha.symbol}</div>
               {derivative && (
                 <Tooltip text={parentSymbol ? `Derivative of $${parentSymbol}` : 'Derivative token — shares narrative with a parent alpha'}>
-                  <span className="badge badge-new" style={{ fontSize: 10, padding: '1px 4px', cursor: 'default' }}>🔗</span>
+                  <span className="badge badge-new" style={{ fontSize: 11, padding: '1px 3px', cursor: 'default' }}>🧬</span>
                 </Tooltip>
               )}
               {alpha.isLegend && (
-                <span className="badge badge-verified" style={{ fontSize: 7, padding: '1px 5px' }}>🏆 LEGEND</span>
+                <Tooltip text="Legend — OG token with verified history">
+                  <span className="badge badge-verified" style={{ fontSize: 11, padding: '1px 3px', cursor: 'default' }}>🏆</span>
+                </Tooltip>
               )}
               {alpha.isCooling && !alpha.isDumped && (
-                <span className="badge badge-weak" style={{ fontSize: 7, padding: '1px 5px' }}>❄️</span>
+                <Tooltip text="Cooling — price action slowing down">
+                  <span className="badge badge-weak" style={{ fontSize: 11, padding: '1px 3px', cursor: 'default' }}>❄️</span>
+                </Tooltip>
               )}
               {alpha.isDumped && (
                 <Tooltip text="Dumped — price collapsed 75%+ from peak. Treat as dead unless volume returns.">
-                  <span className="badge badge-weak" style={{ fontSize: 9, padding: '1px 5px', background: 'rgba(255,68,102,0.15)', borderColor: 'rgba(255,68,102,0.4)', color: 'var(--red)', cursor: 'default' }}>💀</span>
+                  <span className="badge badge-weak" style={{ fontSize: 11, padding: '1px 3px', background: 'rgba(255,68,102,0.15)', borderColor: 'rgba(255,68,102,0.4)', color: 'var(--red)', cursor: 'default' }}>💀</span>
                 </Tooltip>
               )}
               {alpha.source === 'pumpfun_bonded' && (
-                <span className="badge badge-new" style={{ fontSize: 7, padding: '1px 5px' }}>🎓 BONDED</span>
+                <Tooltip text="Graduated from PumpFun — bonded token">
+                  <span className="badge badge-new" style={{ fontSize: 11, padding: '1px 3px', cursor: 'default' }}>🎓</span>
+                </Tooltip>
               )}
               {alpha.source === 'pumpfun_pre' && (
                 <span className="badge badge-verified" style={{ fontSize: 7, padding: '1px 5px', background: 'rgba(255,184,0,0.12)', borderColor: 'rgba(255,184,0,0.3)', color: 'var(--amber)' }}>
@@ -1105,11 +1111,13 @@ const AlphaCard = ({ alpha, isSelected, onClick, isWatched, onToggleWatch }) => 
               )}
               {(alpha.source === 'birdeye_trending' || alpha.source === 'dex_gainers') && (
                 <Tooltip text="Organic runner — found via momentum, not paid promotion">
-                  <span className="badge badge-organic" style={{ fontSize: 10, padding: '1px 4px', cursor: 'default' }}>🦅</span>
+                  <span className="badge badge-organic" style={{ fontSize: 11, padding: '1px 3px', cursor: 'default' }}>🦅</span>
                 </Tooltip>
               )}
               {alpha.source === 'dex_new' && (
-                <span className="badge badge-new-pair" style={{ fontSize: 7, padding: '1px 5px' }}>✨ NEW</span>
+                <Tooltip text="New pair — recently launched token">
+                  <span className="badge badge-new-pair" style={{ fontSize: 11, padding: '1px 3px', cursor: 'default' }}>✨</span>
+                </Tooltip>
               )}
               {/* Revival badge — token returned from cooling/dumped state */}
               {alpha.isRevival && (
@@ -1119,13 +1127,11 @@ const AlphaCard = ({ alpha, isSelected, onClick, isWatched, onToggleWatch }) => 
                     : `Revived Token — recovering from cooling`
                 }>
                   <span style={{
-                    fontSize: 13, padding: '0px 3px', borderRadius: 3,
+                    fontSize: 11, padding: '1px 3px', borderRadius: 3,
                     cursor: 'default', lineHeight: 1,
                     animation: 'pulse 2s infinite',
-                    display: 'inline-block',
-                  }}>
-                    🔄
-                  </span>
+                    display: 'inline-block', flexShrink: 0,
+                  }}>🔄</span>
                 </Tooltip>
               )}
 
@@ -1133,8 +1139,8 @@ const AlphaCard = ({ alpha, isSelected, onClick, isWatched, onToggleWatch }) => 
               {(alpha.runCount || 0) >= 3 && (
                 <Tooltip text={`On runner feed ${alpha.runCount}× — signals strength`}>
                   <span style={{
-                    fontFamily:  'var(--font-mono)', fontSize: 7,
-                    padding:     '1px 5px', borderRadius: 3, cursor: 'default',
+                    fontFamily:  'var(--font-mono)', fontSize: 9,
+                    padding:     '1px 4px', borderRadius: 3, cursor: 'default',
                     background:  alpha.runCount >= 10
                       ? 'rgba(0,255,153,0.15)'
                       : alpha.runCount >= 5
@@ -1806,15 +1812,16 @@ const AlphaBoard = ({ selectedAlpha, onSelect, onNewRunners, onLiveAlphas, onSzn
     if (alphaFilter === 'organic')  list = list.filter(a => a.source === 'birdeye_trending' || a.source === 'dex_gainers')
     if (alphaFilter === 'revival')  list = list.filter(a => a.isRevival)
     if (alphaFilter === 'boosted')  list = list.filter(a => a.source === 'dexscreener_boosted' || a.source === 'boost')
-    if (alphaFilter === 'deriv')    list = list.filter(a => a.isDerivative || a.parentAlpha)
+    if (alphaFilter === 'deriv')    list = list.filter(a => isDerivative(a.symbol))
     if (alphaFilter === 'new')      list = list.filter(a => a.source === 'dex_new')
 
     // Sort
     if (alphaSort === 'change')   list.sort((a, b) => parseFloat(b.priceChange24h || 0) - parseFloat(a.priceChange24h || 0))
     if (alphaSort === 'volume')   list.sort((a, b) => (b.volume24h || 0) - (a.volume24h || 0))
     if (alphaSort === 'mcap')     list.sort((a, b) => (b.marketCap || 0) - (a.marketCap || 0))
-    if (alphaSort === 'age')      list.sort((a, b) => (a.pairCreatedAt || 0) - (b.pairCreatedAt || 0))
-    // momentum is default — already sorted by backend
+    if (alphaSort === 'age')      list.sort((a, b) => (b.pairCreatedAt || 0) - (a.pairCreatedAt || 0))
+    // momentum is default — liveAlphas already sorted by momentumScore in useAlphas
+    console.log(`[AlphaSort] sort=${alphaSort} filter=${alphaFilter} count=${list.length} top=$${list[0]?.symbol}`)
 
     return list
   }, [displayList, activeTab, alphaFilter, alphaSort])
@@ -2088,21 +2095,21 @@ const AlphaBoard = ({ selectedAlpha, onSelect, onNewRunners, onLiveAlphas, onSzn
               <p style={{ fontFamily: 'var(--font-mono)', fontSize: 10, color: 'var(--text-muted)', lineHeight: 1.6, margin: 0 }}>
                 Tokens with positive price action right now.
               </p>
-              {/* Filter + Sort bar */}
-              <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center' }}>
-                {/* Filter pills */}
-                <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>
+              {/* Filter pills + sort dropdown on one line */}
+              <div style={{ display: 'flex', gap: 4, alignItems: 'center', flexWrap: 'nowrap', justifyContent: 'space-between' }}>
+                <div style={{ display: 'flex', gap: 4, alignItems: 'center', flexWrap: 'nowrap' }}>
                   {[
-                    { key: 'all',     label: 'All' },
-                    { key: 'organic', label: '🦅 Organic' },
-                    { key: 'revival', label: '🔄 Revival' },
-                    { key: 'boosted', label: '⚡ Boosted' },
-                    { key: 'deriv',   label: '🔗 Deriv' },
-                    { key: 'new',     label: '✨ New' },
+                    { key: 'all',     label: 'All', title: 'All runners' },
+                    { key: 'organic', label: '🦅',  title: 'Organic runners' },
+                    { key: 'revival', label: '🔄',  title: 'Revived tokens' },
+                    { key: 'boosted', label: '⚡',  title: 'Boosted tokens' },
+                    { key: 'deriv',   label: '🧬',  title: 'Derivative tokens' },
+                    { key: 'new',     label: '✨',  title: 'New pairs' },
                   ].map(f => (
-                    <button key={f.key} onClick={() => setAlphaFilter(f.key)} style={{
+                    <button key={f.key} onClick={() => setAlphaFilter(f.key)} title={f.title} style={{
                       fontFamily: 'var(--font-display)', fontSize: 8, fontWeight: 700,
                       padding: '2px 7px', borderRadius: 4, cursor: 'pointer', border: '1px solid',
+                      flexShrink: 0,
                       background: alphaFilter === f.key ? 'rgba(0,212,255,0.2)' : 'transparent',
                       borderColor: alphaFilter === f.key ? 'rgba(0,212,255,0.6)' : 'rgba(255,255,255,0.1)',
                       color: alphaFilter === f.key ? 'var(--cyan)' : 'var(--text-muted)',
@@ -2110,24 +2117,17 @@ const AlphaBoard = ({ selectedAlpha, onSelect, onNewRunners, onLiveAlphas, onSzn
                     }}>{f.label}</button>
                   ))}
                 </div>
-                {/* Divider */}
-                <span style={{ color: 'var(--border)', fontSize: 10 }}>|</span>
-                {/* Sort select */}
-                <select
-                  value={alphaSort}
-                  onChange={e => setAlphaSort(e.target.value)}
-                  style={{
-                    fontFamily: 'var(--font-mono)', fontSize: 8,
-                    background: 'var(--surface-2)', color: 'var(--text-muted)',
-                    border: '1px solid rgba(255,255,255,0.1)', borderRadius: 4,
-                    padding: '2px 6px', cursor: 'pointer', outline: 'none',
-                  }}
-                >
-                  <option value="momentum">Sort: Momentum</option>
-                  <option value="change">Sort: 24h %</option>
-                  <option value="volume">Sort: Volume</option>
-                  <option value="mcap">Sort: Market Cap</option>
-                  <option value="age">Sort: Newest</option>
+                <select value={alphaSort} onChange={e => setAlphaSort(e.target.value)} style={{
+                  fontFamily: 'var(--font-mono)', fontSize: 8, flexShrink: 0,
+                  background: 'var(--surface-2)', color: 'var(--text-muted)',
+                  border: '1px solid rgba(255,255,255,0.1)', borderRadius: 4,
+                  padding: '2px 5px', cursor: 'pointer', outline: 'none',
+                }}>
+                  <option value="momentum">🔥 Momentum</option>
+                  <option value="change">📈 24h %</option>
+                  <option value="volume">💧 Volume</option>
+                  <option value="mcap">💰 Cap</option>
+                  <option value="age">🆕 Newest</option>
                 </select>
               </div>
             </div>
@@ -2177,14 +2177,17 @@ const AlphaBoard = ({ selectedAlpha, onSelect, onNewRunners, onLiveAlphas, onSzn
       )}
 
       {lastUpdated && activeTab === 'live' && !searchQuery && (
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexShrink: 0 }}>
-          <span className="mono text-muted" style={{ fontSize: 9, display: 'flex', alignItems: 'center', gap: 5 }}>
-            {isRefreshing
-              ? <span style={{ color: 'var(--cyan)', animation: 'pulse 1.2s ease-in-out infinite' }}>↻ Updating...</span>
-              : `Updated ${lastUpdated.toLocaleTimeString()}`
-            }
-          </span>
-          <button className="btn btn-ghost btn-sm" onClick={refresh} style={{ padding: '2px 8px', fontSize: 9 }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexShrink: 0, gap: 6 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 5, flexWrap: 'nowrap', overflow: 'hidden' }}>
+            <span className="mono text-muted" style={{ fontSize: 9, flexShrink: 0 }}>
+              {isRefreshing
+                ? <span style={{ color: 'var(--cyan)', animation: 'pulse 1.2s ease-in-out infinite' }}>↻ Updating...</span>
+                : `Updated ${lastUpdated.toLocaleTimeString()}`
+              }
+            </span>
+
+          </div>
+          <button className="btn btn-ghost btn-sm" onClick={refresh} style={{ padding: '2px 8px', fontSize: 9, flexShrink: 0 }}>
             ↺ Refresh
           </button>
         </div>
@@ -3094,11 +3097,11 @@ const BetaRow = ({ beta, alpha, isPinned, trenchOnly, onOpenDrawer, onSwap }) =>
             <span style={{ fontFamily: 'var(--font-display)', fontWeight: 700, fontSize: 13, color: 'var(--text-primary)' }}>
               ${beta.symbol}
             </span>
-            {isLPPair       && <Tooltip text="LP pair — direct on-chain liquidity link"><span className="badge badge-cabal" style={{ fontSize: 9, padding: '1px 5px', cursor: 'default' }}>🔗</span></Tooltip>}
-            {isTelegramSig  && <span className="badge" style={{ fontSize: 7, padding: '1px 4px', background: 'rgba(0,212,180,0.15)', borderColor: 'rgba(0,212,180,0.4)', color: 'rgb(0,212,180)', animation: 'pulse 2s infinite' }}>📡 TELEGRAM</span>}
-            {isTwitterSig   && <span className="badge" style={{ fontSize: 7, padding: '1px 4px', background: 'rgba(29,161,242,0.15)', borderColor: 'rgba(29,161,242,0.4)', color: 'rgb(29,161,242)', animation: 'pulse 2s infinite' }}>🐦 TWITTER</span>}
-            {isTied         && <span className="badge badge-strong"   style={{ fontSize: 7, padding: '1px 4px' }}>⚡ TIED</span>}
-            {isTrench       && <Tooltip text="Trenches — market cap under $30K. Very high risk, very high reward."><span className="badge badge-new" style={{ fontSize: 9, padding: '1px 5px', cursor: 'default' }}>⛏️</span></Tooltip>}
+            {isLPPair       && <Tooltip text="LP pair — direct on-chain liquidity link"><span className="badge badge-cabal" style={{ fontSize: 11, padding: '1px 3px', cursor: 'default' }}>🔗</span></Tooltip>}
+            {isTelegramSig  && <Tooltip text="Telegram signal — spotted in CT alpha channels"><span className="badge" style={{ fontSize: 11, padding: '1px 3px', background: 'rgba(0,212,180,0.15)', borderColor: 'rgba(0,212,180,0.4)', color: 'rgb(0,212,180)', animation: 'pulse 2s infinite', cursor: 'default' }}>📡</span></Tooltip>}
+            {isTwitterSig   && <Tooltip text="Twitter signal — spotted on CT"><span className="badge" style={{ fontSize: 11, padding: '1px 3px', background: 'rgba(29,161,242,0.15)', borderColor: 'rgba(29,161,242,0.4)', color: 'rgb(29,161,242)', animation: 'pulse 2s infinite', cursor: 'default' }}>🐦</span></Tooltip>}
+            {isTied         && <Tooltip text="Tied — two tokens with similar momentum for this concept"><span className="badge badge-strong" style={{ fontSize: 11, padding: '1px 3px', cursor: 'default' }}>⚡</span></Tooltip>}
+            {isTrench       && <Tooltip text="Trenches — market cap under $30K. Very high risk, very high reward."><span className="badge badge-new" style={{ fontSize: 11, padding: '1px 3px', cursor: 'default' }}>⛏️</span></Tooltip>}
             <FlagWarningBadge address={beta.address} />
             {beta.decayCount >= 2 && (
               <Tooltip text={`⚠️ ${beta.decayCount}/5 decay signals: ${(beta.decaySignals || []).join(', ')}`}>
@@ -3110,12 +3113,12 @@ const BetaRow = ({ beta, alpha, isPinned, trenchOnly, onOpenDrawer, onSwap }) =>
                 }}>⚠️ {beta.decayCount}/5</span>
               </Tooltip>
             )}
-            {isPinned       && <span className="badge badge-verified" style={{ fontSize: 7, padding: '1px 4px' }}>DEV VERIFIED</span>}
-            {beta.isSibling && <span className="badge badge-cabal"    style={{ fontSize: 7, padding: '1px 4px', opacity: 0.85 }}>👥 SIBLING</span>}
+            {isPinned       && <Tooltip text="Dev verified — project team verified"><span className="badge badge-verified" style={{ fontSize: 11, padding: '1px 3px', cursor: 'default' }}>✓</span></Tooltip>}
+            {beta.isSibling && <Tooltip text="Sibling — shares the same parent alpha"><span className="badge badge-cabal" style={{ fontSize: 11, padding: '1px 3px', opacity: 0.85, cursor: 'default' }}>👥</span></Tooltip>}
           </div>
           <div style={{ display: 'flex', gap: 6, alignItems: 'center', marginTop: 1 }}>
             <CopyAddress address={beta.address} />
-            {beta.isHistorical && <span style={{ fontFamily: 'var(--font-mono)', fontSize: 7, color: 'var(--text-muted)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: 3, padding: '0 3px' }}>📦 stored</span>}
+            {beta.isHistorical && <span style={{ fontFamily: 'var(--font-mono)', fontSize: 9, color: 'var(--text-muted)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: 3, padding: '1px 3px' }}>📦</span>}
             <WaveBadge phase={wave} />
           </div>
         </div>
@@ -3181,7 +3184,7 @@ const ParentAlphaCard = ({ parent }) => {
       }}>
         🧬 Parent Alpha — Root of this narrative
         {isCooling && (
-          <span className="badge badge-weak" style={{ fontSize: 7, padding: '1px 6px' }}>
+          <span className="badge badge-weak" style={{ fontSize: 9, padding: '1px 3px', cursor: 'default' }}>
             ❄️ COOLING — Second leg may be incoming
           </span>
         )}
