@@ -2095,9 +2095,9 @@ const AlphaBoard = ({ selectedAlpha, onSelect, onNewRunners, onLiveAlphas, onSzn
               <p style={{ fontFamily: 'var(--font-mono)', fontSize: 10, color: 'var(--text-muted)', lineHeight: 1.6, margin: 0 }}>
                 Tokens with positive price action right now.
               </p>
-              {/* Filter pills + sort dropdown on one line */}
+              {/* Filter pills + sort dropdown — single line */}
               <div style={{ display: 'flex', gap: 4, alignItems: 'center', flexWrap: 'nowrap', justifyContent: 'space-between' }}>
-                <div style={{ display: 'flex', gap: 4, alignItems: 'center', flexWrap: 'nowrap' }}>
+                <div style={{ display: 'flex', gap: 4, alignItems: 'center' }}>
                   {[
                     { key: 'all',     label: 'All', title: 'All runners' },
                     { key: 'organic', label: '🦅',  title: 'Organic runners' },
