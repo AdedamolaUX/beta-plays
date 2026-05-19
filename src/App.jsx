@@ -1785,16 +1785,14 @@ const AlphaBoard = ({ selectedAlpha, onSelect, onNewRunners, onLiveAlphas, onSzn
       recoveryPct: a.recoveryPct || null,
     }))
 
-    // Add parent alphas from parent map — try Supabase cache first, localStorage fallback
-    try {
-      const parentMap = await fetch(`${BACKEND_URL}/api/parent-map`)
-        .then(r => r.ok ? r.json() : { map: {} })
-        .then(({ map }) => ({ ...JSON.parse(localStorage.getItem('betaplays_parent_map') || '{}'), ...map }))
-        .catch(() => JSON.parse(localStorage.getItem('betaplays_parent_map') || '{}'))
+    // Add parent alphas from parent map — Supabase first, localStorage fallback
+    // No await here — useCallback isn't async. Use .then() chain and fire report-alphas
+    // inside the callback once parentMap resolves.
+    const localParentMap = JSON.parse(localStorage.getItem('betaplays_parent_map') || '{}')
+    const seenAlphas     = JSON.parse(localStorage.getItem('betaplays_seen_alphas') || '{}')
 
-      const seenAddrs  = new Set(allAlphas.map(a => a.address))
-      const seenAlphas = JSON.parse(localStorage.getItem('betaplays_seen_alphas') || '{}')
-
+    const applyParentMapAndReport = (parentMap) => {
+      const seenAddrs = new Set(allAlphas.map(a => a.address))
       Object.values(parentMap).forEach(parent => {
         if (!parent?.address || seenAddrs.has(parent.address)) return
         const full = seenAlphas[parent.address]
@@ -1805,13 +1803,17 @@ const AlphaBoard = ({ selectedAlpha, onSelect, onNewRunners, onLiveAlphas, onSzn
         })
         seenAddrs.add(parent.address)
       })
-    } catch { /* non-critical */ }
+      fetch(`${BACKEND_URL}/api/report-alphas`, {
+        method:  'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body:    JSON.stringify({ alphas: allAlphas }),
+      }).catch(() => {})
+    }
 
-    fetch(`${BACKEND_URL}/api/report-alphas`, {
-      method:  'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body:    JSON.stringify({ alphas: allAlphas }),
-    }).catch(() => {})  // silent fail — non-critical
+    fetch(`${BACKEND_URL}/api/parent-map`)
+      .then(r => r.ok ? r.json() : { map: {} })
+      .then(({ map }) => applyParentMapAndReport({ ...localParentMap, ...map }))
+      .catch(() => applyParentMapAndReport(localParentMap))
   }, [liveAlphas, coolingAlphas])
 
   const rawList =
