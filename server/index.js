@@ -2230,6 +2230,18 @@ app.get('/api/twitter-betas', (req, res) => {
 // This queue caps DB writes at 2 concurrent, serialising the rest.
 // Reads (history, beta-history) always get through because writes never hold
 // all 5 connections.
+// ─── Endpoint rate limiter ────────────────────────────────────────
+// Prevents DB connection pool exhaustion when multiple endpoints fire
+// simultaneously on startup. Simple per-endpoint cooldown map.
+const _endpointLastCall = new Map()
+const endpointCooldown = (key, ms) => {
+  const last = _endpointLastCall.get(key) || 0
+  const now  = Date.now()
+  if (now - last < ms) return false  // still cooling
+  _endpointLastCall.set(key, now)
+  return true
+}
+
 const DB_WRITE_QUEUE = (() => {
   let running   = 0
   const MAX     = 2
@@ -2601,10 +2613,20 @@ app.post('/api/record-parent', (req, res) => {
 // GET /api/parent-map
 // Returns all known derivative→parent mappings from Supabase.
 // Shape: { [derivativeAddress]: { symbol: parentSymbol, address: parentAddress } }
-// Mirrors the betaplays_parent_map localStorage shape exactly so
-// all downstream sibling detection and DERIV badge logic works unchanged.
+// Cached in memory for 5 minutes — called frequently by every useBetas fetchBetas.
+let _parentMapCache     = null
+let _parentMapCacheTime = 0
+const PARENT_MAP_TTL_MS = 5 * 60 * 1000
+
 app.get('/api/parent-map', async (req, res) => {
   if (!process.env.DATABASE_URL) return res.json({ map: {} })
+
+  // Serve from cache if fresh
+  const now = Date.now()
+  if (_parentMapCache && (now - _parentMapCacheTime) < PARENT_MAP_TTL_MS) {
+    return res.json({ map: _parentMapCache })
+  }
+
   try {
     const result = await db.query(`
       SELECT address, parent_address, parent_symbol
@@ -2616,9 +2638,13 @@ app.get('/api/parent-map', async (req, res) => {
     for (const row of result.rows) {
       map[row.address] = { address: row.parent_address, symbol: row.parent_symbol }
     }
+    _parentMapCache     = map
+    _parentMapCacheTime = now
     return res.json({ map })
   } catch (err) {
     console.error('[DB] parent-map error:', err.message)
+    // Return stale cache if available rather than erroring
+    if (_parentMapCache) return res.json({ map: _parentMapCache })
     return res.status(500).json({ error: 'db read failed' })
   }
 })
@@ -2652,9 +2678,23 @@ app.post('/api/flag-token', (req, res) => {
 // Returns aggregated flag counts for a token (or all tokens if no address).
 // Shape matches betaplays_flags_v1 localStorage format:
 // { [address]: { rug: N, honeypot: N, not_beta: N, symbol: '...' } }
+// Cached in memory for 2 minutes — no need to hit DB on every mount.
+let _flagsCache     = null
+let _flagsCacheTime = 0
+const FLAGS_TTL_MS  = 2 * 60 * 1000
+
 app.get('/api/flags', async (req, res) => {
   if (!process.env.DATABASE_URL) return res.json({ flags: {} })
   const { address } = req.query
+
+  // Serve from cache for full-table requests (no address filter)
+  if (!address) {
+    const now = Date.now()
+    if (_flagsCache && (now - _flagsCacheTime) < FLAGS_TTL_MS) {
+      return res.json({ flags: _flagsCache })
+    }
+  }
+
   try {
     const params = address ? [address] : []
     const where  = address ? 'WHERE address = $1' : ''
@@ -2676,9 +2716,15 @@ app.get('/api/flags', async (req, res) => {
         not_beta: parseInt(row.not_beta) || 0,
       }
     }
+    // Cache full-table results
+    if (!address) {
+      _flagsCache     = flags
+      _flagsCacheTime = Date.now()
+    }
     return res.json({ flags })
   } catch (err) {
     console.error('[DB] flags error:', err.message)
+    if (!address && _flagsCache) return res.json({ flags: _flagsCache })
     return res.status(500).json({ error: 'db read failed' })
   }
 })

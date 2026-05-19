@@ -17,9 +17,9 @@ if (!process.env.DATABASE_URL) {
 
 const pool = new Pool({
   connectionString:        process.env.DATABASE_URL,
-  max:                     20,
-  idleTimeoutMillis:       30_000,
-  connectionTimeoutMillis: 8_000,
+  max:                     10,   // reduced from 20 — Supabase free tier saturates at high concurrency
+  idleTimeoutMillis:       10_000,
+  connectionTimeoutMillis: 5_000, // fail fast — better than 15s timeout storm
   ssl: process.env.DATABASE_URL?.includes('supabase')
     ? { rejectUnauthorized: false }
     : false,

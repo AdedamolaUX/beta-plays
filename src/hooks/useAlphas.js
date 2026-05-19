@@ -1753,7 +1753,7 @@ const useAlphas = () => {
           console.log('[SpawnCount] Synced beta spawn counts from Supabase')
         }
       } catch { /* non-fatal */ }
-    }, 5000)  // 5s delay — live fetch gets DB connections priority
+    }, 8000)  // 8s delay — gives fetchLive + Supabase pool time to stabilise
   }, [fetchLive])
 
   useEffect(() => {
