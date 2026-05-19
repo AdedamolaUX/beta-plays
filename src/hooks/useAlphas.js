@@ -79,6 +79,7 @@ const saveToHistory = (alphas) => {
           volume24h:        stored.volume24h      || 0,
           priceChange24h:   stored.priceChange24h || 0,
           priceUsd:         stored.priceUsd       || null,
+          liquidity:        stored.liquidity      || 0,
           source:           a.source || 'live_feed',
         }
       })
@@ -930,6 +931,7 @@ const refreshHistoricalPrices = async () => {
             volume24h:      existing[token.address]?.volume24h      || 0,
             priceChange24h: existing[token.address]?.priceChange24h || 0,
             priceUsd:       existing[token.address]?.priceUsd       || null,
+            liquidity:      existing[token.address]?.liquidity      || 0,
             source:         token.source || 'price_refresh',
           }))
         if (refreshPayload.length > 0) {

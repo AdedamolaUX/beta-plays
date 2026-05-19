@@ -118,6 +118,8 @@ const MIGRATIONS = [
   // Session 30 — revival state persistence
   `ALTER TABLE alpha_runs ADD COLUMN IF NOT EXISTS is_revival BOOLEAN DEFAULT FALSE`,
   `ALTER TABLE alpha_runs ADD COLUMN IF NOT EXISTS recovery_pct NUMERIC`,
+  // Session 30 — liquidity needed for detectReversal
+  `ALTER TABLE alpha_runs ADD COLUMN IF NOT EXISTS liquidity NUMERIC`,
   // Session 30 — community flags
   `CREATE TABLE IF NOT EXISTS token_flags (
     id         SERIAL PRIMARY KEY,

@@ -1781,6 +1781,7 @@ const AlphaBoard = ({ selectedAlpha, onSelect, onNewRunners, onLiveAlphas, onSzn
       description: a.description || '',
       logoUrl:     a.logoUrl     || a.info?.imageUrl || '',
       marketCap:   a.marketCap   || 0,
+      liquidity:   a.liquidity   || 0,
       isRevival:   a.isRevival   || false,
       recoveryPct: a.recoveryPct || null,
     }))

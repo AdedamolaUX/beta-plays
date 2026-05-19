@@ -2396,8 +2396,8 @@ app.post('/api/record-alphas', async (req, res) => {
       for (const a of chunk) {
         try {
           await db.query(`
-            INSERT INTO alpha_runs (token_address, mcap, volume_24h, price_change_24h, source, price, is_revival, recovery_pct)
-            SELECT $1, $2, $3, $4, $5, $6, $7, $8
+            INSERT INTO alpha_runs (token_address, mcap, volume_24h, price_change_24h, source, price, is_revival, recovery_pct, liquidity)
+            SELECT $1, $2, $3, $4, $5, $6, $7, $8, $9
             WHERE NOT EXISTS (
               SELECT 1 FROM alpha_runs
               WHERE token_address = $1
@@ -2405,7 +2405,7 @@ app.post('/api/record-alphas', async (req, res) => {
             )
           `, [a.address, a.marketCap || null, a.volume24h || null, a.priceChange24h || null,
               a.source || null, a.price || null,
-              a.isRevival || false, a.recoveryPct || null])
+              a.isRevival || false, a.recoveryPct || null, a.liquidity || null])
         } catch { /* non-fatal per-token */ }
       }
     }).catch(err => console.error('[DB] record-alphas chunk error:', err.message))
@@ -2487,27 +2487,29 @@ app.post('/api/refresh-prices', (req, res) => {
       await DB_WRITE_QUEUE.run(async () => {
         // Upsert tokens table — update peak_mcap and mcap_at_first_seen
         try {
+          // 6 named columns + NOW() = 7 total per row
+          // peak_mcap uses GREATEST(peakMarketCap, marketCap) so we pass the
+          // explicit peak if known, falling back to current mcap
           const tokenValues = chunk.map((_, j) => {
-            const base = j * 7
-            return `($${base+1}, $${base+2}, $${base+3}, $${base+4}, $${base+5}, $${base+6}, $${base+7}, NOW())`
+            const base = j * 6
+            return `($${base+1}, $${base+2}, $${base+3}, $${base+4}, $${base+5}, $${base+6}, NOW())`
           }).join(', ')
           const tokenParams = chunk.flatMap(t => [
             t.address,
             t.symbol,
-            t.name           || null,
-            t.logoUrl        || null,
-            t.marketCap      || 0,       // current mcap — used for GREATEST peak_mcap
-            t.peakMarketCap  || t.marketCap || 0,  // explicit peak if known
+            t.name    || null,
+            t.logoUrl || null,
+            t.peakMarketCap || t.marketCap || 0,  // best known peak
             t.mcapAtFirstSeen || 0,
           ])
           await db.query(`
             INSERT INTO tokens (address, symbol, name, logo_url, peak_mcap, mcap_at_first_seen, last_seen)
             VALUES ${tokenValues}
             ON CONFLICT (address) DO UPDATE SET
-              last_seen         = NOW(),
-              name              = COALESCE(EXCLUDED.name,     tokens.name),
-              logo_url          = COALESCE(EXCLUDED.logo_url, tokens.logo_url),
-              peak_mcap         = GREATEST(tokens.peak_mcap,  EXCLUDED.peak_mcap),
+              last_seen          = NOW(),
+              name               = COALESCE(EXCLUDED.name,     tokens.name),
+              logo_url           = COALESCE(EXCLUDED.logo_url, tokens.logo_url),
+              peak_mcap          = GREATEST(tokens.peak_mcap,  EXCLUDED.peak_mcap),
               mcap_at_first_seen = COALESCE(
                 NULLIF(tokens.mcap_at_first_seen, 0),
                 NULLIF(EXCLUDED.mcap_at_first_seen, 0)
@@ -2522,8 +2524,8 @@ app.post('/api/refresh-prices', (req, res) => {
         for (const t of chunk) {
           try {
             await db.query(`
-              INSERT INTO alpha_runs (token_address, mcap, volume_24h, price_change_24h, source, price, is_revival, recovery_pct)
-              SELECT $1, $2, $3, $4, $5, $6, $7, $8
+              INSERT INTO alpha_runs (token_address, mcap, volume_24h, price_change_24h, source, price, is_revival, recovery_pct, liquidity)
+              SELECT $1, $2, $3, $4, $5, $6, $7, $8, $9
               WHERE NOT EXISTS (
                 SELECT 1 FROM alpha_runs
                 WHERE token_address = $1
@@ -2538,6 +2540,7 @@ app.post('/api/refresh-prices', (req, res) => {
               t.priceUsd       || null,
               t.isRevival      || false,
               t.recoveryPct    || null,
+              t.liquidity      || null,
             ])
           } catch { /* non-fatal per-token */ }
         }
@@ -2796,7 +2799,8 @@ app.get('/api/history/full', async (req, res) => {
         r.source,
         r.timestamp        AS "priceRefreshedAt",
         r.is_revival       AS "isRevival",
-        r.recovery_pct     AS "recoveryPct"
+        r.recovery_pct     AS "recoveryPct",
+        r.liquidity        AS "liquidity"
       FROM alpha_runs r
       JOIN tokens t ON t.address = r.token_address
       WHERE r.timestamp > NOW() - ($1 || ' days')::INTERVAL
@@ -2816,6 +2820,7 @@ app.get('/api/history/full', async (req, res) => {
       priceChange24h:   parseFloat(t.priceChange24h)   || 0,
       recoveryPct:      t.recoveryPct ? parseFloat(t.recoveryPct) : null,
       isRevival:        t.isRevival   || false,
+      liquidity:        parseFloat(t.liquidity) || 0,
     }))
 
     return res.json({ tokens })
