@@ -60,6 +60,35 @@ const saveToHistory = (alphas) => {
       if (now - existing[addr].lastSeen > HISTORY_MAX_AGE_MS) delete existing[addr]
     })
     localStorage.setItem(STORAGE_KEY, JSON.stringify(existing))
+
+    // Write peak data to Supabase — fire and forget, non-blocking.
+    // This is the critical write that makes peakMarketCap shared across all
+    // users/devices. Revival detection accuracy depends on this being in Supabase.
+    const refreshPayload = alphas
+      .filter(a => a.address && existing[a.address])
+      .map(a => {
+        const stored = existing[a.address]
+        return {
+          address:          a.address,
+          symbol:           a.symbol,
+          name:             a.name    || null,
+          logoUrl:          a.logoUrl || null,
+          marketCap:        stored.marketCap      || 0,
+          peakMarketCap:    stored.peakMarketCap  || 0,
+          mcapAtFirstSeen:  stored.mcapAtFirstSeen || 0,
+          volume24h:        stored.volume24h      || 0,
+          priceChange24h:   stored.priceChange24h || 0,
+          priceUsd:         stored.priceUsd       || null,
+          source:           a.source || 'live_feed',
+        }
+      })
+    if (refreshPayload.length > 0) {
+      fetch(`${BACKEND_URL}/api/refresh-prices`, {
+        method:  'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body:    JSON.stringify({ tokens: refreshPayload }),
+      }).catch(() => {})  // silent — localStorage write already succeeded
+    }
   } catch (err) {
     console.warn('Failed to save alphas:', err.message)
   }
@@ -73,7 +102,7 @@ const saveToHistory = (alphas) => {
 
 let _historyCache     = null   // in-memory for the current session
 let _historyCacheTime = 0
-const HISTORY_CACHE_TTL_MS = 60_000  // re-fetch from Supabase at most once per minute
+const HISTORY_CACHE_TTL_MS = 30_000  // re-fetch from Supabase at most once per 30s — keeps revival re-validation fresh
 
 const loadNeonHistory = async () => {
   const now = Date.now()
@@ -131,6 +160,24 @@ const loadHistoricalByPriceAction = async (currentAddresses, preloadedHistory = 
       if (inFeed) return
       if (age > HISTORY_MAX_AGE_MS) return
       if (volume < COOLING_MIN_VOLUME || mcap < COOLING_MIN_MCAP) return
+
+      // Revival short-circuit: if Supabase already has this token marked as a
+      // revival from the last poll cycle, restore it directly — skip detectReversal.
+      // This preserves revival state across page refreshes without re-computation.
+      // Still subject to the re-validation in fetchLive on the next poll cycle.
+      if (a.isRevival && a.recoveryPct !== null && a.recoveryPct < 95) {
+        historicalLive.push({
+          ...a,
+          dexUrl:       `https://dexscreener.com/solana/${a.address}`,
+          isHistorical: true,
+          isRevival:    true,
+          isReversing:  true,
+          isCooling:    false,
+          coolingLabel: null,
+          momentumScore: 999,
+        })
+        return
+      }
 
       const ageHours    = age / 3600000
       const lastRefresh = a.priceRefreshedAt || a.lastSeen
@@ -868,6 +915,30 @@ const refreshHistoricalPrices = async () => {
         })
 
         console.log(`[PriceRefresh] Updated ${Object.keys(bestPair).length}/${batch.length} historical tokens`)
+
+        // POST fresh prices to Supabase — fire and forget, non-blocking.
+        // This keeps alpha_runs current for cooling tokens so revival detection
+        // works correctly for ALL users, not just this device's localStorage.
+        const refreshPayload = batch
+          .filter(token => bestPair[token.address])
+          .map(token => ({
+            address:        token.address,
+            symbol:         token.symbol,
+            name:           token.name    || null,
+            logoUrl:        token.logoUrl || null,
+            marketCap:      existing[token.address]?.marketCap      || 0,
+            volume24h:      existing[token.address]?.volume24h      || 0,
+            priceChange24h: existing[token.address]?.priceChange24h || 0,
+            priceUsd:       existing[token.address]?.priceUsd       || null,
+            source:         token.source || 'price_refresh',
+          }))
+        if (refreshPayload.length > 0) {
+          fetch(`${BACKEND_URL}/api/refresh-prices`, {
+            method:  'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body:    JSON.stringify({ tokens: refreshPayload }),
+          }).catch(err => console.warn('[PriceRefresh] Supabase write failed:', err.message))
+        }
       } catch (batchErr) {
         console.warn(`[PriceRefresh] Batch failed:`, batchErr.message)
       }
@@ -1494,21 +1565,89 @@ const useAlphas = () => {
       // Merge revival tokens from previous state — fetchLive must NOT wipe them.
       // Revival tokens come from loadHistoricalByPriceAction (separate path).
       // Without this merge, every fetchLive poll overwrites and loses revivals.
-      setLiveAlphas(prev => {
-        const freshAddresses = new Set(sortedLive.map(a => a.address))
-        // Keep revival tokens from previous state that aren't in fresh feed
-        const survivingRevivals = (prev || []).filter(a =>
-          a.isRevival && !freshAddresses.has(a.address)
-        )
-        const merged = [...sortedLive, ...survivingRevivals]
-          .map(a => ({
-            ...a,
-            momentumScore: a.isRevival ? 999 : getMomentumScore(a)
-          }))
-          .sort((a, b) => b.momentumScore - a.momentumScore)
-          .slice(0, 100)
-        return merged
-      })
+      //
+      // RE-VALIDATION: On every poll, we re-check each revival token against
+      // fresh price data from localStorage (written by refreshHistoricalPrices).
+      // Tokens that no longer pass detectReversal are demoted to cooling —
+      // they should NOT stay pinned at momentumScore:999 if they've re-dumped.
+      //
+      // All classification is done BEFORE any setter call so no side effects
+      // run inside React updaters — safe for concurrent rendering mode.
+      // Price data comes from Supabase (via loadNeonHistory) — not localStorage —
+      // so all users see the same revival state regardless of device or session.
+      // loadNeonHistory has a 60s in-memory cache so this adds no meaningful latency.
+      const freshAddresses = new Set(sortedLive.map(a => a.address))
+      const freshStored    = await loadNeonHistory()
+      const prevLive       = liveAlphasRef.current || []
+
+      // ── Revival Debug Logs (remove before final production deploy) ──
+      const pendingRevalidation = prevLive.filter(a => a.isRevival && !freshAddresses.has(a.address))
+      console.log(`[Revival Debug] Poll cycle — ${pendingRevalidation.length} revival token(s) to revalidate:`, pendingRevalidation.map(a => a.symbol))
+      console.log(`[Revival Debug] Supabase freshStored — ${Object.keys(freshStored).length} token(s) returned`)
+      if (Object.keys(freshStored).length === 0) {
+        console.warn('[Revival Debug] ⚠️  freshStored is empty — Supabase call may have failed or alpha_runs table has no recent rows')
+      }
+
+      const survivingRevivals = []
+      const revivedDemotions  = []
+
+      prevLive
+        .filter(a => a.isRevival && !freshAddresses.has(a.address))
+        .forEach(a => {
+          const stored    = freshStored[a.address]
+          const refreshed = stored ? { ...a, ...stored } : a
+          const { isReversing, recoveryPct } = detectReversal(refreshed)
+
+          if (isReversing) {
+            survivingRevivals.push({
+              ...refreshed,
+              isRevival:   true,
+              isReversing: true,
+              recoveryPct,
+              isCooling:   false,
+              isDumped:    false,
+            })
+          } else {
+            console.log(`[Revival] ⬇️  $${a.symbol} — reversal over, moving to cooling`)
+            revivedDemotions.push({
+              ...refreshed,
+              isRevival:    false,
+              isReversing:  false,
+              isCooling:    true,
+              isDumped:     (refreshed.marketCap || 0) > 0 && (refreshed.peakMarketCap || 0) > 50_000
+                ? (refreshed.marketCap / refreshed.peakMarketCap) < 0.25
+                : false,
+              coolingLabel: 'Revival ended — watching for next move',
+            })
+          }
+        })
+
+      const mergedLive = [...sortedLive, ...survivingRevivals]
+        .map(a => ({
+          ...a,
+          momentumScore: a.isRevival ? 999 : getMomentumScore(a)
+        }))
+        .sort((a, b) => b.momentumScore - a.momentumScore)
+        .slice(0, 100)
+
+      setLiveAlphas(mergedLive)
+
+      if (revivedDemotions.length > 0) {
+        console.log(`[Revival] Demoting ${revivedDemotions.length} token(s) to cooling`)
+        setCoolingAlphas(prev => {
+          const existingAddrs = new Set(prev.map(a => a.address))
+          const newDemotions  = revivedDemotions.filter(a => !existingAddrs.has(a.address))
+          if (newDemotions.length === 0) return prev
+          return [
+            ...prev,
+            ...newDemotions,
+          ].sort((a, b) => {
+            const aRecent = a.priceRefreshedAt || a.lastSeen || 0
+            const bRecent = b.priceRefreshedAt || b.lastSeen || 0
+            return bRecent - aRecent
+          }).slice(0, 50)
+        })
+      }
       liveAlphasRef.current = sortedLive
       setCoolingAlphas(sortedCooling)
       setPositioningAlphas(await loadPositioningPlays())
@@ -1532,10 +1671,25 @@ const useAlphas = () => {
       try {
         const local = JSON.parse(localStorage.getItem(STORAGE_KEY) || '{}')
         if (Object.keys(local).length > 0) {
+          // Returning device — localStorage has data, show it instantly
           const { historicalLive, historicalCooling } = await loadHistoricalByPriceAction(new Set(), local)
           if (historicalLive.length > 0 || historicalCooling.length > 0) {
             setLiveAlphas(historicalLive)
             setCoolingAlphas(historicalCooling)
+          }
+        } else {
+          // Fresh device / incognito — localStorage empty.
+          // Skip the 5s delay and load Supabase immediately so the user
+          // doesn't stare at a blank screen waiting for fetchLive to complete.
+          console.log('[Mount] Fresh device — loading Supabase history immediately')
+          const neon = await loadNeonHistory()
+          if (neon && Object.keys(neon).length > 0) {
+            const { historicalLive, historicalCooling } = await loadHistoricalByPriceAction(new Set(), neon)
+            if (historicalLive.length > 0 || historicalCooling.length > 0) {
+              setLiveAlphas(historicalLive)
+              setCoolingAlphas(historicalCooling)
+              console.log(`[Mount] Fresh device — loaded ${historicalLive.length} live, ${historicalCooling.length} cooling from Supabase`)
+            }
           }
         }
       } catch { /* silent — live fetch will populate */ }
@@ -1572,6 +1726,31 @@ const useAlphas = () => {
           })
         }
       } catch { /* silent — Supabase unavailable, localStorage data stays */ }
+
+      // Sync beta spawn counts from Supabase into localStorage.
+      // checkLegendCandidates is synchronous so it reads localStorage —
+      // pre-populating it here from Supabase ensures all users see accurate
+      // legend candidate counts regardless of which device ran the beta scan.
+      try {
+        const localSpawn = JSON.parse(localStorage.getItem('betaplays_beta_spawn_counts') || '{}')
+        const addresses  = Object.keys(localSpawn)
+        if (addresses.length > 0) {
+          const counts = await Promise.all(
+            addresses.map(addr =>
+              fetch(`${BACKEND_URL}/api/beta-count?address=${addr}`)
+                .then(r => r.ok ? r.json() : { count: 0 })
+                .then(({ count }) => ({ addr, count }))
+                .catch(() => ({ addr, count: 0 }))
+            )
+          )
+          const updated = { ...localSpawn }
+          counts.forEach(({ addr, count }) => {
+            if (count > 0) updated[addr] = Math.max(updated[addr] || 0, count)
+          })
+          localStorage.setItem('betaplays_beta_spawn_counts', JSON.stringify(updated))
+          console.log('[SpawnCount] Synced beta spawn counts from Supabase')
+        }
+      } catch { /* non-fatal */ }
     }, 5000)  // 5s delay — live fetch gets DB connections priority
   }, [fetchLive])
 

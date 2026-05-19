@@ -2,7 +2,7 @@ import betaplaysLogo from './assets/betaplays-logo.png'
 import { useState, useMemo, useCallback, useRef, useEffect } from 'react'
 import { createPortal } from 'react-dom'
 import useAlphas from './hooks/useAlphas'
-import LEGENDS, { submitNomination, getNominations, NOMINATIONS_KEY } from './data/historical_alphas'
+import LEGENDS, { submitNomination, getNominations, syncNominationsFromDB, NOMINATIONS_KEY } from './data/historical_alphas'
 import useBetas, { getSignal, getWavePhase, getMcapRatio } from './hooks/useBetas'
 import useParentAlpha from './hooks/useParentAlpha'
 import useNarrativeSzn from './hooks/useNarrativeSzn'
@@ -1276,15 +1276,33 @@ const AdminNominationPanel = ({ onClose }) => {
   const [authed, setAuthed]           = useState(() => sessionStorage.getItem('bp_admin') === '1')
   const [pwInput, setPwInput]         = useState('')
   const [pwError, setPwError]         = useState(false)
-  const [nominations, setNominations] = useState(() => {
-    try { return Object.values(JSON.parse(localStorage.getItem('betaplays_nominations') || '{}')) }
-    catch { return [] }
-  })
+  const [nominations, setNominations] = useState([])
+  const [nomLoading, setNomLoading]   = useState(false)
+
+  // Load nominations from Supabase on auth — not localStorage.
+  // All nominations from all users/devices are visible to admin.
+  const loadNominations = async () => {
+    setNomLoading(true)
+    try {
+      const res = await fetch(`${BACKEND_URL}/api/nominations`)
+      if (!res.ok) throw new Error('fetch failed')
+      const { nominations: rows } = await res.json()
+      setNominations(rows || [])
+    } catch {
+      // Fallback to localStorage if Supabase unavailable
+      try {
+        setNominations(Object.values(JSON.parse(localStorage.getItem('betaplays_nominations') || '{}')))
+      } catch { setNominations([]) }
+    } finally {
+      setNomLoading(false)
+    }
+  }
 
   const handleAuth = () => {
     if (pwInput === ADMIN_PASSWORD) {
       sessionStorage.setItem('bp_admin', '1')
       setAuthed(true)
+      loadNominations()
     } else {
       setPwError(true)
       setPwInput('')
@@ -1292,16 +1310,22 @@ const AdminNominationPanel = ({ onClose }) => {
     }
   }
 
-  const updateStatus = (address, status) => {
+  // Re-load when already authed on mount
+  useEffect(() => { if (authed) loadNominations() }, [authed])
+
+  const updateStatus = async (address, status) => {
     try {
-      const all = JSON.parse(localStorage.getItem('betaplays_nominations') || '{}')
-      if (all[address]) {
-        all[address].status = status
-        all[address].reviewedAt = Date.now()
-        localStorage.setItem('betaplays_nominations', JSON.stringify(all))
-        setNominations(Object.values(all))
-      }
-    } catch {}
+      // Write to Supabase
+      await fetch(`${BACKEND_URL}/api/nominations/${address}`, {
+        method:  'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body:    JSON.stringify({ status }),
+      })
+      // Optimistic local update
+      setNominations(prev => prev.map(n => n.address === address ? { ...n, status } : n))
+    } catch (err) {
+      console.warn('[Nominations] Status update failed:', err.message)
+    }
   }
 
   const pending  = nominations.filter(n => n.status === 'pending')
@@ -1747,6 +1771,9 @@ const AlphaBoard = ({ selectedAlpha, onSelect, onNewRunners, onLiveAlphas, onSzn
     if (!liveAlphas.length) return
 
     // Warmup live alphas only — cooling tokens are not actionable and waste AI compute
+    // Include isRevival + recoveryPct so Supabase alpha_runs preserves revival state.
+    // On next page load, history/full returns these fields and revival tokens
+    // are re-promoted without waiting for the next detectReversal cycle.
     const allAlphas = [...liveAlphas].map(a => ({
       symbol:      a.symbol,
       name:        a.name,
@@ -1754,17 +1781,22 @@ const AlphaBoard = ({ selectedAlpha, onSelect, onNewRunners, onLiveAlphas, onSzn
       description: a.description || '',
       logoUrl:     a.logoUrl     || a.info?.imageUrl || '',
       marketCap:   a.marketCap   || 0,
+      isRevival:   a.isRevival   || false,
+      recoveryPct: a.recoveryPct || null,
     }))
 
-    // Add parent alphas from the parent map (deduped by address)
+    // Add parent alphas from parent map — try Supabase cache first, localStorage fallback
     try {
-      const parentMap  = JSON.parse(localStorage.getItem('betaplays_parent_map') || '{}')
+      const parentMap = await fetch(`${BACKEND_URL}/api/parent-map`)
+        .then(r => r.ok ? r.json() : { map: {} })
+        .then(({ map }) => ({ ...JSON.parse(localStorage.getItem('betaplays_parent_map') || '{}'), ...map }))
+        .catch(() => JSON.parse(localStorage.getItem('betaplays_parent_map') || '{}'))
+
       const seenAddrs  = new Set(allAlphas.map(a => a.address))
       const seenAlphas = JSON.parse(localStorage.getItem('betaplays_seen_alphas') || '{}')
 
       Object.values(parentMap).forEach(parent => {
         if (!parent?.address || seenAddrs.has(parent.address)) return
-        // Look up full token data from seen_alphas if available
         const full = seenAlphas[parent.address]
         allAlphas.push({
           symbol:  parent.symbol  || full?.symbol  || '',
@@ -1773,7 +1805,7 @@ const AlphaBoard = ({ selectedAlpha, onSelect, onNewRunners, onLiveAlphas, onSzn
         })
         seenAddrs.add(parent.address)
       })
-    } catch { /* localStorage parse error — non-critical */ }
+    } catch { /* non-critical */ }
 
     fetch(`${BACKEND_URL}/api/report-alphas`, {
       method:  'POST',
@@ -2797,9 +2829,29 @@ const NominateButton = ({ address, symbol, name, compact = false }) => {
   const [showForm, setShowForm]     = useState(false)
   const [note, setNote]             = useState('')
 
+  // Sync count from Supabase on mount — gives accurate cross-device count
+  useEffect(() => {
+    syncNominationsFromDB().then(all => {
+      const n = all[address]?.nominationCount
+      if (n) setCount(n)
+    }).catch(() => {})
+  }, [address])
+
+  const doSubmit = (noteText) => {
+    // Write to localStorage via existing submitNomination (session record)
+    const result = submitNomination(address, symbol, name, noteText)
+    // Also write to Supabase — fire and forget, all users/devices see it
+    fetch(`${BACKEND_URL}/api/nominate`, {
+      method:  'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body:    JSON.stringify({ address, symbol, name, note: noteText }),
+    }).catch(err => console.warn('[Nominations] Supabase write failed:', err.message))
+    return result
+  }
+
   const handleSubmit = () => {
-    const result = submitNomination(address, symbol, name, note)
-    setCount(result.nominationCount)
+    const result = doSubmit(note)
+    if (result) setCount(result.nominationCount)
     setSubmitted(true)
     setShowForm(false)
     setNote('')
@@ -2815,7 +2867,7 @@ const NominateButton = ({ address, symbol, name, compact = false }) => {
       <button
         onClick={(e) => {
           e.stopPropagation()
-          const result = submitNomination(address, symbol, name, '')
+          const result = doSubmit('')
           if (result) { setCount(result.nominationCount); setSubmitted(true) }
         }}
         style={{
@@ -3668,18 +3720,54 @@ const saveWatchlistRaw = (list) => {
 // Flags are shown to everyone — local majority vote surface pattern.
 const FLAG_STORE_KEY = 'betaplays_flags_v1'
 
+// ─── Flags — Supabase-backed, localStorage as session cache ──────
+// getFlags() reads from the in-memory cache populated by loadAllFlags()
+// on mount. Stays fast (no async) for synchronous callers like FlagWarningBadge.
+let _flagsCache = null
+
+const loadAllFlags = async () => {
+  try {
+    const res = await fetch(`${BACKEND_URL}/api/flags`)
+    if (!res.ok) throw new Error('flags fetch failed')
+    const { flags } = await res.json()
+    if (flags && Object.keys(flags).length > 0) {
+      // Merge with localStorage — Supabase wins on conflict
+      const local  = JSON.parse(localStorage.getItem(FLAG_STORE_KEY) || '{}')
+      _flagsCache  = { ...local, ...flags }
+      localStorage.setItem(FLAG_STORE_KEY, JSON.stringify(_flagsCache))
+      return _flagsCache
+    }
+  } catch { /* fall through */ }
+  // Fallback: localStorage
+  try {
+    _flagsCache = JSON.parse(localStorage.getItem(FLAG_STORE_KEY) || '{}')
+    return _flagsCache
+  } catch { return {} }
+}
+
 const getFlags = () => {
+  if (_flagsCache) return _flagsCache
   try { return JSON.parse(localStorage.getItem(FLAG_STORE_KEY) || '{}') }
   catch { return {} }
 }
 
 const submitFlag = (address, flagType, symbol) => {
   try {
+    // Optimistic local update — UI responds instantly
     const flags = getFlags()
     if (!flags[address]) flags[address] = { rug: 0, honeypot: 0, not_beta: 0, symbol }
     flags[address][flagType] = (flags[address][flagType] || 0) + 1
     flags[address].lastFlagged = Date.now()
+    _flagsCache = flags
     localStorage.setItem(FLAG_STORE_KEY, JSON.stringify(flags))
+
+    // Write to Supabase — fire and forget
+    fetch(`${BACKEND_URL}/api/flag-token`, {
+      method:  'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body:    JSON.stringify({ address, symbol, flagType }),
+    }).catch(err => console.warn('[Flags] Supabase write failed:', err.message))
+
     return flags[address]
   } catch { return null }
 }
@@ -4237,6 +4325,10 @@ export default function App() {
     setSelectedAlpha(alpha)
     if (alpha?.address) sessionStorage.setItem('betaplays_selected', alpha.address)
   }
+
+  // Load flags from Supabase on mount — populates _flagsCache so
+  // all synchronous getFlags() calls see shared community flag counts.
+  useEffect(() => { loadAllFlags() }, [])
 
   const handleNewRunners = useCallback(() => {
     setNewRunners(true)

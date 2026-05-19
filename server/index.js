@@ -2396,14 +2396,16 @@ app.post('/api/record-alphas', async (req, res) => {
       for (const a of chunk) {
         try {
           await db.query(`
-            INSERT INTO alpha_runs (token_address, mcap, volume_24h, price_change_24h, source, price)
-            SELECT $1, $2, $3, $4, $5, $6
+            INSERT INTO alpha_runs (token_address, mcap, volume_24h, price_change_24h, source, price, is_revival, recovery_pct)
+            SELECT $1, $2, $3, $4, $5, $6, $7, $8
             WHERE NOT EXISTS (
               SELECT 1 FROM alpha_runs
               WHERE token_address = $1
                 AND timestamp > NOW() - INTERVAL '24 hours'
             )
-          `, [a.address, a.marketCap || null, a.volume24h || null, a.priceChange24h || null, a.source || null, a.price || null])
+          `, [a.address, a.marketCap || null, a.volume24h || null, a.priceChange24h || null,
+              a.source || null, a.price || null,
+              a.isRevival || false, a.recoveryPct || null])
         } catch { /* non-fatal per-token */ }
       }
     }).catch(err => console.error('[DB] record-alphas chunk error:', err.message))
@@ -2448,6 +2450,324 @@ app.post('/api/record-alpha', async (req, res) => {
   }).catch(() => {})
 })
 
+// POST /api/refresh-prices
+// Receives fresh DEXScreener price data for cooling/historical tokens.
+// Called by refreshHistoricalPrices() in useAlphas.js after every 60s price
+// refresh cycle. This is the missing link that keeps Supabase prices current
+// for tokens that have left the live feed — enabling accurate revival detection
+// for ALL users, not just the device that last refreshed.
+//
+// Deduplication: 1-hour window (vs record-alphas' 24h window) — cooling tokens
+// need intra-day price updates for revival detection to work correctly.
+//
+// Writes:
+//   tokens.peak_mcap  — updated if fresh mcap exceeds stored peak
+//   tokens.last_seen  — updated to NOW()
+//   alpha_runs        — one new row per token per hour max
+//
+// Fire-and-forget from frontend — responds immediately, writes in background.
+app.post('/api/refresh-prices', (req, res) => {
+  if (!process.env.DATABASE_URL) return res.json({ ok: true, skipped: 'no db' })
+  const { tokens } = req.body
+  if (!Array.isArray(tokens) || tokens.length === 0) {
+    return res.status(400).json({ error: 'tokens array required' })
+  }
+
+  // Respond immediately — client never waits for this
+  res.json({ ok: true, count: tokens.length })
+
+  // Process in background via write queue — same pattern as record-alphas
+  const valid = tokens.filter(t => t.address && t.symbol)
+  const CHUNK = 10
+
+  ;(async () => {
+    for (let i = 0; i < valid.length; i += CHUNK) {
+      const chunk = valid.slice(i, i + CHUNK)
+
+      await DB_WRITE_QUEUE.run(async () => {
+        // Upsert tokens table — update peak_mcap and mcap_at_first_seen
+        try {
+          const tokenValues = chunk.map((_, j) => {
+            const base = j * 7
+            return `($${base+1}, $${base+2}, $${base+3}, $${base+4}, $${base+5}, $${base+6}, $${base+7}, NOW())`
+          }).join(', ')
+          const tokenParams = chunk.flatMap(t => [
+            t.address,
+            t.symbol,
+            t.name           || null,
+            t.logoUrl        || null,
+            t.marketCap      || 0,       // current mcap — used for GREATEST peak_mcap
+            t.peakMarketCap  || t.marketCap || 0,  // explicit peak if known
+            t.mcapAtFirstSeen || 0,
+          ])
+          await db.query(`
+            INSERT INTO tokens (address, symbol, name, logo_url, peak_mcap, mcap_at_first_seen, last_seen)
+            VALUES ${tokenValues}
+            ON CONFLICT (address) DO UPDATE SET
+              last_seen         = NOW(),
+              name              = COALESCE(EXCLUDED.name,     tokens.name),
+              logo_url          = COALESCE(EXCLUDED.logo_url, tokens.logo_url),
+              peak_mcap         = GREATEST(tokens.peak_mcap,  EXCLUDED.peak_mcap),
+              mcap_at_first_seen = COALESCE(
+                NULLIF(tokens.mcap_at_first_seen, 0),
+                NULLIF(EXCLUDED.mcap_at_first_seen, 0)
+              )
+          `, tokenParams)
+        } catch (err) {
+          console.error('[DB] refresh-prices token upsert error:', err.message)
+        }
+
+        // Insert alpha_runs — ONE row per token per HOUR (not per day like record-alphas).
+        // Cooling tokens need intra-day updates so revival detection stays accurate.
+        for (const t of chunk) {
+          try {
+            await db.query(`
+              INSERT INTO alpha_runs (token_address, mcap, volume_24h, price_change_24h, source, price, is_revival, recovery_pct)
+              SELECT $1, $2, $3, $4, $5, $6, $7, $8
+              WHERE NOT EXISTS (
+                SELECT 1 FROM alpha_runs
+                WHERE token_address = $1
+                  AND timestamp > NOW() - INTERVAL '1 hour'
+              )
+            `, [
+              t.address,
+              t.marketCap      || null,
+              t.volume24h      || null,
+              t.priceChange24h || null,
+              t.source         || 'price_refresh',
+              t.priceUsd       || null,
+              t.isRevival      || false,
+              t.recoveryPct    || null,
+            ])
+          } catch { /* non-fatal per-token */ }
+        }
+      }).catch(err => console.error('[DB] refresh-prices chunk error:', err.message))
+
+      if (i + CHUNK < valid.length) await new Promise(r => setTimeout(r, 100))
+    }
+
+    console.log(`[PriceRefresh] Wrote ${valid.length} token price refresh(es) to Supabase`)
+  })()
+})
+
+// POST /api/record-parent
+// Records a confirmed derivative→parent relationship to Supabase.
+// Called fire-and-forget from useParentAlpha.js whenever a parent is found.
+// Writes parent_address + parent_symbol onto the derivative token's row
+// so any user/device can read the map without relying on localStorage.
+// Body: { derivativeAddress, derivativeSymbol, parentAddress, parentSymbol, parentName, parentLogoUrl, parentMarketCap }
+app.post('/api/record-parent', (req, res) => {
+  if (!process.env.DATABASE_URL) return res.json({ ok: true, skipped: 'no db' })
+  const { derivativeAddress, derivativeSymbol, parentAddress, parentSymbol, parentName, parentLogoUrl, parentMarketCap } = req.body
+  if (!derivativeAddress || !parentAddress) {
+    return res.status(400).json({ error: 'derivativeAddress and parentAddress required' })
+  }
+
+  res.json({ ok: true })
+
+  DB_WRITE_QUEUE.run(async () => {
+    try {
+      // Upsert the derivative token — set its parent_address + parent_symbol
+      await db.query(`
+        INSERT INTO tokens (address, symbol, parent_address, parent_symbol, last_seen)
+        VALUES ($1, $2, $3, $4, NOW())
+        ON CONFLICT (address) DO UPDATE SET
+          parent_address = EXCLUDED.parent_address,
+          parent_symbol  = EXCLUDED.parent_symbol,
+          last_seen      = NOW()
+      `, [derivativeAddress, derivativeSymbol || '', parentAddress, parentSymbol || ''])
+
+      // Also ensure the parent token exists in the tokens table
+      await db.query(`
+        INSERT INTO tokens (address, symbol, name, logo_url, peak_mcap, last_seen)
+        VALUES ($1, $2, $3, $4, $5, NOW())
+        ON CONFLICT (address) DO UPDATE SET
+          last_seen = NOW(),
+          name      = COALESCE(EXCLUDED.name,     tokens.name),
+          logo_url  = COALESCE(EXCLUDED.logo_url, tokens.logo_url),
+          peak_mcap = GREATEST(tokens.peak_mcap,  EXCLUDED.peak_mcap)
+      `, [parentAddress, parentSymbol || '', parentName || null, parentLogoUrl || null, parentMarketCap || 0])
+
+      console.log(`[ParentMap] Recorded $${derivativeSymbol} → $${parentSymbol}`)
+    } catch (err) {
+      console.error('[DB] record-parent error:', err.message)
+    }
+  }).catch(() => {})
+})
+
+// GET /api/parent-map
+// Returns all known derivative→parent mappings from Supabase.
+// Shape: { [derivativeAddress]: { symbol: parentSymbol, address: parentAddress } }
+// Mirrors the betaplays_parent_map localStorage shape exactly so
+// all downstream sibling detection and DERIV badge logic works unchanged.
+app.get('/api/parent-map', async (req, res) => {
+  if (!process.env.DATABASE_URL) return res.json({ map: {} })
+  try {
+    const result = await db.query(`
+      SELECT address, parent_address, parent_symbol
+      FROM tokens
+      WHERE parent_address IS NOT NULL
+        AND parent_address != ''
+    `)
+    const map = {}
+    for (const row of result.rows) {
+      map[row.address] = { address: row.parent_address, symbol: row.parent_symbol }
+    }
+    return res.json({ map })
+  } catch (err) {
+    console.error('[DB] parent-map error:', err.message)
+    return res.status(500).json({ error: 'db read failed' })
+  }
+})
+
+// ─── Community Flags ──────────────────────────────────────────────
+// POST /api/flag-token
+// Records a community flag (rug/honeypot/not_beta) for a beta token.
+// Each row = one vote. Counts are aggregated on read.
+// Body: { address, symbol, flagType }
+app.post('/api/flag-token', (req, res) => {
+  if (!process.env.DATABASE_URL) return res.json({ ok: true, skipped: 'no db' })
+  const { address, symbol, flagType } = req.body
+  if (!address || !['rug','honeypot','not_beta'].includes(flagType)) {
+    return res.status(400).json({ error: 'address and valid flagType required' })
+  }
+  res.json({ ok: true })
+  DB_WRITE_QUEUE.run(async () => {
+    try {
+      await db.query(
+        `INSERT INTO token_flags (address, symbol, flag_type) VALUES ($1, $2, $3)`,
+        [address, symbol || '', flagType]
+      )
+      console.log(`[Flags] $${symbol} flagged as ${flagType}`)
+    } catch (err) {
+      console.error('[DB] flag-token error:', err.message)
+    }
+  }).catch(() => {})
+})
+
+// GET /api/flags?address=xxx
+// Returns aggregated flag counts for a token (or all tokens if no address).
+// Shape matches betaplays_flags_v1 localStorage format:
+// { [address]: { rug: N, honeypot: N, not_beta: N, symbol: '...' } }
+app.get('/api/flags', async (req, res) => {
+  if (!process.env.DATABASE_URL) return res.json({ flags: {} })
+  const { address } = req.query
+  try {
+    const params = address ? [address] : []
+    const where  = address ? 'WHERE address = $1' : ''
+    const result = await db.query(
+      `SELECT address, symbol,
+              SUM(CASE WHEN flag_type = 'rug'      THEN 1 ELSE 0 END) AS rug,
+              SUM(CASE WHEN flag_type = 'honeypot' THEN 1 ELSE 0 END) AS honeypot,
+              SUM(CASE WHEN flag_type = 'not_beta' THEN 1 ELSE 0 END) AS not_beta
+       FROM token_flags ${where}
+       GROUP BY address, symbol`,
+      params
+    )
+    const flags = {}
+    for (const row of result.rows) {
+      flags[row.address] = {
+        symbol:   row.symbol,
+        rug:      parseInt(row.rug)      || 0,
+        honeypot: parseInt(row.honeypot) || 0,
+        not_beta: parseInt(row.not_beta) || 0,
+      }
+    }
+    return res.json({ flags })
+  } catch (err) {
+    console.error('[DB] flags error:', err.message)
+    return res.status(500).json({ error: 'db read failed' })
+  }
+})
+
+// ─── Nominations ───────────────────────────────────────────────────
+// POST /api/nominate
+// Submits or updates an OG nomination. Upserts on address.
+// Body: { address, symbol, name, note }
+app.post('/api/nominate', (req, res) => {
+  if (!process.env.DATABASE_URL) return res.json({ ok: true, skipped: 'no db' })
+  const { address, symbol, name, note } = req.body
+  if (!address || !symbol) return res.status(400).json({ error: 'address and symbol required' })
+  res.json({ ok: true })
+  DB_WRITE_QUEUE.run(async () => {
+    try {
+      await db.query(
+        `INSERT INTO nominations (address, symbol, name, note, updated_at)
+         VALUES ($1, $2, $3, $4, NOW())
+         ON CONFLICT (address) DO UPDATE SET
+           symbol     = EXCLUDED.symbol,
+           name       = EXCLUDED.name,
+           note       = EXCLUDED.note,
+           updated_at = NOW()`,
+        [address, symbol, name || null, note || null]
+      )
+      console.log(`[Nominations] Submitted $${symbol}`)
+    } catch (err) {
+      console.error('[DB] nominate error:', err.message)
+    }
+  }).catch(() => {})
+})
+
+// GET /api/nominations
+// Returns all nominations. Admin panel reads from here.
+// Shape: [ { address, symbol, name, note, status, created_at } ]
+app.get('/api/nominations', async (req, res) => {
+  if (!process.env.DATABASE_URL) return res.json({ nominations: [] })
+  try {
+    const result = await db.query(
+      `SELECT address, symbol, name, note, status, created_at, updated_at
+       FROM nominations
+       ORDER BY created_at DESC`
+    )
+    return res.json({ nominations: result.rows })
+  } catch (err) {
+    console.error('[DB] nominations error:', err.message)
+    return res.status(500).json({ error: 'db read failed' })
+  }
+})
+
+// PATCH /api/nominations/:address
+// Admin — update nomination status (pending → approved/rejected).
+// Body: { status }
+app.patch('/api/nominations/:address', async (req, res) => {
+  if (!process.env.DATABASE_URL) return res.json({ ok: true, skipped: 'no db' })
+  const { address } = req.params
+  const { status }  = req.body
+  if (!['pending','approved','rejected'].includes(status)) {
+    return res.status(400).json({ error: 'status must be pending, approved, or rejected' })
+  }
+  try {
+    await db.query(
+      `UPDATE nominations SET status = $1, updated_at = NOW() WHERE address = $2`,
+      [status, address]
+    )
+    return res.json({ ok: true })
+  } catch (err) {
+    console.error('[DB] nomination status update error:', err.message)
+    return res.status(500).json({ error: 'db update failed' })
+  }
+})
+
+// GET /api/beta-count?address=xxx
+// Returns the number of confirmed betas ever found for a given alpha address.
+// Derived from beta_relations COUNT — no localStorage needed.
+// Used by useAlphas.js to power the Legend algorithm across all users.
+app.get('/api/beta-count', async (req, res) => {
+  const { address } = req.query
+  if (!address) return res.status(400).json({ error: 'address required' })
+  if (!process.env.DATABASE_URL) return res.json({ count: 0 })
+  try {
+    const result = await db.query(
+      `SELECT COUNT(*)::int AS count FROM beta_relations WHERE alpha_address = $1`,
+      [address]
+    )
+    return res.json({ count: result.rows[0]?.count || 0 })
+  } catch (err) {
+    console.error('[DB] beta-count error:', err.message)
+    return res.json({ count: 0 })
+  }
+})
+
 // GET /api/history/full?days=7
 // Returns full token data for cooling and positioning tabs.
 // Richer than /api/history — includes peakMcap, firstSeen, priceChange24h,
@@ -2465,6 +2785,7 @@ app.get('/api/history/full', async (req, res) => {
         t.name,
         t.logo_url         AS "logoUrl",
         t.peak_mcap        AS "peakMarketCap",
+        t.mcap_at_first_seen AS "mcapAtFirstSeen",
         (SELECT COUNT(DISTINCT DATE(r2.timestamp)) FROM alpha_runs r2 WHERE r2.token_address = t.address)::int AS "runCount",
         t.first_seen       AS "firstSeen",
         t.last_seen        AS "lastSeen",
@@ -2473,7 +2794,9 @@ app.get('/api/history/full', async (req, res) => {
         r.price_change_24h AS "priceChange24h",
         r.price            AS "priceUsd",
         r.source,
-        r.timestamp        AS "priceRefreshedAt"
+        r.timestamp        AS "priceRefreshedAt",
+        r.is_revival       AS "isRevival",
+        r.recovery_pct     AS "recoveryPct"
       FROM alpha_runs r
       JOIN tokens t ON t.address = r.token_address
       WHERE r.timestamp > NOW() - ($1 || ' days')::INTERVAL
@@ -2486,10 +2809,13 @@ app.get('/api/history/full', async (req, res) => {
       firstSeen:        t.firstSeen        ? new Date(t.firstSeen).getTime()        : null,
       lastSeen:         t.lastSeen         ? new Date(t.lastSeen).getTime()         : null,
       priceRefreshedAt: t.priceRefreshedAt ? new Date(t.priceRefreshedAt).getTime() : null,
-      peakMarketCap:    parseFloat(t.peakMarketCap)  || 0,
-      marketCap:        parseFloat(t.marketCap)      || 0,
-      volume24h:        parseFloat(t.volume24h)      || 0,
-      priceChange24h:   parseFloat(t.priceChange24h) || 0,
+      peakMarketCap:    parseFloat(t.peakMarketCap)    || 0,
+      mcapAtFirstSeen:  parseFloat(t.mcapAtFirstSeen)  || 0,
+      marketCap:        parseFloat(t.marketCap)        || 0,
+      volume24h:        parseFloat(t.volume24h)        || 0,
+      priceChange24h:   parseFloat(t.priceChange24h)   || 0,
+      recoveryPct:      t.recoveryPct ? parseFloat(t.recoveryPct) : null,
+      isRevival:        t.isRevival   || false,
     }))
 
     return res.json({ tokens })

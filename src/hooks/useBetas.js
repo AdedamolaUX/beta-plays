@@ -2043,35 +2043,44 @@ const useBetas = (alpha, parentAlpha = null, options = {}) => {
       fetchIdRef.current !== myFetchId ||
       activeAlphaRef.current !== myAddress
 
-    // ── Preload stored betas for this address ─────────────────────
-    // Two sources, checked in order:
-    //   1. localStorage (instant, device-local)
-    //   2. Neon beta_relations (cross-device, survives cache clear)
-    //
-    // localStorage is checked first — zero latency. If it has data,
-    // show it immediately while the fresh scan runs in the background.
-    // Neon is checked in parallel — if it has data that localStorage
-    // doesn't (new device, cleared cache, newly scanned on another device),
-    // those betas are shown before the full scan completes.
-    const storedNow = loadStoredBetas(myAddress)
-    if (storedNow.length > 0 && !isStale()) {
-      setBetas(storedNow)
-      console.log(`[BetaStore] Loaded ${storedNow.length} stored betas from localStorage for $${alpha.symbol}`)
+    // ── Preload parent map from Supabase ────────────────────────────
+    // Pre-loaded once here and passed into sibling detection below.
+    // Avoids multiple async calls inside the scan loop — one fetch,
+    // shared across all sibling reads in this fetchBetas call.
+    // Falls back to localStorage automatically inside loadParentMap.
+    let cachedParentMap = {}
+    try {
+      const res = await fetch(`${BACKEND_URL}/api/parent-map`)
+      if (res.ok) {
+        const { map } = await res.json()
+        if (map && Object.keys(map).length > 0) {
+          // Merge with localStorage so locally-discovered parents aren't lost
+          const local = JSON.parse(localStorage.getItem('betaplays_parent_map') || '{}')
+          cachedParentMap = { ...local, ...map }
+          localStorage.setItem('betaplays_parent_map', JSON.stringify(cachedParentMap))
+          console.log(`[ParentMap] Pre-loaded ${Object.keys(map).length} parent relationship(s) from Supabase`)
+        }
+      }
+    } catch {
+      // Fall back to localStorage silently
+      try { cachedParentMap = JSON.parse(localStorage.getItem('betaplays_parent_map') || '{}') } catch {}
     }
 
-    // Neon read — runs in parallel with the fresh scan
-    // Only fires if localStorage was empty (avoids redundant fetch)
-    if (storedNow.length === 0) {
-      ;(async () => {
-        try {
-          const res = await fetch(`${BACKEND_URL}/api/beta-history?address=${myAddress}`)
-          if (!res.ok) return
-          const { betas: neonBetas } = await res.json()
-          if (!Array.isArray(neonBetas) || neonBetas.length === 0) return
-          if (isStale()) return
-
-          // Shape Neon betas to match the localStorage beta shape
-          const shaped = neonBetas
+    // ── Preload stored betas for this address ─────────────────────
+    // Two sources, Supabase-first:
+    //   1. Supabase beta_relations — cross-device, shared across all users
+    //   2. localStorage — fast session cache, falls back when Supabase unavailable
+    //
+    // Supabase is tried first. If it returns betas, show them immediately
+    // while the fresh scan runs. localStorage fills the gap if Supabase
+    // is cold or unavailable.
+    let storedNow = []
+    try {
+      const res = await fetch(`${BACKEND_URL}/api/beta-history?address=${myAddress}`)
+      if (res.ok) {
+        const { betas: dbBetas } = await res.json()
+        if (Array.isArray(dbBetas) && dbBetas.length > 0) {
+          const shaped = dbBetas
             .filter(b => b.beta_address && b.beta_symbol)
             .map(b => ({
               address:          b.beta_address,
@@ -2088,21 +2097,30 @@ const useBetas = (alpha, parentAlpha = null, options = {}) => {
               dexUrl:           `https://dexscreener.com/solana/${b.beta_address}`,
               coolingLabel:     'From database',
             }))
-            // Only show AI-confirmed or structural betas from Neon
             .filter(b => {
               const srcs = b.signalSources
               return srcs.includes('ai_match') || srcs.includes('lp_pair') || srcs.includes('og_match')
             })
-
-          if (shaped.length > 0 && !isStale()) {
-            console.log(`[BetaStore] Loaded ${shaped.length} betas from Neon for $${alpha.symbol}`)
-            // Only show Neon data if localStorage didn't already populate
-            setBetas(prev => prev.length > 0 ? prev : shaped)
-            // Also write to localStorage so future visits are instant
-            saveStoredBetas(myAddress, shaped)
+          if (shaped.length > 0) {
+            storedNow = shaped
+            if (!isStale()) {
+              setBetas(shaped)
+              // Keep localStorage in sync as session cache
+              saveStoredBetas(myAddress, shaped)
+              console.log(`[BetaStore] Loaded ${shaped.length} betas from Supabase for $${alpha.symbol}`)
+            }
           }
-        } catch { /* non-fatal — full scan will populate */ }
-      })()
+        }
+      }
+    } catch { /* fall through to localStorage */ }
+
+    // localStorage fallback — fires only if Supabase returned nothing
+    if (storedNow.length === 0) {
+      storedNow = loadStoredBetas(myAddress)
+      if (storedNow.length > 0 && !isStale()) {
+        setBetas(storedNow)
+        console.log(`[BetaStore] Loaded ${storedNow.length} betas from localStorage (Supabase unavailable) for $${alpha.symbol}`)
+      }
     }
 
     setLoading(true)
@@ -2591,12 +2609,14 @@ const useBetas = (alpha, parentAlpha = null, options = {}) => {
       // Refresh stale prices now so the list shows real post-migration data.
       const merged = await refreshBetaPrices(mergedRaw)
 
-      // Track how many betas this alpha has spawned — feeds Legend algorithm
+      // Track how many betas this alpha has spawned — feeds Legend algorithm.
+      // Written to localStorage as fast session cache AND to Supabase via
+      // record-betas (beta_relations rows). useAlphas.js reads the count
+      // from Supabase via /api/beta-count so all users see accurate counts.
       if (merged.length > 0) {
         try {
           const spawnCounts = JSON.parse(localStorage.getItem('betaplays_beta_spawn_counts') || '{}')
           const addr = enrichedAlpha.address
-          // Keep the highest count seen — scans vary, don't regress
           spawnCounts[addr] = Math.max(spawnCounts[addr] || 0, merged.length)
           localStorage.setItem('betaplays_beta_spawn_counts', JSON.stringify(spawnCounts))
         } catch {}
@@ -2626,14 +2646,14 @@ const useBetas = (alpha, parentAlpha = null, options = {}) => {
         const knownSiblingAddresses = new Set()
         try {
           // Source 1: reverse-read the parent map
-          const parentMap = JSON.parse(localStorage.getItem('betaplays_parent_map') || '{}')
-          Object.entries(parentMap).forEach(([addr, entry]) => {
+          // Source 1: Supabase-loaded parent map (pre-fetched at top of fetchBetas)
+          Object.entries(cachedParentMap).forEach(([addr, entry]) => {
             if (entry?.address === parentAlphaRef.current.address && addr !== enrichedAlpha.address) {
               knownSiblingAddresses.add(addr)
             }
           })
 
-          // Source 2: parent's own stored beta scan
+          // Source 2: parent's own stored beta scan (localStorage session cache)
           const betaStore = JSON.parse(localStorage.getItem(BETA_STORE_KEY) || '{}')
           const parentBetas = betaStore[parentAlphaRef.current.address] || []
           parentBetas.forEach(b => {
@@ -2645,13 +2665,13 @@ const useBetas = (alpha, parentAlpha = null, options = {}) => {
           // Source 3: seen alphas with same parent
           const seenAlphas = JSON.parse(localStorage.getItem('betaplays_seen_alphas') || '{}')
           Object.entries(seenAlphas).forEach(([addr, token]) => {
-            const confirmedParent = parentMap[addr]
+            const confirmedParent = cachedParentMap[addr]
             if (confirmedParent?.address === parentAlphaRef.current.address && addr !== enrichedAlpha.address) {
               knownSiblingAddresses.add(addr)
             }
           })
 
-          console.log(`[Siblings] Found ${knownSiblingAddresses.size} known sibling addresses from localStorage`)
+          console.log(`[Siblings] Found ${knownSiblingAddresses.size} known sibling addresses from Supabase+localStorage`)
         } catch (storageErr) {
           console.warn('[Siblings] localStorage read failed (non-fatal):', storageErr.message)
         }
@@ -2739,10 +2759,8 @@ const useBetas = (alpha, parentAlpha = null, options = {}) => {
           // "Found near the parent's namespace" is not enough — that's just proximity.
           // $mogging (no parent) and $joy (parent: $AI Joy) are NOT siblings even if
           // the keyword scan finds them together.
-          let parentMap = {}
-          try {
-            parentMap = JSON.parse(localStorage.getItem('betaplays_parent_map') || '{}')
-          } catch {}
+          // Use pre-loaded Supabase parent map — already fetched at top of fetchBetas
+          const parentMap = cachedParentMap
           const currentParentAddress = parentAlphaRef.current.address
 
           siblingResults = sibMerged
@@ -3139,18 +3157,18 @@ const useBetas = (alpha, parentAlpha = null, options = {}) => {
         // Reuse stored sibling addresses from localStorage (fast, no API calls)
         const knownSiblingAddresses = new Set()
         try {
-          const parentMap  = JSON.parse(localStorage.getItem('betaplays_parent_map') || '{}')
+          // Use pre-loaded Supabase parent map — already fetched at top of fetchBetas
           const betaStore  = JSON.parse(localStorage.getItem(BETA_STORE_KEY) || '{}')
           const seenAlphas = JSON.parse(localStorage.getItem('betaplays_seen_alphas') || '{}')
 
-          Object.entries(parentMap).forEach(([addr, entry]) => {
+          Object.entries(cachedParentMap).forEach(([addr, entry]) => {
             if (entry?.address === parent.address && addr !== alpha.address) knownSiblingAddresses.add(addr)
           })
           ;(betaStore[parent.address] || []).forEach(b => {
             if (b.address && b.address !== alpha.address) knownSiblingAddresses.add(b.address)
           })
           Object.entries(seenAlphas).forEach(([addr, token]) => {
-            const tokenParent = JSON.parse(localStorage.getItem('betaplays_parent_map') || '{}')?.[addr]
+            const tokenParent = cachedParentMap[addr]
             if (tokenParent?.address === parent.address && addr !== alpha.address) knownSiblingAddresses.add(addr)
           })
         } catch { /* silent */ }

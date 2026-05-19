@@ -3,10 +3,12 @@ import axios from 'axios'
 
 const DEXSCREENER_BASE = 'https://api.dexscreener.com'
 const STORAGE_KEY      = 'betaplays_seen_alphas'
+const BACKEND_URL      = import.meta.env.VITE_BACKEND_URL || 'http://localhost:3001'
 
-// ─── Save parent to localStorage ─────────────────────────────────
+// ─── Save parent to localStorage + Supabase ──────────────────────
 const saveParentToHistory = (parent, derivative) => {
   try {
+    // Keep localStorage write — fast local session cache
     const existing = JSON.parse(localStorage.getItem(STORAGE_KEY) || '{}')
     const now      = Date.now()
     existing[parent.address] = {
@@ -17,8 +19,6 @@ const saveParentToHistory = (parent, derivative) => {
     }
     localStorage.setItem(STORAGE_KEY, JSON.stringify(existing))
 
-    // Save derivative→parent map so the runner card can show "DERIV of $TRUMP"
-    // without needing to fetch parent data at card render time.
     const parentMap = JSON.parse(localStorage.getItem('betaplays_parent_map') || '{}')
     parentMap[derivative.address] = { symbol: parent.symbol, address: parent.address }
     localStorage.setItem('betaplays_parent_map', JSON.stringify(parentMap))
@@ -29,8 +29,59 @@ const saveParentToHistory = (parent, derivative) => {
       `(${change >= 0 ? '+' : ''}${change.toFixed(1)}%) via $${derivative.symbol}`
     )
   } catch (err) {
-    console.warn('Failed to save parent to history:', err.message)
+    console.warn('Failed to save parent to localStorage:', err.message)
   }
+
+  // Write to Supabase — fire and forget, non-blocking
+  // This makes the derivative→parent relationship available to all users/devices
+  fetch(`${BACKEND_URL}/api/record-parent`, {
+    method:  'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      derivativeAddress: derivative.address,
+      derivativeSymbol:  derivative.symbol,
+      parentAddress:     parent.address,
+      parentSymbol:      parent.symbol,
+      parentName:        parent.name    || null,
+      parentLogoUrl:     parent.logoUrl || null,
+      parentMarketCap:   parent.marketCap || 0,
+    }),
+  }).catch(err => console.warn('[ParentMap] Supabase write failed:', err.message))
+}
+
+// ─── Load parent map from Supabase ───────────────────────────────
+// Returns { [derivativeAddress]: { symbol, address } }
+// Same shape as betaplays_parent_map in localStorage.
+// Falls back to localStorage if Supabase is unavailable.
+let _parentMapCache     = null
+let _parentMapCacheTime = 0
+const PARENT_MAP_TTL_MS = 5 * 60 * 1000  // 5 minutes
+
+const loadParentMap = async () => {
+  const now = Date.now()
+  if (_parentMapCache && (now - _parentMapCacheTime) < PARENT_MAP_TTL_MS) {
+    return _parentMapCache
+  }
+  try {
+    const res = await fetch(`${BACKEND_URL}/api/parent-map`)
+    if (!res.ok) throw new Error('parent-map fetch failed')
+    const { map } = await res.json()
+    if (map && Object.keys(map).length > 0) {
+      // Merge with localStorage so locally-discovered parents aren't lost
+      const local = JSON.parse(localStorage.getItem('betaplays_parent_map') || '{}')
+      const merged = { ...local, ...map }  // Supabase wins on conflict
+      localStorage.setItem('betaplays_parent_map', JSON.stringify(merged))
+      _parentMapCache     = merged
+      _parentMapCacheTime = now
+      console.log(`[ParentMap] Loaded ${Object.keys(map).length} parent relationship(s) from Supabase`)
+      return merged
+    }
+  } catch { /* fall through to localStorage */ }
+
+  // Fallback: localStorage
+  try {
+    return JSON.parse(localStorage.getItem('betaplays_parent_map') || '{}')
+  } catch { return {} }
 }
 
 // ─── Fetch token description from DEXScreener ────────────────────

@@ -109,6 +109,35 @@ const MIGRATIONS = [
   `ALTER TABLE beta_relations ADD COLUMN IF NOT EXISTS alpha_price_at_detection NUMERIC`,
   `ALTER TABLE beta_relations ADD COLUMN IF NOT EXISTS beta_mcap_at_detection   NUMERIC`,
   `ALTER TABLE tokens         ADD COLUMN IF NOT EXISTS category                 TEXT`,
+  // Session 30 — parent map
+  `ALTER TABLE tokens ADD COLUMN IF NOT EXISTS parent_address TEXT`,
+  `ALTER TABLE tokens ADD COLUMN IF NOT EXISTS parent_symbol  TEXT`,
+  `CREATE INDEX IF NOT EXISTS idx_tokens_parent ON tokens(parent_address)`,
+  // Session 30 — mcap_at_first_seen column for peakMarketCap accuracy
+  `ALTER TABLE tokens ADD COLUMN IF NOT EXISTS mcap_at_first_seen NUMERIC DEFAULT 0`,
+  // Session 30 — revival state persistence
+  `ALTER TABLE alpha_runs ADD COLUMN IF NOT EXISTS is_revival BOOLEAN DEFAULT FALSE`,
+  `ALTER TABLE alpha_runs ADD COLUMN IF NOT EXISTS recovery_pct NUMERIC`,
+  // Session 30 — community flags
+  `CREATE TABLE IF NOT EXISTS token_flags (
+    id         SERIAL PRIMARY KEY,
+    address    TEXT NOT NULL,
+    symbol     TEXT,
+    flag_type  TEXT NOT NULL CHECK (flag_type IN ('rug','honeypot','not_beta')),
+    created_at TIMESTAMPTZ DEFAULT NOW()
+  )`,
+  `CREATE INDEX IF NOT EXISTS idx_flags_address ON token_flags(address)`,
+  // Session 30 — nominations
+  `CREATE TABLE IF NOT EXISTS nominations (
+    id          SERIAL PRIMARY KEY,
+    address     TEXT NOT NULL UNIQUE,
+    symbol      TEXT,
+    name        TEXT,
+    note        TEXT,
+    status      TEXT DEFAULT 'pending',
+    created_at  TIMESTAMPTZ DEFAULT NOW(),
+    updated_at  TIMESTAMPTZ DEFAULT NOW()
+  )`,
 ]
 
 async function init () {

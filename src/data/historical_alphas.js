@@ -23,7 +23,7 @@ export const LEGEND_CRITERIA = {
   minPeakMcap:     20_000_000,
 
   // Narrative proof — spawned meaningful derivative tokens
-  // Tracked via betaplays_beta_spawn_counts in localStorage
+  // Tracked via beta_relations table in Supabase (GET /api/beta-count)
   minBetasSpawned: 3,
 
   // Liquidity floor — was ever tradeable at scale (historical check, not current)
@@ -173,14 +173,46 @@ const LEGENDS = [
 export default LEGENDS
 
 // ─── Nomination storage ─────────────────────────────────────────
-// Nominations stored in localStorage under 'betaplays_nominations'
+// Nominations stored in Supabase (primary) + localStorage (session cache).
 // { [address]: { symbol, name, mcap, nominationCount, status: 'pending'|'approved'|'rejected' } }
 
 export const NOMINATIONS_KEY = 'betaplays_nominations'
+const BACKEND_URL = import.meta.env?.VITE_BACKEND_URL || 'http://localhost:3001'
 
+// Sync: returns localStorage data immediately (for synchronous callers)
 export const getNominations = () => {
   try { return JSON.parse(localStorage.getItem(NOMINATIONS_KEY) || '{}') }
   catch { return {} }
+}
+
+// Async: fetches from Supabase and merges into localStorage.
+// Use this when you need accurate cross-device counts.
+export const syncNominationsFromDB = async () => {
+  try {
+    const res = await fetch(`${BACKEND_URL}/api/nominations`)
+    if (!res.ok) throw new Error('fetch failed')
+    const { nominations: rows } = await res.json()
+    if (!Array.isArray(rows) || rows.length === 0) return getNominations()
+    // Convert Supabase rows to localStorage shape and merge
+    const local = getNominations()
+    rows.forEach(row => {
+      const existing = local[row.address] || {}
+      local[row.address] = {
+        ...existing,
+        address:         row.address,
+        symbol:          row.symbol,
+        name:            row.name,
+        note:            row.note,
+        status:          row.status || 'pending',
+        nominationCount: Math.max(existing.nominationCount || 1, 1),
+        nominatedAt:     existing.nominatedAt || new Date(row.created_at).getTime(),
+      }
+    })
+    localStorage.setItem(NOMINATIONS_KEY, JSON.stringify(local))
+    return local
+  } catch {
+    return getNominations()
+  }
 }
 
 export const submitNomination = (addressOrToken, symbol = '', name = '', note = '') => {
