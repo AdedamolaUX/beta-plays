@@ -1650,7 +1650,7 @@ const useAlphas = () => {
           }).slice(0, 50)
         })
       }
-      liveAlphasRef.current = sortedLive
+      liveAlphasRef.current = mergedLive  // must reflect full list incl. revivals
       setCoolingAlphas(sortedCooling)
       setPositioningAlphas(await loadPositioningPlays())
       setLastUpdated(new Date())
