@@ -1,6 +1,8 @@
 import betaplaysLogo from './assets/betaplays-logo.png'
 import { useState, useMemo, useCallback, useRef, useEffect } from 'react'
 import { createPortal } from 'react-dom'
+import { useWallet } from '@solana/wallet-adapter-react'
+import { useWalletModal } from '@solana/wallet-adapter-react-ui'
 import useAlphas from './hooks/useAlphas'
 import LEGENDS, { submitNomination, getNominations, syncNominationsFromDB, NOMINATIONS_KEY } from './data/historical_alphas'
 import useBetas, { getSignal, getWavePhase, getMcapRatio } from './hooks/useBetas'
@@ -677,7 +679,7 @@ const SettingsPanel = ({ settings, onUpdate, onReset, onClose }) => {
 
 // ─── Navbar ─────────────────────────────────────────────────────
 
-const Navbar = ({ onListBeta, newRunners, liveAlphas, coolingAlphas, onSettings }) => (
+const Navbar = ({ onListBeta, newRunners, liveAlphas, coolingAlphas, onSettings, onWalletConnect, onWalletSignIn, onWalletSignOut, isAuthed, isConnected, walletAddress }) => (
   <nav className="navbar">
   <div className="navbar-brand">
     <img
@@ -698,6 +700,48 @@ const Navbar = ({ onListBeta, newRunners, liveAlphas, coolingAlphas, onSettings 
       <LatencyDot />
     </div>
     <div className="navbar-actions">
+      {isAuthed ? (
+        <button
+          onClick={onWalletSignOut}
+          title={`Connected: ${walletAddress}`}
+          style={{
+            background: 'rgba(0,212,255,0.08)', border: '1px solid rgba(0,212,255,0.3)',
+            borderRadius: 8, cursor: 'pointer', color: 'var(--cyan)',
+            fontSize: 11, padding: '6px 10px', lineHeight: 1, fontFamily: 'var(--font-mono)',
+            letterSpacing: '0.05em', transition: 'all 0.15s ease',
+          }}
+          onMouseEnter={e => { e.currentTarget.style.background = 'rgba(255,80,80,0.1)'; e.currentTarget.style.borderColor = 'rgba(255,80,80,0.4)'; e.currentTarget.style.color = '#ff5050'; e.currentTarget.textContent = 'DISCONNECT' }}
+          onMouseLeave={e => { e.currentTarget.style.background = 'rgba(0,212,255,0.08)'; e.currentTarget.style.borderColor = 'rgba(0,212,255,0.3)'; e.currentTarget.style.color = 'var(--cyan)'; e.currentTarget.textContent = `${walletAddress?.slice(0,4)}…${walletAddress?.slice(-4)}` }}
+        >
+          {walletAddress?.slice(0, 4)}…{walletAddress?.slice(-4)}
+        </button>
+      ) : isConnected ? (
+        <button
+          onClick={onWalletSignIn}
+          style={{
+            background: 'rgba(57,255,20,0.08)', border: '1px solid rgba(57,255,20,0.35)',
+            borderRadius: 8, cursor: 'pointer', color: 'var(--neon-green)',
+            fontSize: 11, padding: '6px 10px', lineHeight: 1, fontFamily: 'var(--font-mono)',
+            letterSpacing: '0.05em', transition: 'all 0.15s ease', animation: 'pulse 2s infinite',
+          }}
+        >
+          ✍️ SIGN IN
+        </button>
+      ) : (
+        <button
+          onClick={onWalletConnect}
+          style={{
+            background: 'rgba(0,212,255,0.08)', border: '1px solid rgba(0,212,255,0.25)',
+            borderRadius: 8, cursor: 'pointer', color: 'var(--text-secondary)',
+            fontSize: 11, padding: '6px 10px', lineHeight: 1, fontFamily: 'var(--font-mono)',
+            letterSpacing: '0.05em', transition: 'all 0.15s ease',
+          }}
+          onMouseEnter={e => { e.currentTarget.style.borderColor = 'rgba(0,212,255,0.6)'; e.currentTarget.style.color = 'var(--cyan)' }}
+          onMouseLeave={e => { e.currentTarget.style.borderColor = 'rgba(0,212,255,0.25)'; e.currentTarget.style.color = 'var(--text-secondary)' }}
+        >
+          🔗 CONNECT
+        </button>
+      )}
       <button
         onClick={onSettings}
         style={{
@@ -4218,6 +4262,61 @@ const AppFooter = () => (
 )
 
 export default function App() {
+  // ── Wallet auth ──────────────────────────────────────────────────
+  const { publicKey, signMessage, disconnect, connected } = useWallet()
+  const { setVisible: setWalletModalVisible } = useWalletModal()
+  const [authToken,    setAuthToken]    = useState(() => localStorage.getItem('betaplays_jwt') || null)
+  const [authWallet,   setAuthWallet]   = useState(() => localStorage.getItem('betaplays_wallet') || null)
+  const isAuthed = !!(authToken && authWallet && connected && publicKey?.toBase58() === authWallet)
+
+  // Sign in with wallet — request nonce, sign, verify, store JWT
+  const handleWalletSignIn = useCallback(async () => {
+    if (!publicKey || !signMessage) return
+    console.log('[Auth] Starting sign-in for', publicKey.toBase58().slice(0,8))
+    try {
+      const wallet = publicKey.toBase58()
+      const nonceRes = await fetch(`${BACKEND_URL}/api/auth/nonce?wallet=${wallet}`)
+      const { nonce } = await nonceRes.json()
+      console.log('[Auth] Got nonce, requesting signature...')
+      const msgBytes = new TextEncoder().encode(nonce)
+      const sigBytes = await signMessage(msgBytes)
+      console.log('[Auth] Signature received, verifying...')
+      const verifyRes = await fetch(`${BACKEND_URL}/api/auth/verify`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ wallet, signature: Array.from(sigBytes) }),
+      })
+      const { token } = await verifyRes.json()
+      if (!token) throw new Error('No token returned')
+      console.log('[Auth] JWT received, storing...')
+      localStorage.setItem('betaplays_jwt', token)
+      localStorage.setItem('betaplays_wallet', wallet)
+      setAuthToken(token)
+      setAuthWallet(wallet)
+      // Migrate local watchlist to Supabase on first sign-in
+      const local = getWatchlistRaw()
+      if (local.length > 0) {
+        await Promise.allSettled(local.map(t =>
+          fetch(`${BACKEND_URL}/api/watchlist`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+            body: JSON.stringify({ token_address: t.address, symbol: t.symbol, name: t.name }),
+          })
+        ))
+      }
+    } catch (err) {
+      console.error('[Auth] Sign-in failed:', err.message)
+    }
+  }, [publicKey, signMessage])
+
+  const handleSignOut = useCallback(() => {
+    localStorage.removeItem('betaplays_jwt')
+    localStorage.removeItem('betaplays_wallet')
+    setAuthToken(null)
+    setAuthWallet(null)
+    disconnect()
+  }, [disconnect])
+
   const { settings, updateSetting, resetSettings } = useSettings()
   const [showSettings, setShowSettings] = useState(false)
   const [selectedAlpha, setSelectedAlpha] = useState(null)
@@ -4355,7 +4454,7 @@ export default function App() {
 
   return (
     <div className="app-wrapper">
-      <Navbar onListBeta={() => setShowListModal(true)} newRunners={newRunners} liveAlphas={appLiveAlphas} coolingAlphas={appCoolingAlphas} onSettings={() => setShowSettings(true)} />
+      <Navbar onListBeta={() => setShowListModal(true)} newRunners={newRunners} liveAlphas={appLiveAlphas} coolingAlphas={appCoolingAlphas} onSettings={() => setShowSettings(true)} onWalletConnect={() => setWalletModalVisible(true)} onWalletSignIn={handleWalletSignIn} onWalletSignOut={handleSignOut} isAuthed={isAuthed} isConnected={connected} walletAddress={authWallet} />
       <NarrativeTicker liveAlphas={appLiveAlphas} sznCards={appSznCards} />
       <div className="main-layout" style={{ flex: 1, overflow: 'hidden' }}>
         <AlphaBoard selectedAlpha={selectedAlpha} onSelect={handleSelectAlpha} onNewRunners={handleNewRunners} onLiveAlphas={setAppLiveAlphas} onSznCards={setAppSznCards} onCoolingAlphas={setAppCoolingAlphas} onCustomSearch={handleSearchCustomAlpha} customAlphaLoading={customAlphaLoading} onRegisterClearSearch={fn => { clearAlphaBoardSearch.current = fn }} alphaListRef={alphaListRef} searchResults={searchResults} onSelectSearchResult={(token) => { if (!token) { setSearchResults([]); return }; setSelectedAlpha(token); setSearchResults([]) }} defaultTab={settings.defaultTab} />

@@ -17,6 +17,9 @@
 const express   = require('express')
 const cors      = require('cors')
 const rateLimit = require('express-rate-limit')
+const jwt       = require('jsonwebtoken')
+const nacl      = require('tweetnacl')
+const bs58      = require('bs58')
 require('dotenv').config({ path: require('path').join(__dirname, '.env') })
 
 const telegramService = require('./telegramService')
@@ -3603,6 +3606,156 @@ const startProactiveBetaScanner = (port) => {
   setInterval(runScan, 5 * 60 * 1000)
   console.log('[ProactiveScan] Scheduled — first run in 60s, then every 5min')
 }
+
+// ─── Auth — Wallet Connect (Session 31) ───────────────────────────────────────
+// Flow: frontend requests a nonce → user signs it with their wallet →
+//       backend verifies signature → issues JWT → frontend stores JWT in localStorage.
+// JWT is stateless — no session table needed. Users table records first_seen/last_seen.
+// Nonces are single-use and expire in 5 minutes.
+
+const JWT_SECRET = process.env.JWT_SECRET || 'betaplays-dev-secret-change-in-prod'
+const nonceStore = new Map() // walletAddress → { nonce, expiresAt }
+
+function requireAuth (req, res, next) {
+  const auth = req.headers.authorization
+  if (!auth?.startsWith('Bearer ')) return res.status(401).json({ error: 'No token' })
+  try {
+    req.user = jwt.verify(auth.slice(7), JWT_SECRET)
+    next()
+  } catch {
+    res.status(401).json({ error: 'Invalid token' })
+  }
+}
+
+// GET /api/auth/nonce?wallet=<base58Address>
+// Returns a random nonce string the wallet must sign.
+app.get('/api/auth/nonce', (req, res) => {
+  const { wallet } = req.query
+  if (!wallet || wallet.length < 32 || wallet.length > 44) {
+    return res.status(400).json({ error: 'Invalid wallet address' })
+  }
+  const nonce = `BetaPlays sign-in: ${Date.now()}-${Math.random().toString(36).slice(2)}`
+  nonceStore.set(wallet, { nonce, expiresAt: Date.now() + 5 * 60 * 1000 })
+  res.json({ nonce })
+})
+
+// POST /api/auth/verify
+// Body: { wallet: string, signature: number[] }
+// Verifies the Ed25519 signature over the stored nonce, then issues a JWT.
+app.post('/api/auth/verify', async (req, res) => {
+  const { wallet, signature } = req.body
+  if (!wallet || !Array.isArray(signature)) {
+    return res.status(400).json({ error: 'wallet and signature required' })
+  }
+
+  const entry = nonceStore.get(wallet)
+  if (!entry) return res.status(400).json({ error: 'No nonce found — request a new one' })
+  if (Date.now() > entry.expiresAt) {
+    nonceStore.delete(wallet)
+    return res.status(400).json({ error: 'Nonce expired — request a new one' })
+  }
+
+  // Verify Ed25519 signature
+  try {
+    const msgBytes = new TextEncoder().encode(entry.nonce)
+    const sigBytes = new Uint8Array(signature)
+    const pubKey   = bs58.decode(wallet)
+    const valid   = nacl.sign.detached.verify(msgBytes, sigBytes, pubKey)
+    if (!valid) return res.status(401).json({ error: 'Signature verification failed' })
+  } catch (err) {
+    console.error('[Auth] Signature verify error:', err.message)
+    return res.status(401).json({ error: 'Signature verification failed' })
+  }
+
+  // Nonce is single-use — delete immediately after verification
+  nonceStore.delete(wallet)
+
+  // Upsert user record in Supabase
+  try {
+    await db.query(
+      `INSERT INTO users (wallet_address, first_seen, last_seen)
+       VALUES ($1, NOW(), NOW())
+       ON CONFLICT (wallet_address) DO UPDATE SET last_seen = NOW()`,
+      [wallet]
+    )
+  } catch (err) {
+    console.error('[Auth] User upsert failed:', err.message)
+    // Non-fatal — still issue JWT
+  }
+
+  const token = jwt.sign({ wallet }, JWT_SECRET, { expiresIn: '30d' })
+  console.log(`[Auth] Login: ${wallet.slice(0, 8)}...`)
+  res.json({ token, wallet })
+})
+
+// GET /api/auth/me — returns user record (JWT required)
+app.get('/api/auth/me', requireAuth, async (req, res) => {
+  try {
+    const result = await db.query(
+      `SELECT wallet_address, first_seen, last_seen, display_name FROM users WHERE wallet_address = $1`,
+      [req.user.wallet]
+    )
+    if (!result.rows.length) return res.status(404).json({ error: 'User not found' })
+    res.json(result.rows[0])
+  } catch (err) {
+    res.status(500).json({ error: 'DB error' })
+  }
+})
+
+// GET /api/watchlist — returns wallet's saved tokens (JWT required)
+app.get('/api/watchlist', requireAuth, async (req, res) => {
+  try {
+    const result = await db.query(
+      `SELECT token_address, symbol, name, added_at FROM watchlist
+       WHERE wallet_address = $1 ORDER BY added_at DESC`,
+      [req.user.wallet]
+    )
+    res.json(result.rows)
+  } catch (err) {
+    res.status(500).json({ error: 'DB error' })
+  }
+})
+
+// POST /api/watchlist — add token to watchlist (JWT required)
+// Body: { token_address, symbol, name }
+app.post('/api/watchlist', requireAuth, async (req, res) => {
+  const { token_address, symbol, name } = req.body
+  if (!token_address) return res.status(400).json({ error: 'token_address required' })
+  try {
+    await db.query(
+      `INSERT INTO watchlist (wallet_address, token_address, symbol, name)
+       VALUES ($1, $2, $3, $4)
+       ON CONFLICT (wallet_address, token_address) DO NOTHING`,
+      [req.user.wallet, token_address, symbol || null, name || null]
+    )
+    res.json({ ok: true })
+  } catch (err) {
+    res.status(500).json({ error: 'DB error' })
+  }
+})
+
+// DELETE /api/watchlist/:address — remove token from watchlist (JWT required)
+app.delete('/api/watchlist/:address', requireAuth, async (req, res) => {
+  try {
+    await db.query(
+      `DELETE FROM watchlist WHERE wallet_address = $1 AND token_address = $2`,
+      [req.user.wallet, req.params.address]
+    )
+    res.json({ ok: true })
+  } catch (err) {
+    res.status(500).json({ error: 'DB error' })
+  }
+})
+
+// Clean up expired nonces every 10 minutes
+setInterval(() => {
+  const now = Date.now()
+  for (const [wallet, entry] of nonceStore.entries()) {
+    if (now > entry.expiresAt) nonceStore.delete(wallet)
+  }
+}, 10 * 60 * 1000)
+
+// ─── End Auth ─────────────────────────────────────────────────────────────────
 
 const PORT = process.env.PORT || 3001
 app.listen(PORT, async () => {

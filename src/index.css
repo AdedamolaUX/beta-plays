@@ -1018,3 +1018,72 @@ body {
   from { transform: translateX(100%); opacity: 0; }
   to   { transform: translateX(0);    opacity: 1; }
 }
+/* ─── Wallet Adapter Modal Overrides ──────────────────────────── */
+.wallet-adapter-modal-wrapper {
+  background: var(--surface-1) !important;
+  border: 1px solid var(--border) !important;
+  border-radius: 16px !important;
+  font-family: var(--font-mono) !important;
+  box-shadow: 0 0 40px rgba(0,212,255,0.08), 0 20px 60px rgba(0,0,0,0.9) !important;
+}
+
+.wallet-adapter-modal-title {
+  font-family: var(--font-display) !important;
+  font-size: 18px !important;
+  font-weight: 700 !important;
+  color: var(--text-primary) !important;
+  letter-spacing: 0.02em !important;
+}
+
+.wallet-adapter-modal-list li {
+  font-family: var(--font-mono) !important;
+}
+
+.wallet-adapter-button {
+  font-family: var(--font-mono) !important;
+  font-size: 13px !important;
+  font-weight: 600 !important;
+  background: var(--surface-2) !important;
+  border: 1px solid var(--border) !important;
+  border-radius: 10px !important;
+  color: var(--text-primary) !important;
+  transition: all 0.15s ease !important;
+}
+
+.wallet-adapter-button:hover {
+  background: rgba(0,212,255,0.08) !important;
+  border-color: rgba(0,212,255,0.4) !important;
+  color: var(--cyan) !important;
+}
+
+.wallet-adapter-button-trigger {
+  background: var(--surface-2) !important;
+}
+
+.wallet-adapter-modal-list .wallet-adapter-button {
+  width: 100% !important;
+  justify-content: space-between !important;
+  padding: 14px 18px !important;
+}
+
+.wallet-adapter-modal-list-more {
+  font-family: var(--font-mono) !important;
+  font-size: 12px !important;
+  color: var(--text-secondary) !important;
+}
+
+.wallet-adapter-modal-list-more:hover {
+  color: var(--cyan) !important;
+}
+
+.wallet-adapter-modal-overlay {
+  background: rgba(0,0,0,0.8) !important;
+}
+
+.wallet-adapter-collapse-ul .wallet-adapter-button {
+  background: var(--surface-2) !important;
+}
+
+.wallet-adapter-button p {
+  font-family: var(--font-mono) !important;
+}

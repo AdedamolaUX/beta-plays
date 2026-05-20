@@ -149,6 +149,24 @@ const MIGRATIONS = [
     created_at  TIMESTAMPTZ DEFAULT NOW(),
     updated_at  TIMESTAMPTZ DEFAULT NOW()
   )`,
+  // Session 31 — wallet auth users
+  `CREATE TABLE IF NOT EXISTS users (
+    wallet_address TEXT PRIMARY KEY,
+    first_seen     TIMESTAMPTZ DEFAULT NOW(),
+    last_seen      TIMESTAMPTZ DEFAULT NOW(),
+    display_name   TEXT
+  )`,
+  // Session 31 — watchlist (per wallet, shared across devices)
+  `CREATE TABLE IF NOT EXISTS watchlist (
+    id             SERIAL PRIMARY KEY,
+    wallet_address TEXT NOT NULL REFERENCES users(wallet_address) ON DELETE CASCADE,
+    token_address  TEXT NOT NULL,
+    symbol         TEXT,
+    name           TEXT,
+    added_at       TIMESTAMPTZ DEFAULT NOW(),
+    UNIQUE (wallet_address, token_address)
+  )`,
+  `CREATE INDEX IF NOT EXISTS idx_watchlist_wallet ON watchlist(wallet_address)`,
 ]
 
 async function init () {
