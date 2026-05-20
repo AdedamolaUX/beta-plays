@@ -1855,7 +1855,16 @@ const AlphaBoard = ({ selectedAlpha, onSelect, onNewRunners, onLiveAlphas, onSzn
     if (alphaSort === 'volume')   list.sort((a, b) => (b.volume24h || 0) - (a.volume24h || 0))
     if (alphaSort === 'mcap')     list.sort((a, b) => (b.marketCap || 0) - (a.marketCap || 0))
     if (alphaSort === 'age')      list.sort((a, b) => (b.pairCreatedAt || 0) - (a.pairCreatedAt || 0))
-    // momentum is default — liveAlphas already sorted by momentumScore in useAlphas
+    // Momentum sort: revival tokens are pinned at 999 ONLY when revival filter is active.
+    // In 'all' view, revivals sort by real momentum so they don't hijack the top.
+    if (alphaSort === 'momentum' && alphaFilter !== 'revival') {
+      list.sort((a, b) => {
+        const aScore = a.isRevival ? (a.priceChange24h || 0) * 0.4 + (a.volume24h || 0) * 0.0001 : (a.momentumScore || 0)
+        const bScore = b.isRevival ? (b.priceChange24h || 0) * 0.4 + (b.volume24h || 0) * 0.0001 : (b.momentumScore || 0)
+        return bScore - aScore
+      })
+    }
+    // When revival filter IS active, keep 999 pin — user explicitly wants revivals highlighted
     console.log(`[AlphaSort] sort=${alphaSort} filter=${alphaFilter} count=${list.length} top=$${list[0]?.symbol}`)
 
     return list

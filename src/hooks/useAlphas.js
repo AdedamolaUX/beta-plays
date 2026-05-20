@@ -103,7 +103,7 @@ const saveToHistory = (alphas) => {
 
 let _historyCache     = null   // in-memory for the current session
 let _historyCacheTime = 0
-const HISTORY_CACHE_TTL_MS = 30_000  // re-fetch from Supabase at most once per 30s — keeps revival re-validation fresh
+const HISTORY_CACHE_TTL_MS = 5 * 60_000  // 5min — server-side cache handles multi-user; this is per-browser secondary reduction
 
 const loadNeonHistory = async () => {
   const now = Date.now()
@@ -506,32 +506,9 @@ const fetchNewPairs = async () => {
 // Uses DEXScreener's token boosts endpoint which lists recently active
 // tokens — filter for Solana gainers with strong momentum.
 const fetchDexScreenerGainers = async () => {
-  try {
-    // DEXScreener latest pairs on Solana — most active pairs right now
-    const res = await axios.get(
-      `${DEXSCREENER_BASE}/latest/dex/pairs/solana`,
-      { timeout: 8000 }
-    )
-    const pairs = (res.data?.pairs || [])
-      .filter(p =>
-        p.chainId === 'solana' &&
-        parseFloat(p.priceChange?.h24 || 0) >= 30 &&
-        (p.volume?.h24    || 0) >= 10_000 &&
-        (p.liquidity?.usd || 0) >= 2_000 &&
-        (p.marketCap      || 0) > 0
-      )
-      .sort((a, b) =>
-        parseFloat(b.priceChange?.h24 || 0) - parseFloat(a.priceChange?.h24 || 0)
-      )
-      .slice(0, 40)
-
-    const results = pairs.map(p => formatAlpha(p, 'dex_gainers'))
-    console.log(`[Source9/DexGainers] ${results.length} top gainers on Solana`)
-    return results
-  } catch (err) {
-    console.warn('[Source9/DexGainers] Failed:', err.message)
-    return []
-  }
+  // DISABLED — DEXScreener /latest/dex/pairs/solana endpoint returns 404
+  // Re-enable when DEXScreener restores the endpoint or a replacement is found
+  return []
 }
 
 // ─── Deduplicate by address ──────────────────────────────────────
@@ -1734,6 +1711,7 @@ const useAlphas = () => {
       // pre-populating it here from Supabase ensures all users see accurate
       // legend candidate counts regardless of which device ran the beta scan.
       try {
+        const spawnSyncStart = Date.now()
         const localSpawn = JSON.parse(localStorage.getItem('betaplays_beta_spawn_counts') || '{}')
         const addresses  = Object.keys(localSpawn)
         if (addresses.length > 0) {
@@ -1750,7 +1728,8 @@ const useAlphas = () => {
             if (count > 0) updated[addr] = Math.max(updated[addr] || 0, count)
           })
           localStorage.setItem('betaplays_beta_spawn_counts', JSON.stringify(updated))
-          console.log('[SpawnCount] Synced beta spawn counts from Supabase')
+          const elapsed = ((Date.now() - spawnSyncStart) / 1000).toFixed(1)
+          console.log(`[SpawnCount] Synced beta spawn counts from Supabase in ${elapsed}s`)
         }
       } catch { /* non-fatal */ }
     }, 8000)  // 8s delay — gives fetchLive + Supabase pool time to stabilise

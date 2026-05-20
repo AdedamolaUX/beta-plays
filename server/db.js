@@ -120,6 +120,15 @@ const MIGRATIONS = [
   `ALTER TABLE alpha_runs ADD COLUMN IF NOT EXISTS recovery_pct NUMERIC`,
   // Session 30 — liquidity needed for detectReversal
   `ALTER TABLE alpha_runs ADD COLUMN IF NOT EXISTS liquidity NUMERIC`,
+  // Session 30 — permanent historical performance columns on tokens table
+  // These survive alpha_runs cleanup — one row per token, updated incrementally.
+  `ALTER TABLE tokens ADD COLUMN IF NOT EXISTS ath_mcap          NUMERIC`,
+  `ALTER TABLE tokens ADD COLUMN IF NOT EXISTS ath_at            TIMESTAMPTZ`,
+  `ALTER TABLE tokens ADD COLUMN IF NOT EXISTS ath_price         NUMERIC`,
+  `ALTER TABLE tokens ADD COLUMN IF NOT EXISTS beta_count_at_ath INTEGER DEFAULT 0`,
+  `ALTER TABLE tokens ADD COLUMN IF NOT EXISTS first_run_at      TIMESTAMPTZ`,
+  `ALTER TABLE tokens ADD COLUMN IF NOT EXISTS last_run_at       TIMESTAMPTZ`,
+  `ALTER TABLE tokens ADD COLUMN IF NOT EXISTS total_run_count   INTEGER DEFAULT 0`,
   // Session 30 — community flags
   `CREATE TABLE IF NOT EXISTS token_flags (
     id         SERIAL PRIMARY KEY,
@@ -150,6 +159,31 @@ async function init () {
       await pool.query(m)
     }
     console.log('[DB] Schema initialised (Supabase)')
+
+    // Cleanup old alpha_runs rows — keeps table size manageable.
+    // Strategy: keep ALL rows from last 30 days (for revival + history).
+    // For rows older than 30 days: keep only the single best row per token
+    // per calendar month as a permanent historical snapshot.
+    // This means we never lose the fact that a token ran — just the granular
+    // daily snapshots beyond 30 days. The tokens table stores ATH permanently.
+    try {
+      const cleaned = await pool.query(`
+        DELETE FROM alpha_runs
+        WHERE timestamp < NOW() - INTERVAL '30 days'
+          AND id NOT IN (
+            SELECT DISTINCT ON (token_address, DATE_TRUNC('month', timestamp))
+              id
+            FROM alpha_runs
+            WHERE timestamp < NOW() - INTERVAL '30 days'
+            ORDER BY token_address, DATE_TRUNC('month', timestamp), mcap DESC NULLS LAST
+          )
+      `)
+      if (cleaned.rowCount > 0) {
+        console.log(`[DB] Cleaned ${cleaned.rowCount} alpha_runs rows — monthly snapshots preserved`)
+      }
+    } catch (cleanErr) {
+      console.warn('[DB] Cleanup failed (non-fatal):', cleanErr.message)
+    }
   } catch (err) {
     console.error('[DB] Schema init failed:', err.message)
   }

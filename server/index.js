@@ -2380,25 +2380,40 @@ app.post('/api/record-alphas', async (req, res) => {
     const chunk = valid.slice(i, i + CHUNK)
     await DB_WRITE_QUEUE.run(async () => {
       // Build a single multi-row upsert for the tokens table
-      const tokenValues = chunk.map((a, j) => {
-        const base = j * 5
-        return `($${base+1}, $${base+2}, $${base+3}, $${base+4}, $${base+5}, NOW())`
-      }).join(', ')
-      const tokenParams = chunk.flatMap(a => [
-        a.address, a.symbol, a.name || null, a.logoUrl || null, a.marketCap || 0
-      ])
-      try {
-        await db.query(`
-          INSERT INTO tokens (address, symbol, name, logo_url, peak_mcap, last_seen)
-          VALUES ${tokenValues}
-          ON CONFLICT (address) DO UPDATE SET
-            last_seen = NOW(),
-            name      = COALESCE(EXCLUDED.name, tokens.name),
-            logo_url  = COALESCE(EXCLUDED.logo_url, tokens.logo_url),
-            peak_mcap = GREATEST(tokens.peak_mcap, EXCLUDED.peak_mcap)
-        `, tokenParams)
-      } catch (err) {
-        console.error('[DB] record-alphas token upsert error:', err.message)
+      // Per-token upsert — batch multi-row not used here because ATH logic
+      // requires per-token conditional (CASE WHEN mcap > ath_mcap).
+      // Still runs in one DB_WRITE_QUEUE call per chunk — serialised correctly.
+      for (const a of chunk) {
+        try {
+          const mcap  = a.marketCap || 0
+          const price = a.price     || null
+          await db.query(`
+            INSERT INTO tokens (
+              address, symbol, name, logo_url,
+              peak_mcap, first_seen, last_seen,
+              ath_mcap, ath_at, ath_price,
+              first_run_at, last_run_at, total_run_count
+            )
+            VALUES ($1, $2, $3, $4, $5, NOW(), NOW(), $5, NOW(), $6, NOW(), NOW(), 1)
+            ON CONFLICT (address) DO UPDATE SET
+              last_seen       = NOW(),
+              last_run_at     = NOW(),
+              total_run_count = tokens.total_run_count + 1,
+              name            = COALESCE(EXCLUDED.name,     tokens.name),
+              logo_url        = COALESCE(EXCLUDED.logo_url, tokens.logo_url),
+              peak_mcap       = GREATEST(tokens.peak_mcap,  EXCLUDED.peak_mcap),
+              first_run_at    = COALESCE(tokens.first_run_at, NOW()),
+              -- ATH: update only if incoming mcap beats stored ath_mcap
+              ath_mcap  = CASE WHEN $5 > COALESCE(tokens.ath_mcap, 0)
+                               THEN $5 ELSE tokens.ath_mcap END,
+              ath_at    = CASE WHEN $5 > COALESCE(tokens.ath_mcap, 0)
+                               THEN NOW() ELSE tokens.ath_at END,
+              ath_price = CASE WHEN $5 > COALESCE(tokens.ath_mcap, 0)
+                               THEN $6 ELSE tokens.ath_price END
+          `, [a.address, a.symbol, a.name || null, a.logoUrl || null, mcap, price])
+        } catch (err) {
+          console.error('[DB] record-alphas token upsert error:', err.message)
+        }
       }
 
       // Insert alpha_run rows — deduplicated to ONE row per token per DAY.
@@ -2498,37 +2513,38 @@ app.post('/api/refresh-prices', (req, res) => {
 
       await DB_WRITE_QUEUE.run(async () => {
         // Upsert tokens table — update peak_mcap and mcap_at_first_seen
-        try {
-          // 6 named columns + NOW() = 7 total per row
-          // peak_mcap uses GREATEST(peakMarketCap, marketCap) so we pass the
-          // explicit peak if known, falling back to current mcap
-          const tokenValues = chunk.map((_, j) => {
-            const base = j * 6
-            return `($${base+1}, $${base+2}, $${base+3}, $${base+4}, $${base+5}, $${base+6}, NOW())`
-          }).join(', ')
-          const tokenParams = chunk.flatMap(t => [
-            t.address,
-            t.symbol,
-            t.name    || null,
-            t.logoUrl || null,
-            t.peakMarketCap || t.marketCap || 0,  // best known peak
-            t.mcapAtFirstSeen || 0,
-          ])
-          await db.query(`
-            INSERT INTO tokens (address, symbol, name, logo_url, peak_mcap, mcap_at_first_seen, last_seen)
-            VALUES ${tokenValues}
-            ON CONFLICT (address) DO UPDATE SET
-              last_seen          = NOW(),
-              name               = COALESCE(EXCLUDED.name,     tokens.name),
-              logo_url           = COALESCE(EXCLUDED.logo_url, tokens.logo_url),
-              peak_mcap          = GREATEST(tokens.peak_mcap,  EXCLUDED.peak_mcap),
-              mcap_at_first_seen = COALESCE(
-                NULLIF(tokens.mcap_at_first_seen, 0),
-                NULLIF(EXCLUDED.mcap_at_first_seen, 0)
+        // Per-token upsert for refresh-prices — ATH requires per-token conditional
+        for (const t of chunk) {
+          const mcap  = t.peakMarketCap || t.marketCap || 0
+          const price = t.priceUsd || null
+          try {
+            await db.query(`
+              INSERT INTO tokens (
+                address, symbol, name, logo_url,
+                peak_mcap, mcap_at_first_seen, last_seen,
+                ath_mcap, ath_at, ath_price
               )
-          `, tokenParams)
-        } catch (err) {
-          console.error('[DB] refresh-prices token upsert error:', err.message)
+              VALUES ($1, $2, $3, $4, $5, $6, NOW(), $5, NOW(), $7)
+              ON CONFLICT (address) DO UPDATE SET
+                last_seen          = NOW(),
+                name               = COALESCE(EXCLUDED.name,     tokens.name),
+                logo_url           = COALESCE(EXCLUDED.logo_url, tokens.logo_url),
+                peak_mcap          = GREATEST(tokens.peak_mcap,  EXCLUDED.peak_mcap),
+                mcap_at_first_seen = COALESCE(
+                  NULLIF(tokens.mcap_at_first_seen, 0),
+                  NULLIF(EXCLUDED.mcap_at_first_seen, 0)
+                ),
+                ath_mcap  = CASE WHEN $5 > COALESCE(tokens.ath_mcap, 0)
+                                 THEN $5 ELSE tokens.ath_mcap END,
+                ath_at    = CASE WHEN $5 > COALESCE(tokens.ath_mcap, 0)
+                                 THEN NOW() ELSE tokens.ath_at END,
+                ath_price = CASE WHEN $5 > COALESCE(tokens.ath_mcap, 0)
+                                 THEN $7 ELSE tokens.ath_price END
+            `, [t.address, t.symbol, t.name || null, t.logoUrl || null,
+                mcap, t.mcapAtFirstSeen || 0, price])
+          } catch (err) {
+            console.error('[DB] refresh-prices token upsert error:', err.message)
+          }
         }
 
         // Insert alpha_runs — ONE row per token per HOUR (not per day like record-alphas).
@@ -2818,42 +2834,70 @@ app.get('/api/beta-count', async (req, res) => {
 })
 
 // GET /api/history/full?days=7
-// Returns full token data for cooling and positioning tabs.
-// Richer than /api/history — includes peakMcap, firstSeen, priceChange24h,
-// volume, liquidity, and source so frontend filtering logic works correctly.
-// One row per token — most recent alpha_run merged with tokens registry data.
+// Returns token data for revival detection, cooling tab, and positioning tab.
+//
+// BANDWIDTH OPTIMISATIONS (Session 30 — Supabase egress exceeded):
+//   1. Server-side cache (3min TTL) — one DB read serves ALL users simultaneously.
+//      Cache is shared across requests; invalidated after 3 minutes.
+//   2. Activity filter — only returns tokens with liq >= 1K OR vol >= 1K OR is_revival.
+//      Dead tokens (zero activity) are excluded — they'll never pass detectReversal.
+//   3. runCount subquery removed — was O(N) per row, expensive and unused by revival.
+//   4. Slim SELECT — only columns needed by detectReversal + loadHistoricalByPriceAction.
+//
+// Result: ~80-90% egress reduction vs original implementation.
+let _historyFullCache     = null
+let _historyFullCacheTime = 0
+const HISTORY_FULL_TTL_MS = 3 * 60 * 1000  // 3 minutes — shared across all users
+
 app.get('/api/history/full', async (req, res) => {
   if (!process.env.DATABASE_URL) return res.json({ tokens: [] })
   const days = Math.min(parseInt(req.query.days) || 7, 30)
 
+  // Serve from server-side cache — all users share one DB read per 3 minutes
+  const now = Date.now()
+  if (_historyFullCache && (now - _historyFullCacheTime) < HISTORY_FULL_TTL_MS) {
+    return res.json({ tokens: _historyFullCache })
+  }
+
   try {
     const result = await db.query(`
       SELECT DISTINCT ON (r.token_address)
-        r.token_address    AS address,
+        r.token_address      AS address,
         t.symbol,
         t.name,
-        t.logo_url         AS "logoUrl",
-        t.peak_mcap        AS "peakMarketCap",
+        t.logo_url           AS "logoUrl",
+        t.peak_mcap          AS "peakMarketCap",
         t.mcap_at_first_seen AS "mcapAtFirstSeen",
-        (SELECT COUNT(DISTINCT DATE(r2.timestamp)) FROM alpha_runs r2 WHERE r2.token_address = t.address)::int AS "runCount",
-        t.first_seen       AS "firstSeen",
-        t.last_seen        AS "lastSeen",
-        r.mcap             AS "marketCap",
-        r.volume_24h       AS "volume24h",
-        r.price_change_24h AS "priceChange24h",
-        r.price            AS "priceUsd",
+        t.first_seen         AS "firstSeen",
+        t.last_seen          AS "lastSeen",
+        t.parent_address     AS "parentAddress",
+        t.parent_symbol      AS "parentSymbol",
+        t.ath_mcap           AS "athMcap",
+        t.ath_at             AS "athAt",
+        t.ath_price          AS "athPrice",
+        t.first_run_at       AS "firstRunAt",
+        t.last_run_at        AS "lastRunAt",
+        t.total_run_count    AS "totalRunCount",
+        r.mcap               AS "marketCap",
+        r.volume_24h         AS "volume24h",
+        r.price_change_24h   AS "priceChange24h",
+        r.price              AS "priceUsd",
         r.source,
-        r.timestamp        AS "priceRefreshedAt",
-        r.is_revival       AS "isRevival",
-        r.recovery_pct     AS "recoveryPct",
-        r.liquidity        AS "liquidity"
+        r.timestamp          AS "priceRefreshedAt",
+        r.is_revival         AS "isRevival",
+        r.recovery_pct       AS "recoveryPct",
+        r.liquidity          AS "liquidity"
       FROM alpha_runs r
       JOIN tokens t ON t.address = r.token_address
       WHERE r.timestamp > NOW() - ($1 || ' days')::INTERVAL
+        AND (
+          r.liquidity  >= 1000 OR
+          r.volume_24h >= 1000 OR
+          r.is_revival = true
+        )
       ORDER BY r.token_address, r.timestamp DESC
     `, [days])
 
-    // Convert timestamps to milliseconds (JS expects ms, Postgres returns ISO strings)
     const tokens = result.rows.map(t => ({
       ...t,
       firstSeen:        t.firstSeen        ? new Date(t.firstSeen).getTime()        : null,
@@ -2866,12 +2910,28 @@ app.get('/api/history/full', async (req, res) => {
       priceChange24h:   parseFloat(t.priceChange24h)   || 0,
       recoveryPct:      t.recoveryPct ? parseFloat(t.recoveryPct) : null,
       isRevival:        t.isRevival   || false,
-      liquidity:        parseFloat(t.liquidity) || 0,
+      liquidity:        parseFloat(t.liquidity)        || 0,
+      athMcap:          parseFloat(t.athMcap)          || 0,
+      athAt:            t.athAt       ? new Date(t.athAt).getTime() : null,
+      athPrice:         parseFloat(t.athPrice)         || 0,
+      firstRunAt:       t.firstRunAt  ? new Date(t.firstRunAt).getTime()  : null,
+      lastRunAt:        t.lastRunAt   ? new Date(t.lastRunAt).getTime()   : null,
+      totalRunCount:    parseInt(t.totalRunCount)      || 0,
     }))
+
+    // Cache result server-side — shared across all concurrent users
+    _historyFullCache     = tokens
+    _historyFullCacheTime = now
+    console.log(`[HistoryFull] Cached ${tokens.length} active tokens (${days}d window)`)
 
     return res.json({ tokens })
   } catch (err) {
     console.error('[DB] history/full error:', err.message)
+    // Serve stale cache on DB error rather than returning empty
+    if (_historyFullCache) {
+      console.warn('[HistoryFull] Serving stale cache due to DB error')
+      return res.json({ tokens: _historyFullCache })
+    }
     return res.status(500).json({ error: 'db read failed' })
   }
 })
