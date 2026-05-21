@@ -2,6 +2,7 @@ import betaplaysLogo from './assets/betaplays-logo.png'
 import { useState, useMemo, useCallback, useRef, useEffect } from 'react'
 import { createPortal } from 'react-dom'
 import { useWallet } from '@solana/wallet-adapter-react'
+import { useWalletModal } from '@solana/wallet-adapter-react-ui'
 import useAlphas from './hooks/useAlphas'
 import LEGENDS, { submitNomination, getNominations, syncNominationsFromDB, NOMINATIONS_KEY } from './data/historical_alphas'
 import useBetas, { getSignal, getWavePhase, getMcapRatio } from './hooks/useBetas'
@@ -4262,7 +4263,8 @@ const AppFooter = () => (
 
 export default function App() {
   // ── Wallet auth ──────────────────────────────────────────────────
-  const { publicKey, signMessage, disconnect, connected, select, connect, wallets } = useWallet()
+  const { publicKey, signMessage, disconnect, connected } = useWallet()
+  const { setVisible: setWalletModalVisible } = useWalletModal()
   const [showWalletModal, setShowWalletModal] = useState(false)
   const [authToken,    setAuthToken]    = useState(() => localStorage.getItem('betaplays_jwt') || null)
   const [authWallet,   setAuthWallet]   = useState(() => localStorage.getItem('betaplays_wallet') || null)
@@ -4455,7 +4457,7 @@ export default function App() {
 
   return (
     <div className="app-wrapper">
-      <Navbar onListBeta={() => setShowListModal(true)} newRunners={newRunners} liveAlphas={appLiveAlphas} coolingAlphas={appCoolingAlphas} onSettings={() => setShowSettings(true)} onWalletConnect={() => setShowWalletModal(true)} onWalletSignIn={handleWalletSignIn} onWalletSignOut={handleSignOut} isAuthed={isAuthed} isConnected={connected} walletAddress={authWallet} />
+      <Navbar onListBeta={() => setShowListModal(true)} newRunners={newRunners} liveAlphas={appLiveAlphas} coolingAlphas={appCoolingAlphas} onSettings={() => setShowSettings(true)} onWalletConnect={() => setWalletModalVisible(true)} onWalletSignIn={handleWalletSignIn} onWalletSignOut={handleSignOut} isAuthed={isAuthed} isConnected={connected} walletAddress={authWallet} />
       <NarrativeTicker liveAlphas={appLiveAlphas} sznCards={appSznCards} />
       <div className="main-layout" style={{ flex: 1, overflow: 'hidden' }}>
         <AlphaBoard selectedAlpha={selectedAlpha} onSelect={handleSelectAlpha} onNewRunners={handleNewRunners} onLiveAlphas={setAppLiveAlphas} onSznCards={setAppSznCards} onCoolingAlphas={setAppCoolingAlphas} onCustomSearch={handleSearchCustomAlpha} customAlphaLoading={customAlphaLoading} onRegisterClearSearch={fn => { clearAlphaBoardSearch.current = fn }} alphaListRef={alphaListRef} searchResults={searchResults} onSelectSearchResult={(token) => { if (!token) { setSearchResults([]); return }; setSelectedAlpha(token); setSearchResults([]) }} defaultTab={settings.defaultTab} />
@@ -4464,40 +4466,6 @@ export default function App() {
           : <BetaPanel alpha={selectedAlpha} liveAlphas={appLiveAlphas} onListBeta={() => setShowListModal(true)} onOpenDrawer={setDrawerToken} onSwap={(t) => openJupiterSwap(t)} onScrollToAlpha={handleScrollToAlpha} onCustomSearch={handleSearchCustomAlpha} customAlphaLoading={customAlphaLoading} customAlphaError={customAlphaError} settings={settings} />
         }
       </div>
-
-      {showWalletModal && (
-        <div className="modal-overlay" onClick={() => setShowWalletModal(false)}>
-          <div className="modal" onClick={e => e.stopPropagation()} style={{ maxWidth: 360 }}>
-            <div className="modal-title" style={{ fontFamily: 'var(--font-display)', marginBottom: 6 }}>Connect a wallet</div>
-            <div className="modal-sub" style={{ marginBottom: 20 }}>Select your Solana wallet to continue</div>
-            {wallets.filter(w => w.readyState === 'Installed' || w.readyState === 'Loadable').map(w => (
-              <button
-                key={w.adapter.name}
-                onClick={async () => { select(w.adapter.name); setShowWalletModal(false); try { await connect() } catch { /* user rejected */ } }}
-                style={{
-                  display: 'flex', alignItems: 'center', gap: 12, width: '100%',
-                  background: 'var(--surface-2)', border: '1px solid var(--border)',
-                  borderRadius: 10, padding: '12px 16px', marginBottom: 8,
-                  cursor: 'pointer', color: 'var(--text-primary)',
-                  fontFamily: 'var(--font-mono)', fontSize: 13, fontWeight: 600,
-                  transition: 'all 0.15s ease',
-                }}
-                onMouseEnter={e => { e.currentTarget.style.borderColor = 'rgba(0,212,255,0.5)'; e.currentTarget.style.color = 'var(--cyan)' }}
-                onMouseLeave={e => { e.currentTarget.style.borderColor = 'var(--border)'; e.currentTarget.style.color = 'var(--text-primary)' }}
-              >
-                {w.adapter.icon && <img src={w.adapter.icon} alt={w.adapter.name} style={{ width: 28, height: 28, borderRadius: 6 }} />}
-                <span>{w.adapter.name}</span>
-                <span style={{ marginLeft: 'auto', fontSize: 10, color: 'var(--neon-green)', fontWeight: 700 }}>DETECTED</span>
-              </button>
-            ))}
-            {wallets.filter(w => w.readyState === 'Installed' || w.readyState === 'Loadable').length === 0 && (
-              <div style={{ color: 'var(--text-muted)', fontSize: 12, fontFamily: 'var(--font-mono)', textAlign: 'center', padding: '20px 0' }}>
-                No wallets detected. Install <a href="https://phantom.app" target="_blank" rel="noreferrer" style={{ color: 'var(--cyan)' }}>Phantom</a> to continue.
-              </div>
-            )}
-          </div>
-        </div>
-      )}
 
       {showListModal && (
         <div className="modal-overlay" onClick={() => setShowListModal(false)}>
