@@ -32,7 +32,7 @@ function Root () {
 
   return (
     <ConnectionProvider endpoint={RPC_ENDPOINT}>
-      <WalletProvider wallets={wallets} autoConnect={false}>
+      <WalletProvider wallets={wallets} autoConnect>
         <WalletModalProvider>
           <App />
         </WalletModalProvider>
