@@ -1552,16 +1552,28 @@ const AlphaBoard = ({ selectedAlpha, onSelect, onNewRunners, onLiveAlphas, onSzn
       .catch(() => setFolioLoading(false))
   }, [activeTab])
 
+  const [folioSaveMsg,     setFolioSaveMsg]     = useState('')
+
   const handleSaveFolioName = async () => {
     if (!authToken || !folioNameEdit.trim()) return
     setFolioSaving(true)
+    setFolioSaveMsg('')
     try {
-      await fetch(`${BACKEND_URL}/api/folio/settings`, {
+      const res = await fetch(`${BACKEND_URL}/api/folio/settings`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${authToken}` },
         body: JSON.stringify({ folioName: folioNameEdit.trim() }),
       })
-    } catch { /* non-fatal */ }
+      if (res.ok) {
+        setFolioSaveMsg('✓ Saved')
+        setTimeout(() => setFolioSaveMsg(''), 2000)
+      } else {
+        const err = await res.json().catch(() => ({}))
+        setFolioSaveMsg(`Error: ${err.error || res.status}`)
+      }
+    } catch (e) {
+      setFolioSaveMsg(`Error: ${e.message}`)
+    }
     setFolioSaving(false)
   }
 
@@ -2457,6 +2469,11 @@ const AlphaBoard = ({ selectedAlpha, onSelect, onNewRunners, onLiveAlphas, onSzn
                           {folioSaving ? '...' : 'SAVE'}
                         </button>
                       </div>
+                      {folioSaveMsg && (
+                        <p style={{ fontFamily: 'var(--font-mono)', fontSize: 10, color: folioSaveMsg.startsWith('✓') ? 'var(--neon-green)' : '#ff5050', margin: 0 }}>
+                          {folioSaveMsg}
+                        </p>
+                      )}
                       <p style={{ fontFamily: 'var(--font-mono)', fontSize: 10, color: 'var(--text-muted)', lineHeight: 1.6, margin: 0 }}>
                         Your folio = your watchlist. Star tokens to add them. Entry prices are recorded automatically.
                       </p>
