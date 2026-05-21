@@ -3857,6 +3857,12 @@ app.get('/api/folio/:wallet', async (req, res) => {
 app.patch('/api/folio/settings', requireAuth, async (req, res) => {
   const { folioName, folioPublic } = req.body
   try {
+    // Ensure user row exists first (upsert) then update
+    await db.query(
+      `INSERT INTO users (wallet_address) VALUES ($1)
+       ON CONFLICT (wallet_address) DO NOTHING`,
+      [req.user.wallet]
+    )
     await db.query(
       `UPDATE users SET
          folio_name   = COALESCE($1, folio_name),
@@ -3866,19 +3872,23 @@ app.patch('/api/folio/settings', requireAuth, async (req, res) => {
     )
     res.json({ ok: true })
   } catch (err) {
-    res.status(500).json({ error: 'DB error' })
+    console.error('[Folio] Settings update error:', err.message)
+    res.status(500).json({ error: err.message })
   }
-})
+}))
 
 // ─── End Folios ───────────────────────────────────────────────────────────────
 
 const PORT = process.env.PORT || 3001
 app.listen(PORT, async () => {
   console.log(`BetaPlays backend on port ${PORT}`)
-  // Initialise Supabase DB — creates tables if they don't exist. Non-blocking on failure.
-  await db.init()
-  // Load persisted expansion cache from Supabase — warms in-memory cache on cold start
-  await loadExpansionCache(expansionCache)
+  // Delay DB init by 15s — gives pool time to settle and avoids EMAXCONN
+  // on cold starts where multiple processes race for connections simultaneously.
+  setTimeout(async () => {
+    await db.init()
+    // Load persisted expansion cache from Supabase after schema is confirmed ready
+    await loadExpansionCache(expansionCache)
+  }, 15_000)
   // Initialise Telegram service after server is up
   telegramService.init().catch(err =>
     console.error('[TelegramService] Init failed:', err.message)
@@ -3887,15 +3897,7 @@ app.listen(PORT, async () => {
   twitterService.init().catch(err =>
     console.error('[TwitterService] Init failed:', err.message)
   )
-  // Expansion cache warmup is now driven by /api/report-alphas.
-  // Frontend calls report-alphas on every alpha refresh (every 30s).
-  // Any alpha not in cache gets queued for background V0 expansion automatically.
-  // No static seed list needed — cache always mirrors the live feed.
   newsService.init()
   console.log('[Warmup] Cache warming driven by live feed via report-alphas')
-  // Proactive beta scanner DISABLED — re-enable when Groq Developer tier active.
-  // Scanner burns ~288 V8 calls/day (10 alphas × every 5min) against a 1,000/day
-  // free tier limit. Uncomment when Developer tier available (10x limits, free with card).
-  // startProactiveBetaScanner(PORT)
   console.log('[ProactiveScan] Disabled — re-enable when Groq Developer tier active')
 })

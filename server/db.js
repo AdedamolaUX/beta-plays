@@ -17,9 +17,9 @@ if (!process.env.DATABASE_URL) {
 
 const pool = new Pool({
   connectionString:        process.env.DATABASE_URL,
-  max:                     10,   // reduced from 20 — Supabase free tier saturates at high concurrency
+  max:                     3,   // keep low — multiple Render instances share the 200 connection limit
   idleTimeoutMillis:       10_000,
-  connectionTimeoutMillis: 5_000, // fail fast — better than 15s timeout storm
+  connectionTimeoutMillis: 5_000,
   ssl: process.env.DATABASE_URL?.includes('supabase')
     ? { rejectUnauthorized: false }
     : false,
@@ -180,39 +180,42 @@ const MIGRATIONS = [
 
 async function init () {
   if (!process.env.DATABASE_URL) return
-  try {
-    await pool.query(SCHEMA)
-    for (const m of MIGRATIONS) {
-      await pool.query(m)
-    }
-    console.log('[DB] Schema initialised (Supabase)')
-
-    // Cleanup old alpha_runs rows — keeps table size manageable.
-    // Strategy: keep ALL rows from last 30 days (for revival + history).
-    // For rows older than 30 days: keep only the single best row per token
-    // per calendar month as a permanent historical snapshot.
-    // This means we never lose the fact that a token ran — just the granular
-    // daily snapshots beyond 30 days. The tokens table stores ATH permanently.
+  // Retry up to 3 times on connection errors
+  for (let attempt = 1; attempt <= 3; attempt++) {
     try {
-      const cleaned = await pool.query(`
-        DELETE FROM alpha_runs
-        WHERE timestamp < NOW() - INTERVAL '30 days'
-          AND id NOT IN (
-            SELECT DISTINCT ON (token_address, DATE_TRUNC('month', timestamp))
-              id
-            FROM alpha_runs
-            WHERE timestamp < NOW() - INTERVAL '30 days'
-            ORDER BY token_address, DATE_TRUNC('month', timestamp), mcap DESC NULLS LAST
-          )
-      `)
-      if (cleaned.rowCount > 0) {
-        console.log(`[DB] Cleaned ${cleaned.rowCount} alpha_runs rows — monthly snapshots preserved`)
+      await pool.query(SCHEMA)
+      for (const m of MIGRATIONS) {
+        try { await pool.query(m) } catch (me) {
+          // Ignore "already exists" errors, log others
+          if (!me.message.includes('already exists')) console.warn('[DB] Migration warning:', me.message)
+        }
       }
-    } catch (cleanErr) {
-      console.warn('[DB] Cleanup failed (non-fatal):', cleanErr.message)
+      console.log('[DB] Schema initialised (Supabase)')
+
+      // Cleanup old alpha_runs rows
+      try {
+        const cleaned = await pool.query(`
+          DELETE FROM alpha_runs
+          WHERE timestamp < NOW() - INTERVAL '30 days'
+            AND id NOT IN (
+              SELECT DISTINCT ON (token_address, DATE_TRUNC('month', timestamp))
+                id
+              FROM alpha_runs
+              WHERE timestamp < NOW() - INTERVAL '30 days'
+              ORDER BY token_address, DATE_TRUNC('month', timestamp), mcap DESC NULLS LAST
+            )
+        `)
+        if (cleaned.rowCount > 0) {
+          console.log(`[DB] Cleaned ${cleaned.rowCount} alpha_runs rows — monthly snapshots preserved`)
+        }
+      } catch (cleanErr) {
+        console.warn('[DB] Cleanup failed (non-fatal):', cleanErr.message)
+      }
+      return // success
+    } catch (err) {
+      console.error(`[DB] Schema init failed (attempt ${attempt}/3):`, err.message)
+      if (attempt < 3) await new Promise(r => setTimeout(r, 5000 * attempt))
     }
-  } catch (err) {
-    console.error('[DB] Schema init failed:', err.message)
   }
 }
 
