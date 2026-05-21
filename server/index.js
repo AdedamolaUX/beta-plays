@@ -19,7 +19,7 @@ const cors      = require('cors')
 const rateLimit = require('express-rate-limit')
 const jwt       = require('jsonwebtoken')
 const nacl      = require('tweetnacl')
-const bs58      = require('bs58')
+const { PublicKey } = require('@solana/web3.js')
 require('dotenv').config({ path: require('path').join(__dirname, '.env') })
 
 const telegramService = require('./telegramService')
@@ -3659,7 +3659,7 @@ app.post('/api/auth/verify', async (req, res) => {
   try {
     const msgBytes = new TextEncoder().encode(entry.nonce)
     const sigBytes = new Uint8Array(signature)
-    const pubKey   = bs58.decode(wallet)
+    const pubKey   = new PublicKey(wallet).toBytes()
     const valid   = nacl.sign.detached.verify(msgBytes, sigBytes, pubKey)
     if (!valid) return res.status(401).json({ error: 'Signature verification failed' })
   } catch (err) {
