@@ -2935,7 +2935,8 @@ app.get('/api/history/full', async (req, res) => {
       console.warn('[HistoryFull] Serving stale cache due to DB error')
       return res.json({ tokens: _historyFullCache })
     }
-    return res.status(500).json({ error: 'db read failed' })
+    // No cache — return empty rather than 500 so frontend doesn't crash
+    return res.json({ tokens: [] })
   }
 })
 // Replaces the localStorage betaplays_seen_alphas read in the History tab.
@@ -3670,18 +3671,13 @@ app.post('/api/auth/verify', async (req, res) => {
   // Nonce is single-use — delete immediately after verification
   nonceStore.delete(wallet)
 
-  // Upsert user record in Supabase
-  try {
-    await db.query(
-      `INSERT INTO users (wallet_address, first_seen, last_seen)
-       VALUES ($1, NOW(), NOW())
-       ON CONFLICT (wallet_address) DO UPDATE SET last_seen = NOW()`,
-      [wallet]
-    )
-  } catch (err) {
-    console.error('[Auth] User upsert failed:', err.message)
-    // Non-fatal — still issue JWT
-  }
+  // Upsert user record in Supabase — fire and forget, never blocks JWT issue
+  db.query(
+    `INSERT INTO users (wallet_address, first_seen, last_seen)
+     VALUES ($1, NOW(), NOW())
+     ON CONFLICT (wallet_address) DO UPDATE SET last_seen = NOW()`,
+    [wallet]
+  ).catch(err => console.error('[Auth] User upsert failed:', err.message))
 
   const token = jwt.sign({ wallet }, JWT_SECRET, { expiresIn: '30d' })
   console.log(`[Auth] Login: ${wallet.slice(0, 8)}...`)

@@ -4292,16 +4292,18 @@ export default function App() {
       localStorage.setItem('betaplays_wallet', wallet)
       setAuthToken(token)
       setAuthWallet(wallet)
-      // Migrate local watchlist to Supabase on first sign-in
+      // Migrate local watchlist to Supabase on first sign-in — sequential to avoid DB storm
       const local = getWatchlistRaw()
       if (local.length > 0) {
-        await Promise.allSettled(local.map(t =>
-          fetch(`${BACKEND_URL}/api/watchlist`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-            body: JSON.stringify({ token_address: t.address, symbol: t.symbol, name: t.name }),
-          })
-        ))
+        for (const t of local.slice(0, 20)) { // cap at 20 items
+          try {
+            await fetch(`${BACKEND_URL}/api/watchlist`, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+              body: JSON.stringify({ token_address: t.address, symbol: t.symbol, name: t.name }),
+            })
+          } catch { /* non-fatal */ }
+        }
       }
     } catch (err) {
       console.error('[Auth] Sign-in failed:', err.message)
