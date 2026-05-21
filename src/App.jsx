@@ -4317,7 +4317,7 @@ export default function App() {
     localStorage.removeItem('betaplays_wallet')
     setAuthToken(null)
     setAuthWallet(null)
-    try { disconnect() } catch { /* ignore */ }
+    setTimeout(() => { try { disconnect() } catch { /* ignore */ } }, 50)
   }, [disconnect])
 
   const { settings, updateSetting, resetSettings } = useSettings()
