@@ -4263,7 +4263,7 @@ const AppFooter = () => (
 
 export default function App() {
   // ── Wallet auth ──────────────────────────────────────────────────
-  const { publicKey, signMessage, disconnect, connected } = useWallet()
+  const { publicKey, signMessage, connected } = useWallet()
   const { setVisible: setWalletModalVisible } = useWalletModal()
   const [showWalletModal, setShowWalletModal] = useState(false)
   const [authToken,    setAuthToken]    = useState(() => localStorage.getItem('betaplays_jwt') || null)
@@ -4317,8 +4317,10 @@ export default function App() {
     localStorage.removeItem('betaplays_wallet')
     setAuthToken(null)
     setAuthWallet(null)
-    setTimeout(() => { try { disconnect() } catch { /* ignore */ } }, 50)
-  }, [disconnect])
+    // Note: we don't call disconnect() — it crashes React 19 + wallet adapter
+    // due to portal removeChild conflict. User stays wallet-connected but loses JWT.
+    // They can disconnect from Phantom extension directly if needed.
+  }, [])
 
   const { settings, updateSetting, resetSettings } = useSettings()
   const [showSettings, setShowSettings] = useState(false)
