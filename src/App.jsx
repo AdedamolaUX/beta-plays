@@ -704,14 +704,14 @@ const Navbar = ({ onListBeta, newRunners, liveAlphas, coolingAlphas, onSettings,
         <button
           onClick={onWalletSignOut}
           title={`Connected: ${walletAddress}`}
+          onMouseEnter={e => { e.currentTarget.dataset.hover = '1'; e.currentTarget.style.background = 'rgba(255,80,80,0.1)'; e.currentTarget.style.borderColor = 'rgba(255,80,80,0.4)'; e.currentTarget.style.color = '#ff5050' }}
+          onMouseLeave={e => { e.currentTarget.dataset.hover = '0'; e.currentTarget.style.background = 'rgba(0,212,255,0.08)'; e.currentTarget.style.borderColor = 'rgba(0,212,255,0.3)'; e.currentTarget.style.color = 'var(--cyan)' }}
           style={{
             background: 'rgba(0,212,255,0.08)', border: '1px solid rgba(0,212,255,0.3)',
             borderRadius: 8, cursor: 'pointer', color: 'var(--cyan)',
             fontSize: 11, padding: '6px 10px', lineHeight: 1, fontFamily: 'var(--font-mono)',
-            letterSpacing: '0.05em', transition: 'all 0.15s ease',
+            letterSpacing: '0.05em', transition: 'all 0.15s ease', minWidth: 80,
           }}
-          onMouseEnter={e => { e.currentTarget.style.background = 'rgba(255,80,80,0.1)'; e.currentTarget.style.borderColor = 'rgba(255,80,80,0.4)'; e.currentTarget.style.color = '#ff5050'; e.currentTarget.textContent = 'DISCONNECT' }}
-          onMouseLeave={e => { e.currentTarget.style.background = 'rgba(0,212,255,0.08)'; e.currentTarget.style.borderColor = 'rgba(0,212,255,0.3)'; e.currentTarget.style.color = 'var(--cyan)'; e.currentTarget.textContent = `${walletAddress?.slice(0,4)}…${walletAddress?.slice(-4)}` }}
         >
           {walletAddress?.slice(0, 4)}…{walletAddress?.slice(-4)}
         </button>
