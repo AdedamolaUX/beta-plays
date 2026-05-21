@@ -3702,8 +3702,8 @@ app.get('/api/auth/me', requireAuth, async (req, res) => {
 app.get('/api/watchlist', requireAuth, async (req, res) => {
   try {
     const result = await db.query(
-      `SELECT token_address, symbol, name, added_at FROM watchlist
-       WHERE wallet_address = $1 ORDER BY added_at DESC`,
+      `SELECT token_address, symbol, name, added_at, price_at_add, logo_url, mcap_at_add, narrative_tag
+       FROM watchlist WHERE wallet_address = $1 ORDER BY added_at DESC`,
       [req.user.wallet]
     )
     res.json(result.rows)
@@ -3724,6 +3724,21 @@ app.post('/api/watchlist', requireAuth, async (req, res) => {
        ON CONFLICT (wallet_address, token_address) DO NOTHING`,
       [req.user.wallet, token_address, symbol || null, name || null,
        price_at_add || null, logo_url || null, mcap_at_add || null]
+    )
+    res.json({ ok: true })
+  } catch (err) {
+    res.status(500).json({ error: 'DB error' })
+  }
+})
+
+// PATCH /api/watchlist/:address/tag — set narrative tag on a watchlist token (JWT required)
+app.patch('/api/watchlist/:address/tag', requireAuth, async (req, res) => {
+  const { narrative_tag } = req.body
+  try {
+    await db.query(
+      `UPDATE watchlist SET narrative_tag = $1
+       WHERE wallet_address = $2 AND token_address = $3`,
+      [narrative_tag || null, req.user.wallet, req.params.address]
     )
     res.json({ ok: true })
   } catch (err) {
@@ -3775,22 +3790,24 @@ app.get('/api/folio/leaderboard', async (req, res) => {
         u.wallet_address,
         u.folio_name,
         u.display_name,
+        u.first_seen,
         COUNT(w.token_address)                          AS token_count,
+        COUNT(DISTINCT w.narrative_tag)
+          FILTER (WHERE w.narrative_tag IS NOT NULL)    AS narrative_count,
         json_agg(json_build_object(
-          'address',      w.token_address,
-          'symbol',       w.symbol,
-          'name',         w.name,
-          'logo_url',     w.logo_url,
-          'price_at_add', w.price_at_add,
-          'mcap_at_add',  w.mcap_at_add,
-          'added_at',     w.added_at
+          'address',       w.token_address,
+          'symbol',        w.symbol,
+          'name',          w.name,
+          'logo_url',      w.logo_url,
+          'price_at_add',  w.price_at_add,
+          'mcap_at_add',   w.mcap_at_add,
+          'narrative_tag', w.narrative_tag,
+          'added_at',      w.added_at
         ) ORDER BY w.added_at DESC)                     AS tokens
       FROM users u
       JOIN watchlist w ON w.wallet_address = u.wallet_address
       WHERE u.folio_public = TRUE
-        AND w.price_at_add IS NOT NULL
-        AND w.price_at_add > 0
-      GROUP BY u.wallet_address, u.folio_name, u.display_name
+      GROUP BY u.wallet_address, u.folio_name, u.display_name, u.first_seen
       HAVING COUNT(w.token_address) >= 1
       ORDER BY COUNT(w.token_address) DESC
       LIMIT 50

@@ -1536,9 +1536,11 @@ const AlphaBoard = ({ selectedAlpha, onSelect, onNewRunners, onLiveAlphas, onSzn
   // ── Folio state ───────────────────────────────────────────────
   const [folioLeaderboard, setFolioLeaderboard] = useState([])
   const [folioLoading,     setFolioLoading]     = useState(false)
-  const [folioView,        setFolioView]        = useState('leaderboard') // 'leaderboard' | 'mine'
+  const [folioView,        setFolioView]        = useState('leaderboard')
   const [folioNameEdit,    setFolioNameEdit]    = useState('')
   const [folioSaving,      setFolioSaving]      = useState(false)
+  const [folioNarrativeFilter, setFolioNarrativeFilter] = useState(null)
+  const [taggingAddress,   setTaggingAddress]   = useState(null) // address being tagged
 
   // Load leaderboard when Folio tab opens
   useEffect(() => {
@@ -1561,6 +1563,18 @@ const AlphaBoard = ({ selectedAlpha, onSelect, onNewRunners, onLiveAlphas, onSzn
       })
     } catch { /* non-fatal */ }
     setFolioSaving(false)
+  }
+
+  const handleTagToken = async (address, tag) => {
+    if (!authToken) return
+    setTaggingAddress(null)
+    try {
+      await fetch(`${BACKEND_URL}/api/watchlist/${address}/tag`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${authToken}` },
+        body: JSON.stringify({ narrative_tag: tag }),
+      })
+    } catch { /* non-fatal */ }
   }
   const [coolingTimeframe, setCoolingTimeframe] = useState('24h')
   const [volumeRising,     setVolumeRising]     = useState(false)
@@ -2069,7 +2083,7 @@ const AlphaBoard = ({ selectedAlpha, onSelect, onNewRunners, onLiveAlphas, onSzn
     { key: 'cooling',     label: '❄️ COOLING PLAYS',  count: null                     },
     { key: 'positioning', label: '🎯 Position',       count: null                     },
     { key: 'watch',       label: '⭐ Watchlist',       count: watchlist.length         },
-    { key: 'folio',       label: '🏆 Folios',          count: null                     },
+    { key: 'folio',       label: '📊 Folios',          count: null                     },
     { key: 'runners',     label: '🏁 Past Runners',   count: null                     },
     { key: 'legends',     label: '🏆 OGs',            count: legends.length           },
   ]
@@ -2308,49 +2322,109 @@ const AlphaBoard = ({ selectedAlpha, onSelect, onNewRunners, onLiveAlphas, onSzn
                     color: folioView === v ? 'var(--cyan)' : 'var(--text-muted)',
                     transition: 'all 0.15s ease',
                   }}>
-                    {v === 'leaderboard' ? '🏆 LEADERBOARD' : '👤 MY FOLIO'}
+                    {v === 'leaderboard' ? '📊 LEADERBOARD' : '👤 MY FOLIO'}
                   </button>
                 ))}
               </div>
 
               {/* Leaderboard view */}
               {folioView === 'leaderboard' && (
-                <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
                   {folioLoading && <p style={{ fontFamily: 'var(--font-mono)', fontSize: 10, color: 'var(--text-muted)' }}>Loading leaderboard...</p>}
                   {!folioLoading && folioLeaderboard.length === 0 && (
                     <p style={{ fontFamily: 'var(--font-mono)', fontSize: 10, color: 'var(--text-muted)', lineHeight: 1.6, borderLeft: '2px solid var(--border)', paddingLeft: 8 }}>
                       No public folios yet. Connect your wallet, star some tokens, and your folio will appear here.
                     </p>
                   )}
-                  {folioLeaderboard.map((folio, i) => {
-                    const tokens = folio.tokens || []
-                    const withPrices = tokens.filter(t => t.price_at_add > 0)
-                    const label = folio.folio_name || `${folio.wallet_address?.slice(0,4)}…${folio.wallet_address?.slice(-4)}`
-                    return (
-                      <div key={folio.wallet_address} style={{
-                        background: 'var(--surface-2)', border: '1px solid var(--border)',
-                        borderRadius: 10, padding: '10px 12px', display: 'flex', flexDirection: 'column', gap: 6,
-                      }}>
-                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                          <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                            <span style={{ fontFamily: 'var(--font-mono)', fontSize: 10, color: 'var(--text-muted)', fontWeight: 700 }}>#{i + 1}</span>
-                            <span style={{ fontFamily: 'var(--font-display)', fontSize: 12, color: 'var(--text-primary)', fontWeight: 700 }}>{label}</span>
-                          </div>
-                          <span style={{ fontFamily: 'var(--font-mono)', fontSize: 9, color: 'var(--text-muted)' }}>{tokens.length} tokens</span>
-                        </div>
-                        <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>
-                          {tokens.slice(0, 6).map(t => (
-                            <span key={t.address} style={{
-                              fontFamily: 'var(--font-mono)', fontSize: 9, fontWeight: 700,
-                              background: 'rgba(255,255,255,0.04)', border: '1px solid var(--border)',
-                              borderRadius: 4, padding: '2px 5px', color: 'var(--text-secondary)',
-                            }}>${t.symbol}</span>
-                          ))}
-                          {tokens.length > 6 && <span style={{ fontFamily: 'var(--font-mono)', fontSize: 9, color: 'var(--text-muted)' }}>+{tokens.length - 6}</span>}
-                        </div>
+                  {/* Narrative filter pills */}
+                  {folioLeaderboard.length > 0 && (() => {
+                    const allTags = [...new Set(folioLeaderboard.flatMap(f => (f.tokens || []).map(t => t.narrative_tag).filter(Boolean)))]
+                    return allTags.length > 0 ? (
+                      <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap', marginBottom: 4 }}>
+                        <button onClick={() => setFolioNarrativeFilter(null)} style={{
+                          padding: '3px 8px', borderRadius: 4, fontSize: 9, fontFamily: 'var(--font-mono)',
+                          fontWeight: 700, cursor: 'pointer', letterSpacing: '0.05em',
+                          background: !folioNarrativeFilter ? 'rgba(0,212,255,0.12)' : 'transparent',
+                          border: !folioNarrativeFilter ? '1px solid rgba(0,212,255,0.4)' : '1px solid var(--border)',
+                          color: !folioNarrativeFilter ? 'var(--cyan)' : 'var(--text-muted)',
+                        }}>ALL</button>
+                        {allTags.map(tag => (
+                          <button key={tag} onClick={() => setFolioNarrativeFilter(folioNarrativeFilter === tag ? null : tag)} style={{
+                            padding: '3px 8px', borderRadius: 4, fontSize: 9, fontFamily: 'var(--font-mono)',
+                            fontWeight: 700, cursor: 'pointer', letterSpacing: '0.05em', textTransform: 'uppercase',
+                            background: folioNarrativeFilter === tag ? 'rgba(57,255,20,0.1)' : 'transparent',
+                            border: folioNarrativeFilter === tag ? '1px solid rgba(57,255,20,0.4)' : '1px solid var(--border)',
+                            color: folioNarrativeFilter === tag ? 'var(--neon-green)' : 'var(--text-muted)',
+                          }}>{tag}</button>
+                        ))}
                       </div>
-                    )
-                  })}
+                    ) : null
+                  })()}
+                  {folioLeaderboard
+                    .filter(f => !folioNarrativeFilter || (f.tokens || []).some(t => t.narrative_tag === folioNarrativeFilter))
+                    .map((folio, i) => {
+                      const tokens = folioNarrativeFilter
+                        ? (folio.tokens || []).filter(t => t.narrative_tag === folioNarrativeFilter)
+                        : (folio.tokens || [])
+                      const label = folio.folio_name || `${folio.wallet_address?.slice(0,4)}…${folio.wallet_address?.slice(-4)}`
+                      const narratives = [...new Set(tokens.map(t => t.narrative_tag).filter(Boolean))]
+                      const memberDays = folio.first_seen ? Math.floor((Date.now() - new Date(folio.first_seen)) / 86400000) : null
+                      const rankColors = ['#FFD700', '#C0C0C0', '#CD7F32']
+                      return (
+                        <div key={folio.wallet_address} style={{
+                          background: 'var(--surface-2)',
+                          border: `1px solid ${i < 3 ? rankColors[i] + '40' : 'var(--border)'}`,
+                          borderRadius: 12, padding: '12px 14px',
+                          display: 'flex', flexDirection: 'column', gap: 8,
+                          boxShadow: i === 0 ? '0 0 12px rgba(255,215,0,0.08)' : 'none',
+                        }}>
+                          {/* Header row */}
+                          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                            <span style={{
+                              fontFamily: 'var(--font-mono)', fontSize: 14, fontWeight: 900,
+                              color: i < 3 ? rankColors[i] : 'var(--text-muted)', minWidth: 24,
+                            }}>#{i + 1}</span>
+                            <div style={{ flex: 1, minWidth: 0 }}>
+                              <div style={{ fontFamily: 'var(--font-display)', fontSize: 13, color: 'var(--text-primary)', fontWeight: 700, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{label}</div>
+                              <div style={{ fontFamily: 'var(--font-mono)', fontSize: 9, color: 'var(--text-muted)', marginTop: 1 }}>
+                                {folio.wallet_address?.slice(0,6)}…{folio.wallet_address?.slice(-4)}
+                                {memberDays !== null && ` · ${memberDays}d member`}
+                              </div>
+                            </div>
+                            <div style={{ textAlign: 'right', flexShrink: 0 }}>
+                              <div style={{ fontFamily: 'var(--font-mono)', fontSize: 12, fontWeight: 700, color: 'var(--cyan)' }}>{tokens.length}</div>
+                              <div style={{ fontFamily: 'var(--font-mono)', fontSize: 8, color: 'var(--text-muted)' }}>tokens</div>
+                            </div>
+                          </div>
+                          {/* Narrative tags */}
+                          {narratives.length > 0 && (
+                            <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>
+                              {narratives.map(tag => (
+                                <span key={tag} style={{
+                                  fontFamily: 'var(--font-mono)', fontSize: 8, fontWeight: 700,
+                                  background: 'rgba(57,255,20,0.07)', border: '1px solid rgba(57,255,20,0.25)',
+                                  borderRadius: 4, padding: '2px 6px', color: 'var(--neon-green)',
+                                  textTransform: 'uppercase', letterSpacing: '0.05em',
+                                }}>{tag}</span>
+                              ))}
+                            </div>
+                          )}
+                          {/* Token chips */}
+                          <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>
+                            {tokens.slice(0, 8).map(t => (
+                              <span key={t.address} style={{
+                                fontFamily: 'var(--font-mono)', fontSize: 9, fontWeight: 700,
+                                background: 'rgba(255,255,255,0.04)', border: '1px solid var(--border)',
+                                borderRadius: 4, padding: '2px 6px', color: 'var(--text-secondary)',
+                              }}>${t.symbol}</span>
+                            ))}
+                            {tokens.length > 8 && (
+                              <span style={{ fontFamily: 'var(--font-mono)', fontSize: 9, color: 'var(--text-muted)', padding: '2px 4px' }}>+{tokens.length - 8} more</span>
+                            )}
+                          </div>
+                        </div>
+                      )
+                    })}
                 </div>
               )}
 
@@ -2391,16 +2465,51 @@ const AlphaBoard = ({ selectedAlpha, onSelect, onNewRunners, onLiveAlphas, onSzn
                           No tokens starred yet. Go to Live or Cooling and star some runners.
                         </p>
                       )}
-                      {watchlist.slice(0, 10).map(t => (
-                        <div key={t.address} style={{
-                          display: 'flex', justifyContent: 'space-between', alignItems: 'center',
-                          background: 'var(--surface-2)', border: '1px solid var(--border)',
-                          borderRadius: 8, padding: '8px 10px',
-                        }}>
-                          <span style={{ fontFamily: 'var(--font-mono)', fontSize: 11, fontWeight: 700, color: 'var(--text-primary)' }}>${t.symbol}</span>
-                          {t.priceUsd && <span style={{ fontFamily: 'var(--font-number)', fontSize: 10, color: 'var(--text-muted)' }}>${Number(t.priceUsd).toFixed(6)}</span>}
-                        </div>
-                      ))}
+                      {watchlist.slice(0, 15).map(t => {
+                        const isTagging = taggingAddress === t.address
+                        const QUICK_TAGS = ['AI', 'dogs', 'cats', 'space', 'DeSci', 'political', 'anime', 'gaming', 'degen']
+                        return (
+                          <div key={t.address} style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                            <div style={{
+                              display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+                              background: 'var(--surface-2)', border: '1px solid var(--border)',
+                              borderRadius: 8, padding: '8px 10px',
+                            }}>
+                              <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                                <span style={{ fontFamily: 'var(--font-mono)', fontSize: 11, fontWeight: 700, color: 'var(--text-primary)' }}>${t.symbol}</span>
+                                {t.narrativeTag && (
+                                  <span style={{
+                                    fontFamily: 'var(--font-mono)', fontSize: 8, fontWeight: 700,
+                                    background: 'rgba(57,255,20,0.07)', border: '1px solid rgba(57,255,20,0.25)',
+                                    borderRadius: 3, padding: '1px 5px', color: 'var(--neon-green)',
+                                    textTransform: 'uppercase',
+                                  }}>{t.narrativeTag}</span>
+                                )}
+                              </div>
+                              <button
+                                onClick={() => setTaggingAddress(isTagging ? null : t.address)}
+                                style={{
+                                  fontFamily: 'var(--font-mono)', fontSize: 8, cursor: 'pointer',
+                                  background: 'transparent', border: '1px solid var(--border)',
+                                  borderRadius: 3, padding: '2px 5px', color: 'var(--text-muted)',
+                                }}
+                              >{isTagging ? 'CANCEL' : t.narrativeTag ? 'RETAG' : '+ TAG'}</button>
+                            </div>
+                            {isTagging && (
+                              <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap', paddingLeft: 4 }}>
+                                {QUICK_TAGS.map(tag => (
+                                  <button key={tag} onClick={() => handleTagToken(t.address, tag)} style={{
+                                    padding: '3px 7px', borderRadius: 4, fontSize: 8, fontFamily: 'var(--font-mono)',
+                                    fontWeight: 700, cursor: 'pointer', textTransform: 'uppercase',
+                                    background: 'rgba(0,212,255,0.07)', border: '1px solid rgba(0,212,255,0.25)',
+                                    color: 'var(--cyan)',
+                                  }}>{tag}</button>
+                                ))}
+                              </div>
+                            )}
+                          </div>
+                        )
+                      })}
                     </>
                   )}
                 </div>
@@ -4437,6 +4546,7 @@ export default function App() {
   const handleWalletSignIn = useCallback(async () => {
     if (!publicKey || !signMessage) return
     console.log('[Auth] Starting sign-in for', publicKey.toBase58().slice(0,8))
+    await new Promise(r => setTimeout(r, 300)) // let wallet modal fully close before sign
     try {
       const wallet = publicKey.toBase58()
       const nonceRes = await fetch(`${BACKEND_URL}/api/auth/nonce?wallet=${wallet}`)

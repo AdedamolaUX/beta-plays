@@ -171,6 +171,7 @@ const MIGRATIONS = [
   `ALTER TABLE watchlist ADD COLUMN IF NOT EXISTS price_at_add    NUMERIC`,
   `ALTER TABLE watchlist ADD COLUMN IF NOT EXISTS logo_url        TEXT`,
   `ALTER TABLE watchlist ADD COLUMN IF NOT EXISTS mcap_at_add     NUMERIC`,
+  `ALTER TABLE watchlist ADD COLUMN IF NOT EXISTS narrative_tag   TEXT`,
   // Session 31 — Folios: display name + public toggle on users
   `ALTER TABLE users ADD COLUMN IF NOT EXISTS display_name  TEXT`,
   `ALTER TABLE users ADD COLUMN IF NOT EXISTS folio_public  BOOLEAN DEFAULT TRUE`,
