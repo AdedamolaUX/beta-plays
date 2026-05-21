@@ -4262,7 +4262,7 @@ const AppFooter = () => (
 
 export default function App() {
   // ── Wallet auth ──────────────────────────────────────────────────
-  const { publicKey, signMessage, disconnect, connected, select, wallets } = useWallet()
+  const { publicKey, signMessage, disconnect, connected, select, connect, wallets } = useWallet()
   const [showWalletModal, setShowWalletModal] = useState(false)
   const [authToken,    setAuthToken]    = useState(() => localStorage.getItem('betaplays_jwt') || null)
   const [authWallet,   setAuthWallet]   = useState(() => localStorage.getItem('betaplays_wallet') || null)
@@ -4473,7 +4473,7 @@ export default function App() {
             {wallets.filter(w => w.readyState === 'Installed' || w.readyState === 'Loadable').map(w => (
               <button
                 key={w.adapter.name}
-                onClick={() => { select(w.adapter.name); setShowWalletModal(false) }}
+                onClick={async () => { select(w.adapter.name); setShowWalletModal(false); try { await connect() } catch { /* user rejected */ } }}
                 style={{
                   display: 'flex', alignItems: 'center', gap: 12, width: '100%',
                   background: 'var(--surface-2)', border: '1px solid var(--border)',
