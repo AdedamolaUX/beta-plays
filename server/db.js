@@ -167,6 +167,14 @@ const MIGRATIONS = [
     UNIQUE (wallet_address, token_address)
   )`,
   `CREATE INDEX IF NOT EXISTS idx_watchlist_wallet ON watchlist(wallet_address)`,
+  // Session 31 — Folios: price tracking + display fields on watchlist
+  `ALTER TABLE watchlist ADD COLUMN IF NOT EXISTS price_at_add    NUMERIC`,
+  `ALTER TABLE watchlist ADD COLUMN IF NOT EXISTS logo_url        TEXT`,
+  `ALTER TABLE watchlist ADD COLUMN IF NOT EXISTS mcap_at_add     NUMERIC`,
+  // Session 31 — Folios: display name + public toggle on users
+  `ALTER TABLE users ADD COLUMN IF NOT EXISTS display_name  TEXT`,
+  `ALTER TABLE users ADD COLUMN IF NOT EXISTS folio_public  BOOLEAN DEFAULT TRUE`,
+  `ALTER TABLE users ADD COLUMN IF NOT EXISTS folio_name    TEXT`,
 ]
 
 async function init () {

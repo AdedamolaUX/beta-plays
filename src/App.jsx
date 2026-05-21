@@ -1526,13 +1526,42 @@ const AdminNominationPanel = ({ onClose }) => {
   )
 }
 
-const AlphaBoard = ({ selectedAlpha, onSelect, onNewRunners, onLiveAlphas, onSznCards, onCoolingAlphas, onCustomSearch, customAlphaLoading, onRegisterClearSearch, alphaListRef, searchResults, onSelectSearchResult, defaultTab = 'live' }) => {
+const AlphaBoard = ({ selectedAlpha, onSelect, onNewRunners, onLiveAlphas, onSznCards, onCoolingAlphas, onCustomSearch, customAlphaLoading, onRegisterClearSearch, alphaListRef, searchResults, onSelectSearchResult, defaultTab = 'live', authToken, isAuthed }) => {
   const [activeTab,        setActiveTab]        = useState(defaultTab)
   const [searchQuery,      setSearchQuery]      = useState('')
   useEffect(() => {
     if (onRegisterClearSearch) onRegisterClearSearch(() => setSearchQuery(''))
   }, [])
   const [showAdminPanel,   setShowAdminPanel]   = useState(false)
+  // ── Folio state ───────────────────────────────────────────────
+  const [folioLeaderboard, setFolioLeaderboard] = useState([])
+  const [folioLoading,     setFolioLoading]     = useState(false)
+  const [folioView,        setFolioView]        = useState('leaderboard') // 'leaderboard' | 'mine'
+  const [folioNameEdit,    setFolioNameEdit]    = useState('')
+  const [folioSaving,      setFolioSaving]      = useState(false)
+
+  // Load leaderboard when Folio tab opens
+  useEffect(() => {
+    if (activeTab !== 'folio') return
+    setFolioLoading(true)
+    fetch(`${BACKEND_URL}/api/folio/leaderboard`)
+      .then(r => r.json())
+      .then(data => { setFolioLeaderboard(data.folios || []); setFolioLoading(false) })
+      .catch(() => setFolioLoading(false))
+  }, [activeTab])
+
+  const handleSaveFolioName = async () => {
+    if (!authToken || !folioNameEdit.trim()) return
+    setFolioSaving(true)
+    try {
+      await fetch(`${BACKEND_URL}/api/folio/settings`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${authToken}` },
+        body: JSON.stringify({ folioName: folioNameEdit.trim() }),
+      })
+    } catch { /* non-fatal */ }
+    setFolioSaving(false)
+  }
   const [coolingTimeframe, setCoolingTimeframe] = useState('24h')
   const [volumeRising,     setVolumeRising]     = useState(false)
   const [watchlist,        setWatchlist]        = useState(() => getWatchlistRaw())
@@ -1698,9 +1727,31 @@ const AlphaBoard = ({ selectedAlpha, onSelect, onNewRunners, onLiveAlphas, onSzn
         ? prev.filter(a => a.address !== alpha.address)
         : [{ ...alpha, watchedAt: Date.now() }, ...prev]
       saveWatchlistRaw(next)
+      // Sync to Supabase if authed
+      if (isAuthed && authToken) {
+        if (isWatched) {
+          fetch(`${BACKEND_URL}/api/watchlist/${alpha.address}`, {
+            method: 'DELETE',
+            headers: { Authorization: `Bearer ${authToken}` },
+          }).catch(() => {})
+        } else {
+          fetch(`${BACKEND_URL}/api/watchlist`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${authToken}` },
+            body: JSON.stringify({
+              token_address: alpha.address,
+              symbol:        alpha.symbol,
+              name:          alpha.name,
+              price_at_add:  alpha.priceUsd || alpha.price || null,
+              logo_url:      alpha.logoUrl || null,
+              mcap_at_add:   alpha.marketCap || alpha.mcap || null,
+            }),
+          }).catch(() => {})
+        }
+      }
       return next
     })
-  }, [])
+  }, [isAuthed, authToken])
 
   // ── Cooling timeframe filter ───────────────────────────────────
   const TIMEFRAME_MS = { '24h': 86400000, '3d': 3 * 86400000, '7d': 7 * 86400000 }
@@ -1867,7 +1918,7 @@ const AlphaBoard = ({ selectedAlpha, onSelect, onNewRunners, onLiveAlphas, onSzn
     activeTab === 'cooling'     ? filteredCooling     :
     activeTab === 'positioning' ? positioningAlphas   :
     activeTab === 'watch'       ? watchlist           :
-
+    activeTab === 'folio'       ? []                  :
     activeTab === 'runners'     ? []                  :
     legends
 
@@ -2018,7 +2069,7 @@ const AlphaBoard = ({ selectedAlpha, onSelect, onNewRunners, onLiveAlphas, onSzn
     { key: 'cooling',     label: '❄️ COOLING PLAYS',  count: null                     },
     { key: 'positioning', label: '🎯 Position',       count: null                     },
     { key: 'watch',       label: '⭐ Watchlist',       count: watchlist.length         },
-
+    { key: 'folio',       label: '🏆 Folios',          count: null                     },
     { key: 'runners',     label: '🏁 Past Runners',   count: null                     },
     { key: 'legends',     label: '🏆 OGs',            count: legends.length           },
   ]
@@ -2243,6 +2294,118 @@ const AlphaBoard = ({ selectedAlpha, onSelect, onNewRunners, onLiveAlphas, onSzn
             <p style={{ fontFamily: 'var(--font-mono)', fontSize: 10, color: 'var(--text-muted)', lineHeight: 1.6, margin: 0, borderLeft: '2px solid var(--amber)', paddingLeft: 8 }}>
               Your starred tokens. ☆ star any runner, cooling token, or positioning play to save it here.
             </p>
+          )}
+          {activeTab === 'folio' && (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+              {/* Sub-nav */}
+              <div style={{ display: 'flex', gap: 6 }}>
+                {['leaderboard', 'mine'].map(v => (
+                  <button key={v} onClick={() => setFolioView(v)} style={{
+                    padding: '4px 10px', borderRadius: 6, fontSize: 10, fontFamily: 'var(--font-mono)',
+                    fontWeight: 700, cursor: 'pointer', letterSpacing: '0.06em',
+                    background: folioView === v ? 'rgba(0,212,255,0.12)' : 'transparent',
+                    border: folioView === v ? '1px solid rgba(0,212,255,0.4)' : '1px solid var(--border)',
+                    color: folioView === v ? 'var(--cyan)' : 'var(--text-muted)',
+                    transition: 'all 0.15s ease',
+                  }}>
+                    {v === 'leaderboard' ? '🏆 LEADERBOARD' : '👤 MY FOLIO'}
+                  </button>
+                ))}
+              </div>
+
+              {/* Leaderboard view */}
+              {folioView === 'leaderboard' && (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                  {folioLoading && <p style={{ fontFamily: 'var(--font-mono)', fontSize: 10, color: 'var(--text-muted)' }}>Loading leaderboard...</p>}
+                  {!folioLoading && folioLeaderboard.length === 0 && (
+                    <p style={{ fontFamily: 'var(--font-mono)', fontSize: 10, color: 'var(--text-muted)', lineHeight: 1.6, borderLeft: '2px solid var(--border)', paddingLeft: 8 }}>
+                      No public folios yet. Connect your wallet, star some tokens, and your folio will appear here.
+                    </p>
+                  )}
+                  {folioLeaderboard.map((folio, i) => {
+                    const tokens = folio.tokens || []
+                    const withPrices = tokens.filter(t => t.price_at_add > 0)
+                    const label = folio.folio_name || `${folio.wallet_address?.slice(0,4)}…${folio.wallet_address?.slice(-4)}`
+                    return (
+                      <div key={folio.wallet_address} style={{
+                        background: 'var(--surface-2)', border: '1px solid var(--border)',
+                        borderRadius: 10, padding: '10px 12px', display: 'flex', flexDirection: 'column', gap: 6,
+                      }}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                            <span style={{ fontFamily: 'var(--font-mono)', fontSize: 10, color: 'var(--text-muted)', fontWeight: 700 }}>#{i + 1}</span>
+                            <span style={{ fontFamily: 'var(--font-display)', fontSize: 12, color: 'var(--text-primary)', fontWeight: 700 }}>{label}</span>
+                          </div>
+                          <span style={{ fontFamily: 'var(--font-mono)', fontSize: 9, color: 'var(--text-muted)' }}>{tokens.length} tokens</span>
+                        </div>
+                        <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>
+                          {tokens.slice(0, 6).map(t => (
+                            <span key={t.address} style={{
+                              fontFamily: 'var(--font-mono)', fontSize: 9, fontWeight: 700,
+                              background: 'rgba(255,255,255,0.04)', border: '1px solid var(--border)',
+                              borderRadius: 4, padding: '2px 5px', color: 'var(--text-secondary)',
+                            }}>${t.symbol}</span>
+                          ))}
+                          {tokens.length > 6 && <span style={{ fontFamily: 'var(--font-mono)', fontSize: 9, color: 'var(--text-muted)' }}>+{tokens.length - 6}</span>}
+                        </div>
+                      </div>
+                    )
+                  })}
+                </div>
+              )}
+
+              {/* My Folio view */}
+              {folioView === 'mine' && (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+                  {!isAuthed ? (
+                    <p style={{ fontFamily: 'var(--font-mono)', fontSize: 10, color: 'var(--text-muted)', lineHeight: 1.6, borderLeft: '2px solid var(--border)', paddingLeft: 8 }}>
+                      Connect your wallet to create a folio and appear on the leaderboard.
+                    </p>
+                  ) : (
+                    <>
+                      <div style={{ display: 'flex', gap: 6 }}>
+                        <input
+                          value={folioNameEdit}
+                          onChange={e => setFolioNameEdit(e.target.value)}
+                          placeholder="Name your folio..."
+                          style={{
+                            flex: 1, background: 'var(--surface-2)', border: '1px solid var(--border)',
+                            borderRadius: 6, padding: '6px 8px', color: 'var(--text-primary)',
+                            fontFamily: 'var(--font-mono)', fontSize: 11, outline: 'none',
+                          }}
+                        />
+                        <button onClick={handleSaveFolioName} disabled={folioSaving || !folioNameEdit.trim()} style={{
+                          padding: '6px 10px', borderRadius: 6, fontSize: 10, fontFamily: 'var(--font-mono)',
+                          fontWeight: 700, cursor: 'pointer', background: 'rgba(0,212,255,0.1)',
+                          border: '1px solid rgba(0,212,255,0.3)', color: 'var(--cyan)',
+                          opacity: folioSaving || !folioNameEdit.trim() ? 0.5 : 1,
+                        }}>
+                          {folioSaving ? '...' : 'SAVE'}
+                        </button>
+                      </div>
+                      <p style={{ fontFamily: 'var(--font-mono)', fontSize: 10, color: 'var(--text-muted)', lineHeight: 1.6, margin: 0 }}>
+                        Your folio = your watchlist. Star tokens to add them. Entry prices are recorded automatically.
+                      </p>
+                      {watchlist.length === 0 && (
+                        <p style={{ fontFamily: 'var(--font-mono)', fontSize: 10, color: 'var(--text-muted)', borderLeft: '2px solid var(--border)', paddingLeft: 8 }}>
+                          No tokens starred yet. Go to Live or Cooling and star some runners.
+                        </p>
+                      )}
+                      {watchlist.slice(0, 10).map(t => (
+                        <div key={t.address} style={{
+                          display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+                          background: 'var(--surface-2)', border: '1px solid var(--border)',
+                          borderRadius: 8, padding: '8px 10px',
+                        }}>
+                          <span style={{ fontFamily: 'var(--font-mono)', fontSize: 11, fontWeight: 700, color: 'var(--text-primary)' }}>${t.symbol}</span>
+                          {t.priceUsd && <span style={{ fontFamily: 'var(--font-number)', fontSize: 10, color: 'var(--text-muted)' }}>${Number(t.priceUsd).toFixed(6)}</span>}
+                        </div>
+                      ))}
+                    </>
+                  )}
+                </div>
+              )}
+            </div>
           )}
           {activeTab === 'legends' && (
             <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
@@ -4462,7 +4625,7 @@ export default function App() {
       <Navbar onListBeta={() => setShowListModal(true)} newRunners={newRunners} liveAlphas={appLiveAlphas} coolingAlphas={appCoolingAlphas} onSettings={() => setShowSettings(true)} onWalletConnect={() => setWalletModalVisible(true)} onWalletSignIn={handleWalletSignIn} onWalletSignOut={handleSignOut} isAuthed={isAuthed} isConnected={connected} walletAddress={authWallet} />
       <NarrativeTicker liveAlphas={appLiveAlphas} sznCards={appSznCards} />
       <div className="main-layout" style={{ flex: 1, overflow: 'hidden' }}>
-        <AlphaBoard selectedAlpha={selectedAlpha} onSelect={handleSelectAlpha} onNewRunners={handleNewRunners} onLiveAlphas={setAppLiveAlphas} onSznCards={setAppSznCards} onCoolingAlphas={setAppCoolingAlphas} onCustomSearch={handleSearchCustomAlpha} customAlphaLoading={customAlphaLoading} onRegisterClearSearch={fn => { clearAlphaBoardSearch.current = fn }} alphaListRef={alphaListRef} searchResults={searchResults} onSelectSearchResult={(token) => { if (!token) { setSearchResults([]); return }; setSelectedAlpha(token); setSearchResults([]) }} defaultTab={settings.defaultTab} />
+        <AlphaBoard selectedAlpha={selectedAlpha} onSelect={handleSelectAlpha} onNewRunners={handleNewRunners} onLiveAlphas={setAppLiveAlphas} onSznCards={setAppSznCards} onCoolingAlphas={setAppCoolingAlphas} onCustomSearch={handleSearchCustomAlpha} customAlphaLoading={customAlphaLoading} onRegisterClearSearch={fn => { clearAlphaBoardSearch.current = fn }} alphaListRef={alphaListRef} searchResults={searchResults} onSelectSearchResult={(token) => { if (!token) { setSearchResults([]); return }; setSelectedAlpha(token); setSearchResults([]) }} defaultTab={settings.defaultTab} authToken={authToken} isAuthed={isAuthed} />
         {isSzn
           ? <SznPanel  szn={selectedAlpha}   onListBeta={() => setShowListModal(true)} onOpenDrawer={setDrawerToken} />
           : <BetaPanel alpha={selectedAlpha} liveAlphas={appLiveAlphas} onListBeta={() => setShowListModal(true)} onOpenDrawer={setDrawerToken} onSwap={(t) => openJupiterSwap(t)} onScrollToAlpha={handleScrollToAlpha} onCustomSearch={handleSearchCustomAlpha} customAlphaLoading={customAlphaLoading} customAlphaError={customAlphaError} settings={settings} />
