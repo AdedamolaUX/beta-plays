@@ -172,10 +172,21 @@ const MIGRATIONS = [
   `ALTER TABLE watchlist ADD COLUMN IF NOT EXISTS logo_url        TEXT`,
   `ALTER TABLE watchlist ADD COLUMN IF NOT EXISTS mcap_at_add     NUMERIC`,
   `ALTER TABLE watchlist ADD COLUMN IF NOT EXISTS narrative_tag   TEXT`,
-  // Session 31 — Folios: display name + public toggle on users
-  `ALTER TABLE users ADD COLUMN IF NOT EXISTS display_name  TEXT`,
-  `ALTER TABLE users ADD COLUMN IF NOT EXISTS folio_public  BOOLEAN DEFAULT TRUE`,
-  `ALTER TABLE users ADD COLUMN IF NOT EXISTS folio_name    TEXT`,
+  // Session 31 — Folios: public calls table (separate from private watchlist)
+  `CREATE TABLE IF NOT EXISTS folio (
+    id               SERIAL PRIMARY KEY,
+    wallet_address   TEXT NOT NULL REFERENCES users(wallet_address) ON DELETE CASCADE,
+    token_address    TEXT NOT NULL,
+    symbol           TEXT,
+    name             TEXT,
+    logo_url         TEXT,
+    price_at_call    NUMERIC,
+    mcap_at_call     NUMERIC,
+    called_at        TIMESTAMPTZ DEFAULT NOW(),
+    UNIQUE (wallet_address, token_address)
+  )`,
+  `CREATE INDEX IF NOT EXISTS idx_folio_wallet ON folio(wallet_address)`,
+  `CREATE INDEX IF NOT EXISTS idx_folio_called ON folio(called_at DESC)`,
 ]
 
 async function init () {

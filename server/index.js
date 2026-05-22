@@ -3770,46 +3770,123 @@ setInterval(() => {
 // ─── End Auth ─────────────────────────────────────────────────────────────────
 
 // ─── Folios (Session 31) ──────────────────────────────────────────────────────
-// A Folio is the public view of a user's watchlist — tokens they're tracking
-// with entry prices, used for leaderboard ranking by portfolio performance.
+// Folio = public calls. Separate from private watchlist.
+// Entry price locked at call time. Leaderboard ranks by avg P&L.
 
-// Server-side leaderboard cache — recomputed every 5 minutes
 let _leaderboardCache = null
 let _leaderboardCacheAt = 0
 const LEADERBOARD_TTL = 5 * 60 * 1000
 
-// GET /api/folio/leaderboard — top folios ranked by avg token performance
+// POST /api/folio/call — add token to folio with locked entry price (JWT required)
+app.post('/api/folio/call', requireAuth, async (req, res) => {
+  const { token_address, symbol, name, logo_url, price_at_call, mcap_at_call } = req.body
+  if (!token_address) return res.status(400).json({ error: 'token_address required' })
+  try {
+    // Ensure user row exists
+    await db.query(
+      `INSERT INTO users (wallet_address) VALUES ($1) ON CONFLICT (wallet_address) DO NOTHING`,
+      [req.user.wallet]
+    )
+    await db.query(
+      `INSERT INTO folio (wallet_address, token_address, symbol, name, logo_url, price_at_call, mcap_at_call)
+       VALUES ($1, $2, $3, $4, $5, $6, $7)
+       ON CONFLICT (wallet_address, token_address) DO NOTHING`,
+      [req.user.wallet, token_address, symbol || null, name || null,
+       logo_url || null, price_at_call || null, mcap_at_call || null]
+    )
+    _leaderboardCache = null // invalidate cache
+    res.json({ ok: true })
+  } catch (err) {
+    console.error('[Folio] Call error:', err.message)
+    res.status(500).json({ error: err.message })
+  }
+})
+
+// DELETE /api/folio/call/:address — remove a call (JWT required)
+app.delete('/api/folio/call/:address', requireAuth, async (req, res) => {
+  try {
+    await db.query(
+      `DELETE FROM folio WHERE wallet_address = $1 AND token_address = $2`,
+      [req.user.wallet, req.params.address]
+    )
+    _leaderboardCache = null
+    res.json({ ok: true })
+  } catch (err) {
+    res.status(500).json({ error: err.message })
+  }
+})
+
+// GET /api/folio/mine — get current user's folio calls (JWT required)
+app.get('/api/folio/mine', requireAuth, async (req, res) => {
+  try {
+    const result = await db.query(
+      `SELECT token_address, symbol, name, logo_url, price_at_call, mcap_at_call, called_at
+       FROM folio WHERE wallet_address = $1 ORDER BY called_at DESC`,
+      [req.user.wallet]
+    )
+    res.json(result.rows)
+  } catch (err) {
+    res.status(500).json({ error: err.message })
+  }
+})
+
+// GET /api/folio/search?q= — search token by ticker or CA for manual folio add
+app.get('/api/folio/search', async (req, res) => {
+  const { q } = req.query
+  if (!q || q.length < 2) return res.json([])
+  try {
+    // Try DEXScreener search
+    const isCA = q.length >= 32
+    const url = isCA
+      ? `https://api.dexscreener.com/latest/dex/tokens/${q}`
+      : `https://api.dexscreener.com/latest/dex/search?q=${encodeURIComponent(q)}`
+    const r = await fetch(url, { headers: { 'User-Agent': 'BetaPlays/1.0' } })
+    const data = await r.json()
+    const pairs = (data.pairs || [])
+      .filter(p => p.chainId === 'solana' && parseFloat(p.liquidity?.usd || 0) > 500)
+      .slice(0, 5)
+      .map(p => ({
+        address:   p.baseToken?.address,
+        symbol:    p.baseToken?.symbol,
+        name:      p.baseToken?.name,
+        price:     parseFloat(p.priceUsd || 0),
+        mcap:      p.marketCap || 0,
+        liquidity: p.liquidity?.usd || 0,
+        change24h: p.priceChange?.h24 || 0,
+        logoUrl:   p.info?.imageUrl || null,
+      }))
+    res.json(pairs)
+  } catch (err) {
+    res.status(500).json({ error: err.message })
+  }
+})
+
+// GET /api/folio/leaderboard — ranked by avg % gain since call
 app.get('/api/folio/leaderboard', async (req, res) => {
   try {
     if (_leaderboardCache && Date.now() - _leaderboardCacheAt < LEADERBOARD_TTL) {
       return res.json(_leaderboardCache)
     }
-    // Get all public folios with their tokens and entry prices
     const result = await db.query(`
       SELECT
         u.wallet_address,
         u.folio_name,
-        u.display_name,
         u.first_seen,
-        COUNT(w.token_address)                          AS token_count,
-        COUNT(DISTINCT w.narrative_tag)
-          FILTER (WHERE w.narrative_tag IS NOT NULL)    AS narrative_count,
+        COUNT(f.token_address)          AS call_count,
         json_agg(json_build_object(
-          'address',       w.token_address,
-          'symbol',        w.symbol,
-          'name',          w.name,
-          'logo_url',      w.logo_url,
-          'price_at_add',  w.price_at_add,
-          'mcap_at_add',   w.mcap_at_add,
-          'narrative_tag', w.narrative_tag,
-          'added_at',      w.added_at
-        ) ORDER BY w.added_at DESC)                     AS tokens
+          'address',       f.token_address,
+          'symbol',        f.symbol,
+          'name',          f.name,
+          'logo_url',      f.logo_url,
+          'price_at_call', f.price_at_call,
+          'mcap_at_call',  f.mcap_at_call,
+          'called_at',     f.called_at
+        ) ORDER BY f.called_at DESC)    AS calls
       FROM users u
-      JOIN watchlist w ON w.wallet_address = u.wallet_address
-      WHERE u.folio_public = TRUE
-      GROUP BY u.wallet_address, u.folio_name, u.display_name, u.first_seen
-      HAVING COUNT(w.token_address) >= 1
-      ORDER BY COUNT(w.token_address) DESC
+      JOIN folio f ON f.wallet_address = u.wallet_address
+      GROUP BY u.wallet_address, u.folio_name, u.first_seen
+      HAVING COUNT(f.token_address) >= 1
+      ORDER BY COUNT(f.token_address) DESC
       LIMIT 50
     `)
     _leaderboardCache = { folios: result.rows, updatedAt: Date.now() }
@@ -3828,47 +3905,38 @@ app.get('/api/folio/:wallet', async (req, res) => {
   if (!wallet || wallet.length < 32) return res.status(400).json({ error: 'Invalid wallet' })
   try {
     const userResult = await db.query(
-      `SELECT wallet_address, folio_name, display_name, folio_public, first_seen
-       FROM users WHERE wallet_address = $1`,
+      `SELECT wallet_address, folio_name, first_seen FROM users WHERE wallet_address = $1`,
       [wallet]
     )
     if (!userResult.rows.length) return res.status(404).json({ error: 'Folio not found' })
     const user = userResult.rows[0]
-    if (!user.folio_public) return res.status(403).json({ error: 'This folio is private' })
-
-    const tokensResult = await db.query(
-      `SELECT token_address, symbol, name, logo_url, price_at_add, mcap_at_add, added_at
-       FROM watchlist WHERE wallet_address = $1 ORDER BY added_at DESC`,
+    const callsResult = await db.query(
+      `SELECT token_address, symbol, name, logo_url, price_at_call, mcap_at_call, called_at
+       FROM folio WHERE wallet_address = $1 ORDER BY called_at DESC`,
       [wallet]
     )
     res.json({
-      wallet:     user.wallet_address,
-      folioName:  user.folio_name || `${wallet.slice(0,4)}…${wallet.slice(-4)}`,
+      wallet:      user.wallet_address,
+      folioName:   user.folio_name || `${wallet.slice(0,4)}…${wallet.slice(-4)}`,
       memberSince: user.first_seen,
-      tokens:     tokensResult.rows,
+      calls:       callsResult.rows,
     })
   } catch (err) {
-    console.error('[Folio] Get folio error:', err.message)
-    res.status(500).json({ error: 'DB error' })
+    res.status(500).json({ error: err.message })
   }
 })
 
-// PATCH /api/folio/settings — update folio name + public toggle (JWT required)
+// PATCH /api/folio/settings — update folio name (JWT required)
 app.patch('/api/folio/settings', requireAuth, async (req, res) => {
-  const { folioName, folioPublic } = req.body
+  const { folioName } = req.body
   try {
-    // Ensure user row exists first (upsert) then update
     await db.query(
-      `INSERT INTO users (wallet_address) VALUES ($1)
-       ON CONFLICT (wallet_address) DO NOTHING`,
+      `INSERT INTO users (wallet_address) VALUES ($1) ON CONFLICT (wallet_address) DO NOTHING`,
       [req.user.wallet]
     )
     await db.query(
-      `UPDATE users SET
-         folio_name   = COALESCE($1, folio_name),
-         folio_public = COALESCE($2, folio_public)
-       WHERE wallet_address = $3`,
-      [folioName ?? null, folioPublic ?? null, req.user.wallet]
+      `UPDATE users SET folio_name = COALESCE($1, folio_name) WHERE wallet_address = $2`,
+      [folioName ?? null, req.user.wallet]
     )
     res.json({ ok: true })
   } catch (err) {
@@ -3878,6 +3946,7 @@ app.patch('/api/folio/settings', requireAuth, async (req, res) => {
 })
 
 // ─── End Folios ───────────────────────────────────────────────────────────────
+
 
 const PORT = process.env.PORT || 3001
 app.listen(PORT, async () => {
