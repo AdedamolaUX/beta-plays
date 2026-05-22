@@ -3875,7 +3875,7 @@ app.patch('/api/folio/settings', requireAuth, async (req, res) => {
     console.error('[Folio] Settings update error:', err.message)
     res.status(500).json({ error: err.message })
   }
-}))
+})
 
 // ─── End Folios ───────────────────────────────────────────────────────────────
 
