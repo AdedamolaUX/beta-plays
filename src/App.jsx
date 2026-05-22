@@ -1542,7 +1542,7 @@ const AdminNominationPanel = ({ onClose }) => {
   )
 }
 
-const AlphaBoard = ({ selectedAlpha, onSelect, onNewRunners, onLiveAlphas, onSznCards, onCoolingAlphas, onCustomSearch, customAlphaLoading, onRegisterClearSearch, alphaListRef, searchResults, onSelectSearchResult, defaultTab = 'live', authToken, isAuthed, onFolioCall, folioCallAddrs }) => {
+const AlphaBoard = ({ selectedAlpha, onSelect, onNewRunners, onLiveAlphas, onSznCards, onCoolingAlphas, onCustomSearch, customAlphaLoading, onRegisterClearSearch, alphaListRef, searchResults, onSelectSearchResult, defaultTab = 'live', authToken, isAuthed, onFolioCall, folioCallAddrs, folioLeaderboard, folioLoading, folioView, setFolioView, folioNameEdit, setFolioNameEdit, folioSaving, folioSaveMsg, folioCalls, folioSearch, folioSearchRes, folioSearching, onSaveFolioName, onFolioSearch, onFolioLeaderboard }) => {
   const [activeTab,        setActiveTab]        = useState(defaultTab)
   const [searchQuery,      setSearchQuery]      = useState('')
   useEffect(() => {
@@ -1550,112 +1550,6 @@ const AlphaBoard = ({ selectedAlpha, onSelect, onNewRunners, onLiveAlphas, onSzn
   }, [])
   const [showAdminPanel,   setShowAdminPanel]   = useState(false)
   // ── Folio state ───────────────────────────────────────────────
-  const [folioLeaderboard, setFolioLeaderboard] = useState([])
-  const [folioLoading,     setFolioLoading]     = useState(false)
-  const [folioView,        setFolioView]        = useState('leaderboard')
-  const [folioNameEdit,    setFolioNameEdit]    = useState('')
-  const [folioSaving,      setFolioSaving]      = useState(false)
-  const [folioSaveMsg,     setFolioSaveMsg]     = useState('')
-  const [folioCalls,       setFolioCalls]       = useState([]) // my folio calls
-  const [folioCallAddrs,   setFolioCallAddrs]   = useState(new Set()) // fast lookup
-  const [folioSearch,      setFolioSearch]      = useState('')
-  const [folioSearchRes,   setFolioSearchRes]   = useState([])
-  const [folioSearching,   setFolioSearching]   = useState(false)
-
-  // Load leaderboard when Folio tab opens
-  useEffect(() => {
-    if (activeTab !== 'folio') return
-    setFolioLoading(true)
-    fetch(`${BACKEND_URL}/api/folio/leaderboard`)
-      .then(r => r.json())
-      .then(data => { setFolioLeaderboard(data.folios || []); setFolioLoading(false) })
-      .catch(() => setFolioLoading(false))
-  }, [activeTab])
-
-  const [folioSaveMsg,     setFolioSaveMsg]     = useState('')
-
-  const handleSaveFolioName = async () => {
-    if (!authToken || !folioNameEdit.trim()) return
-    setFolioSaving(true)
-    setFolioSaveMsg('')
-    try {
-      const res = await fetch(`${BACKEND_URL}/api/folio/settings`, {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${authToken}` },
-        body: JSON.stringify({ folioName: folioNameEdit.trim() }),
-      })
-      if (res.ok) { setFolioSaveMsg('✓ Saved'); setTimeout(() => setFolioSaveMsg(''), 2000) }
-      else { const e = await res.json().catch(() => ({})); setFolioSaveMsg(`Error: ${e.error || res.status}`) }
-    } catch (e) { setFolioSaveMsg(`Error: ${e.message}`) }
-    setFolioSaving(false)
-  }
-
-  // Load my folio calls when authed and on folio tab
-  useEffect(() => {
-    if (!isAuthed || !authToken || activeTab !== 'folio') return
-    fetch(`${BACKEND_URL}/api/folio/mine`, { headers: { Authorization: `Bearer ${authToken}` } })
-      .then(r => r.json())
-      .then(rows => {
-        if (!Array.isArray(rows)) return
-        setFolioCalls(rows)
-        setFolioCallAddrs(new Set(rows.map(r => r.token_address)))
-      }).catch(() => {})
-  }, [isAuthed, authToken, activeTab]) // eslint-disable-line
-
-  // Load leaderboard when on leaderboard view
-  useEffect(() => {
-    if (activeTab !== 'folio' || folioView !== 'leaderboard') return
-    setFolioLoading(true)
-    fetch(`${BACKEND_URL}/api/folio/leaderboard`)
-      .then(r => r.json())
-      .then(data => { setFolioLeaderboard(data.folios || []); setFolioLoading(false) })
-      .catch(() => setFolioLoading(false))
-  }, [activeTab, folioView])
-
-  // Handle folio call (🎯 button)
-  const handleFolioCall = useCallback(async (token) => {
-    if (!isAuthed || !authToken) return
-    const address = token.address || token.token_address
-    const alreadyCalled = folioCallAddrs.has(address)
-    if (alreadyCalled) {
-      // Remove call
-      await fetch(`${BACKEND_URL}/api/folio/call/${address}`, {
-        method: 'DELETE', headers: { Authorization: `Bearer ${authToken}` },
-      }).catch(() => {})
-      setFolioCalls(prev => prev.filter(c => c.token_address !== address))
-      setFolioCallAddrs(prev => { const s = new Set(prev); s.delete(address); return s })
-    } else {
-      // Add call with locked entry price
-      const body = {
-        token_address: address,
-        symbol:        token.symbol,
-        name:          token.name,
-        logo_url:      token.logoUrl || token.logo_url || null,
-        price_at_call: token.priceUsd || token.price_at_call || null,
-        mcap_at_call:  token.marketCap || token.mcap || token.mcap_at_call || null,
-      }
-      await fetch(`${BACKEND_URL}/api/folio/call`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${authToken}` },
-        body: JSON.stringify(body),
-      }).catch(() => {})
-      setFolioCalls(prev => [{ ...body, token_address: address, called_at: new Date().toISOString() }, ...prev])
-      setFolioCallAddrs(prev => new Set([...prev, address]))
-    }
-  }, [isAuthed, authToken, folioCallAddrs])
-
-  // Folio search handler
-  const handleFolioSearch = useCallback(async (q) => {
-    setFolioSearch(q)
-    if (q.length < 2) { setFolioSearchRes([]); return }
-    setFolioSearching(true)
-    try {
-      const r = await fetch(`${BACKEND_URL}/api/folio/search?q=${encodeURIComponent(q)}`)
-      const data = await r.json()
-      setFolioSearchRes(Array.isArray(data) ? data : [])
-    } catch { setFolioSearchRes([]) }
-    setFolioSearching(false)
-  }, [])
   const [coolingTimeframe, setCoolingTimeframe] = useState('24h')
   const [volumeRising,     setVolumeRising]     = useState(false)
   const [watchlist,        setWatchlist]        = useState(() => getWatchlistRaw())
@@ -2257,7 +2151,7 @@ const AlphaBoard = ({ selectedAlpha, onSelect, onNewRunners, onLiveAlphas, onSzn
           <button
             key={key}
             className={`tab-btn ${activeTab === key ? 'active' : ''} ${noUppercase ? 'mixed-case' : ''}`}
-            onClick={() => { setActiveTab(key); setSearchQuery('') }}
+            onClick={() => { setActiveTab(key); setSearchQuery(''); if (key === 'folio' && folioView === 'leaderboard') onFolioLeaderboard() }}
             style={{ flex: '0 0 auto', textAlign: 'center' }}
           >
             {label}
@@ -2394,7 +2288,7 @@ const AlphaBoard = ({ selectedAlpha, onSelect, onNewRunners, onLiveAlphas, onSzn
               {/* Sub-nav */}
               <div style={{ display: 'flex', gap: 6 }}>
                 {['leaderboard', 'mine'].map(v => (
-                  <button key={v} onClick={() => setFolioView(v)} style={{
+                  <button key={v} onClick={() => { setFolioView(v); if (v === 'leaderboard') onFolioLeaderboard() }} style={{
                     padding: '4px 10px', borderRadius: 6, fontSize: 10, fontFamily: 'var(--font-mono)',
                     fontWeight: 700, cursor: 'pointer', letterSpacing: '0.06em',
                     background: folioView === v ? 'rgba(0,212,255,0.12)' : 'transparent',
@@ -2467,7 +2361,7 @@ const AlphaBoard = ({ selectedAlpha, onSelect, onNewRunners, onLiveAlphas, onSzn
                       <div style={{ display: 'flex', gap: 6 }}>
                         <input value={folioNameEdit} onChange={e => setFolioNameEdit(e.target.value)} placeholder="Name your folio..."
                           style={{ flex: 1, background: 'var(--surface-2)', border: '1px solid var(--border)', borderRadius: 6, padding: '6px 8px', color: 'var(--text-primary)', fontFamily: 'var(--font-mono)', fontSize: 11, outline: 'none' }} />
-                        <button onClick={handleSaveFolioName} disabled={folioSaving || !folioNameEdit.trim()}
+                        <button onClick={onSaveFolioName} disabled={folioSaving || !folioNameEdit.trim()}
                           style={{ padding: '6px 10px', borderRadius: 6, fontSize: 10, fontFamily: 'var(--font-mono)', fontWeight: 700, cursor: 'pointer', background: 'rgba(0,212,255,0.1)', border: '1px solid rgba(0,212,255,0.3)', color: 'var(--cyan)', opacity: folioSaving || !folioNameEdit.trim() ? 0.5 : 1 }}>
                           {folioSaving ? '...' : 'SAVE'}
                         </button>
@@ -2476,7 +2370,7 @@ const AlphaBoard = ({ selectedAlpha, onSelect, onNewRunners, onLiveAlphas, onSzn
 
                       {/* Search / add by CA or ticker */}
                       <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-                        <input value={folioSearch} onChange={e => handleFolioSearch(e.target.value)} placeholder="Add by CA or ticker..."
+                        <input value={folioSearch} onChange={e => onFolioSearch(e.target.value)} placeholder="Add by CA or ticker..."
                           style={{ width: '100%', background: 'var(--surface-2)', border: '1px solid var(--border)', borderRadius: 6, padding: '6px 8px', color: 'var(--text-primary)', fontFamily: 'var(--font-mono)', fontSize: 11, outline: 'none', boxSizing: 'border-box' }} />
                         {folioSearching && <p style={{ fontFamily: 'var(--font-mono)', fontSize: 9, color: 'var(--text-muted)' }}>Searching...</p>}
                         {folioSearchRes.map(t => (
@@ -2485,7 +2379,7 @@ const AlphaBoard = ({ selectedAlpha, onSelect, onNewRunners, onLiveAlphas, onSzn
                               <span style={{ fontFamily: 'var(--font-mono)', fontSize: 11, fontWeight: 700, color: 'var(--text-primary)' }}>${t.symbol}</span>
                               <span style={{ fontFamily: 'var(--font-mono)', fontSize: 9, color: 'var(--text-muted)', marginLeft: 6 }}>{t.name}</span>
                             </div>
-                            <button onClick={() => { handleFolioCall(t); setFolioSearch(''); setFolioSearchRes([]) }}
+                            <button onClick={() => { onFolioCall(t); setFolioSearch(''); setFolioSearchRes([]) }}
                               style={{ padding: '3px 8px', borderRadius: 4, fontSize: 9, fontFamily: 'var(--font-mono)', fontWeight: 700, cursor: 'pointer', background: folioCallAddrs.has(t.address) ? 'rgba(57,255,20,0.1)' : 'rgba(0,212,255,0.08)', border: folioCallAddrs.has(t.address) ? '1px solid rgba(57,255,20,0.3)' : '1px solid rgba(0,212,255,0.25)', color: folioCallAddrs.has(t.address) ? 'var(--neon-green)' : 'var(--cyan)' }}>
                               {folioCallAddrs.has(t.address) ? '🎯 CALLED' : '🎯 CALL IT'}
                             </button>
@@ -2508,7 +2402,7 @@ const AlphaBoard = ({ selectedAlpha, onSelect, onNewRunners, onLiveAlphas, onSzn
                             <span style={{ fontFamily: 'var(--font-mono)', fontSize: 11, fontWeight: 700, color: 'var(--neon-green)' }}>🎯 ${c.symbol}</span>
                             {c.price_at_call && <span style={{ fontFamily: 'var(--font-number)', fontSize: 9, color: 'var(--text-muted)', marginLeft: 8 }}>@ ${Number(c.price_at_call).toFixed(6)}</span>}
                           </div>
-                          <button onClick={() => handleFolioCall({ address: c.token_address, symbol: c.symbol })}
+                          <button onClick={() => onFolioCall({ address: c.token_address, symbol: c.symbol })}
                             style={{ padding: '2px 6px', borderRadius: 4, fontSize: 8, fontFamily: 'var(--font-mono)', cursor: 'pointer', background: 'rgba(255,80,80,0.08)', border: '1px solid rgba(255,80,80,0.25)', color: '#ff5050' }}>
                             REMOVE
                           </button>
@@ -4608,6 +4502,98 @@ export default function App() {
   }, [])
 
   const { settings, updateSetting, resetSettings } = useSettings()
+
+  // ── Folio state (public calls system) ────────────────────────
+  const [folioLeaderboard, setFolioLeaderboard] = useState([])
+  const [folioLoading,     setFolioLoading]     = useState(false)
+  const [folioView,        setFolioView]        = useState('leaderboard')
+  const [folioNameEdit,    setFolioNameEdit]    = useState('')
+  const [folioSaving,      setFolioSaving]      = useState(false)
+  const [folioSaveMsg,     setFolioSaveMsg]     = useState('')
+  const [folioCalls,       setFolioCalls]       = useState([])
+  const [folioCallAddrs,   setFolioCallAddrs]   = useState(new Set())
+  const [folioSearch,      setFolioSearch]      = useState('')
+  const [folioSearchRes,   setFolioSearchRes]   = useState([])
+  const [folioSearching,   setFolioSearching]   = useState(false)
+  const [folioActiveTab,   setFolioActiveTab]   = useState('live') // track alpha tab for folio load
+
+  // Load my folio calls when authed (once on auth, not tab-gated so it's always ready)
+  useEffect(() => {
+    if (!isAuthed || !authToken) return
+    fetch(`${BACKEND_URL}/api/folio/mine`, { headers: { Authorization: `Bearer ${authToken}` } })
+      .then(r => r.json())
+      .then(rows => {
+        if (!Array.isArray(rows)) return
+        setFolioCalls(rows)
+        setFolioCallAddrs(new Set(rows.map(r => r.token_address)))
+      }).catch(() => {})
+  }, [isAuthed, authToken]) // eslint-disable-line
+
+  const handleSaveFolioName = useCallback(async () => {
+    if (!authToken || !folioNameEdit.trim()) return
+    setFolioSaving(true)
+    setFolioSaveMsg('')
+    try {
+      const res = await fetch(`${BACKEND_URL}/api/folio/settings`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${authToken}` },
+        body: JSON.stringify({ folioName: folioNameEdit.trim() }),
+      })
+      if (res.ok) { setFolioSaveMsg('✓ Saved'); setTimeout(() => setFolioSaveMsg(''), 2000) }
+      else { const e = await res.json().catch(() => ({})); setFolioSaveMsg(`Error: ${e.error || res.status}`) }
+    } catch (e) { setFolioSaveMsg(`Error: ${e.message}`) }
+    setFolioSaving(false)
+  }, [authToken, folioNameEdit])
+
+  const handleFolioCall = useCallback(async (token) => {
+    if (!isAuthed || !authToken) return
+    const address = token.address || token.token_address
+    const alreadyCalled = folioCallAddrs.has(address)
+    if (alreadyCalled) {
+      await fetch(`${BACKEND_URL}/api/folio/call/${address}`, {
+        method: 'DELETE', headers: { Authorization: `Bearer ${authToken}` },
+      }).catch(() => {})
+      setFolioCalls(prev => prev.filter(c => c.token_address !== address))
+      setFolioCallAddrs(prev => { const s = new Set(prev); s.delete(address); return s })
+    } else {
+      const body = {
+        token_address: address,
+        symbol:        token.symbol,
+        name:          token.name,
+        logo_url:      token.logoUrl || token.logo_url || null,
+        price_at_call: token.priceUsd || token.price_at_call || null,
+        mcap_at_call:  token.marketCap || token.mcap || token.mcap_at_call || null,
+      }
+      await fetch(`${BACKEND_URL}/api/folio/call`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${authToken}` },
+        body: JSON.stringify(body),
+      }).catch(() => {})
+      setFolioCalls(prev => [{ ...body, token_address: address, called_at: new Date().toISOString() }, ...prev])
+      setFolioCallAddrs(prev => new Set([...prev, address]))
+    }
+  }, [isAuthed, authToken, folioCallAddrs])
+
+  const handleFolioSearch = useCallback(async (q) => {
+    setFolioSearch(q)
+    if (q.length < 2) { setFolioSearchRes([]); return }
+    setFolioSearching(true)
+    try {
+      const r = await fetch(`${BACKEND_URL}/api/folio/search?q=${encodeURIComponent(q)}`)
+      const data = await r.json()
+      setFolioSearchRes(Array.isArray(data) ? data : [])
+    } catch { setFolioSearchRes([]) }
+    setFolioSearching(false)
+  }, [])
+
+  const handleFolioLeaderboard = useCallback(() => {
+    setFolioLoading(true)
+    fetch(`${BACKEND_URL}/api/folio/leaderboard`)
+      .then(r => r.json())
+      .then(data => { setFolioLeaderboard(data.folios || []); setFolioLoading(false) })
+      .catch(() => setFolioLoading(false))
+  }, [])
+
   const [showSettings, setShowSettings] = useState(false)
   const [selectedAlpha, setSelectedAlpha] = useState(null)
   const [customAlphaQuery,   setCustomAlphaQuery]   = useState('')
@@ -4747,7 +4733,7 @@ export default function App() {
       <Navbar onListBeta={() => setShowListModal(true)} newRunners={newRunners} liveAlphas={appLiveAlphas} coolingAlphas={appCoolingAlphas} onSettings={() => setShowSettings(true)} onWalletConnect={() => setWalletModalVisible(true)} onWalletSignIn={handleWalletSignIn} onWalletSignOut={handleSignOut} isAuthed={isAuthed} isConnected={connected} walletAddress={authWallet} />
       <NarrativeTicker liveAlphas={appLiveAlphas} sznCards={appSznCards} />
       <div className="main-layout" style={{ flex: 1, overflow: 'hidden' }}>
-        <AlphaBoard selectedAlpha={selectedAlpha} onSelect={handleSelectAlpha} onNewRunners={handleNewRunners} onLiveAlphas={setAppLiveAlphas} onSznCards={setAppSznCards} onCoolingAlphas={setAppCoolingAlphas} onCustomSearch={handleSearchCustomAlpha} customAlphaLoading={customAlphaLoading} onRegisterClearSearch={fn => { clearAlphaBoardSearch.current = fn }} alphaListRef={alphaListRef} searchResults={searchResults} onSelectSearchResult={(token) => { if (!token) { setSearchResults([]); return }; setSelectedAlpha(token); setSearchResults([]) }} defaultTab={settings.defaultTab} authToken={authToken} isAuthed={isAuthed} onFolioCall={handleFolioCall} folioCallAddrs={folioCallAddrs} />
+        <AlphaBoard selectedAlpha={selectedAlpha} onSelect={handleSelectAlpha} onNewRunners={handleNewRunners} onLiveAlphas={setAppLiveAlphas} onSznCards={setAppSznCards} onCoolingAlphas={setAppCoolingAlphas} onCustomSearch={handleSearchCustomAlpha} customAlphaLoading={customAlphaLoading} onRegisterClearSearch={fn => { clearAlphaBoardSearch.current = fn }} alphaListRef={alphaListRef} searchResults={searchResults} onSelectSearchResult={(token) => { if (!token) { setSearchResults([]); return }; setSelectedAlpha(token); setSearchResults([]) }} defaultTab={settings.defaultTab} authToken={authToken} isAuthed={isAuthed} onFolioCall={handleFolioCall} folioCallAddrs={folioCallAddrs} folioLeaderboard={folioLeaderboard} folioLoading={folioLoading} folioView={folioView} setFolioView={setFolioView} folioNameEdit={folioNameEdit} setFolioNameEdit={setFolioNameEdit} folioSaving={folioSaving} folioSaveMsg={folioSaveMsg} folioCalls={folioCalls} folioSearch={folioSearch} folioSearchRes={folioSearchRes} folioSearching={folioSearching} onSaveFolioName={handleSaveFolioName} onFolioSearch={handleFolioSearch} onFolioLeaderboard={handleFolioLeaderboard} />
         {isSzn
           ? <SznPanel  szn={selectedAlpha}   onListBeta={() => setShowListModal(true)} onOpenDrawer={setDrawerToken} />
           : <BetaPanel alpha={selectedAlpha} liveAlphas={appLiveAlphas} onListBeta={() => setShowListModal(true)} onOpenDrawer={setDrawerToken} onSwap={(t) => openJupiterSwap(t)} onScrollToAlpha={handleScrollToAlpha} onCustomSearch={handleSearchCustomAlpha} customAlphaLoading={customAlphaLoading} customAlphaError={customAlphaError} settings={settings} />
