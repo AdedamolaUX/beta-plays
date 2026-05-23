@@ -187,6 +187,8 @@ const MIGRATIONS = [
   )`,
   `CREATE INDEX IF NOT EXISTS idx_folio_wallet ON folio(wallet_address)`,
   `CREATE INDEX IF NOT EXISTS idx_folio_called ON folio(called_at DESC)`,
+  // Session 31 — narrative tags on folio calls
+  `ALTER TABLE folio ADD COLUMN IF NOT EXISTS narrative_tag TEXT`,
 ]
 
 async function init () {

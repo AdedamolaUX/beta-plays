@@ -3820,11 +3820,25 @@ app.delete('/api/folio/call/:address', requireAuth, async (req, res) => {
 app.get('/api/folio/mine', requireAuth, async (req, res) => {
   try {
     const result = await db.query(
-      `SELECT token_address, symbol, name, logo_url, price_at_call, mcap_at_call, called_at
+      `SELECT token_address, symbol, name, logo_url, price_at_call, mcap_at_call, called_at, narrative_tag
        FROM folio WHERE wallet_address = $1 ORDER BY called_at DESC`,
       [req.user.wallet]
     )
     res.json(result.rows)
+  } catch (err) {
+    res.status(500).json({ error: err.message })
+  }
+})
+
+// PATCH /api/folio/call/:address/tag — set narrative tag on a folio call (JWT required)
+app.patch('/api/folio/call/:address/tag', requireAuth, async (req, res) => {
+  const { narrative_tag } = req.body
+  try {
+    await db.query(
+      `UPDATE folio SET narrative_tag = $1 WHERE wallet_address = $2 AND token_address = $3`,
+      [narrative_tag || null, req.user.wallet, req.params.address]
+    )
+    res.json({ ok: true })
   } catch (err) {
     res.status(500).json({ error: err.message })
   }
@@ -3880,6 +3894,7 @@ app.get('/api/folio/leaderboard', async (req, res) => {
           'logo_url',      f.logo_url,
           'price_at_call', f.price_at_call,
           'mcap_at_call',  f.mcap_at_call,
+          'narrative_tag', f.narrative_tag,
           'called_at',     f.called_at
         ) ORDER BY f.called_at DESC)    AS calls
       FROM users u

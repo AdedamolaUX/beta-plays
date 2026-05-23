@@ -96,7 +96,7 @@ const CopyAddress = ({ address, style = {} }) => {
           letterSpacing: '0.03em',
         }}
       >
-        {copied ? '✓' : '⎘'} {copied ? 'Copied!' : shortAddress(address)}
+        {copied ? '✓' : '⎘'}
       </span>
       {pos && !copied && createPortal(
         <span style={{
@@ -106,12 +106,12 @@ const CopyAddress = ({ address, style = {} }) => {
           border: '1px solid rgba(0,212,255,0.35)',
           borderRadius: 4, padding: '4px 10px', zIndex: 9999,
           fontFamily: 'var(--font-mono)', fontSize: 10, fontWeight: 700,
-          letterSpacing: '0.05em', textTransform: 'uppercase',
+          letterSpacing: '0.05em',
           color: 'var(--cyan)', whiteSpace: 'nowrap',
           boxShadow: '0 0 12px rgba(0,212,255,0.15), 0 4px 16px rgba(0,0,0,0.7)',
           pointerEvents: 'none', textAlign: 'center',
         }}>
-          Copy CA
+          {shortAddress(address)} · click to copy
         </span>,
         document.body
       )}
@@ -1542,7 +1542,7 @@ const AdminNominationPanel = ({ onClose }) => {
   )
 }
 
-const AlphaBoard = ({ selectedAlpha, onSelect, onNewRunners, onLiveAlphas, onSznCards, onCoolingAlphas, onCustomSearch, customAlphaLoading, onRegisterClearSearch, alphaListRef, searchResults, onSelectSearchResult, defaultTab = 'live', authToken, isAuthed, onFolioCall, folioCallAddrs, folioLeaderboard, folioLoading, folioView, setFolioView, folioNameEdit, setFolioNameEdit, folioSaving, folioSaveMsg, folioCalls, folioSearch, folioSearchRes, folioSearching, onSaveFolioName, onFolioSearch, onFolioLeaderboard }) => {
+const AlphaBoard = ({ selectedAlpha, onSelect, onNewRunners, onLiveAlphas, onSznCards, onCoolingAlphas, onCustomSearch, customAlphaLoading, onRegisterClearSearch, alphaListRef, searchResults, onSelectSearchResult, defaultTab = 'live', authToken, isAuthed, onFolioCall, folioCallAddrs, folioLeaderboard, folioLoading, folioView, setFolioView, folioNameEdit, setFolioNameEdit, folioSaving, folioSaveMsg, folioCalls, folioSearch, folioSearchRes, folioSearching, onSaveFolioName, onFolioSearch, onFolioLeaderboard, folioTagging, setFolioTagging, onFolioTag }) => {
   const [activeTab,        setActiveTab]        = useState(defaultTab)
   const [searchQuery,      setSearchQuery]      = useState('')
   useEffect(() => {
@@ -2296,7 +2296,7 @@ const AlphaBoard = ({ selectedAlpha, onSelect, onNewRunners, onLiveAlphas, onSzn
                     color: folioView === v ? 'var(--cyan)' : 'var(--text-muted)',
                     transition: 'all 0.15s ease',
                   }}>
-                    {v === 'leaderboard' ? '📊 LEADERBOARD' : '🎯 MY CALLS'}
+                    {v === 'leaderboard' ? '📊 LEADERBOARD' : '🎯 MY FOLIOS'}
                   </button>
                 ))}
               </div>
@@ -2310,11 +2310,24 @@ const AlphaBoard = ({ selectedAlpha, onSelect, onNewRunners, onLiveAlphas, onSzn
                       No public folios yet. Connect wallet, hit 🎯 on any runner to make your first call.
                     </p>
                   )}
+                  {/* Narrative filter pills */}
+                  {folioLeaderboard.length > 0 && (() => {
+                    const allTags = [...new Set(folioLeaderboard.flatMap(f => (f.calls || []).map(c => c.narrative_tag).filter(Boolean)))]
+                    return allTags.length > 0 ? (
+                      <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>
+                        <button onClick={() => setFolioView('leaderboard')} style={{ padding: '3px 7px', borderRadius: 4, fontSize: 9, fontFamily: 'var(--font-mono)', fontWeight: 700, cursor: 'pointer', background: 'rgba(0,212,255,0.08)', border: '1px solid rgba(0,212,255,0.25)', color: 'var(--cyan)' }}>ALL</button>
+                        {allTags.map(tag => (
+                          <button key={tag} style={{ padding: '3px 7px', borderRadius: 4, fontSize: 9, fontFamily: 'var(--font-mono)', fontWeight: 700, cursor: 'pointer', textTransform: 'uppercase', background: 'rgba(57,255,20,0.07)', border: '1px solid rgba(57,255,20,0.25)', color: 'var(--neon-green)' }}>{tag}</button>
+                        ))}
+                      </div>
+                    ) : null
+                  })()}
                   {folioLeaderboard.map((folio, i) => {
                     const calls = folio.calls || []
                     const label = folio.folio_name || folio.wallet_address?.slice(0,4) + '…' + folio.wallet_address?.slice(-4)
                     const memberDays = folio.first_seen ? Math.floor((Date.now() - new Date(folio.first_seen)) / 86400000) : null
                     const rankColors = ['#FFD700', '#C0C0C0', '#CD7F32']
+                    const narratives = [...new Set(calls.map(c => c.narrative_tag).filter(Boolean))]
                     return (
                       <div key={folio.wallet_address} style={{
                         background: 'var(--surface-2)',
@@ -2336,6 +2349,13 @@ const AlphaBoard = ({ selectedAlpha, onSelect, onNewRunners, onLiveAlphas, onSzn
                             <div style={{ fontFamily: 'var(--font-mono)', fontSize: 8, color: 'var(--text-muted)' }}>calls</div>
                           </div>
                         </div>
+                        {narratives.length > 0 && (
+                          <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>
+                            {narratives.map(tag => (
+                              <span key={tag} style={{ fontFamily: 'var(--font-mono)', fontSize: 8, fontWeight: 700, background: 'rgba(57,255,20,0.07)', border: '1px solid rgba(57,255,20,0.25)', borderRadius: 4, padding: '2px 6px', color: 'var(--neon-green)', textTransform: 'uppercase' }}>{tag}</span>
+                            ))}
+                          </div>
+                        )}
                         <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>
                           {calls.slice(0, 8).map(c => (
                             <span key={c.address} style={{ fontFamily: 'var(--font-mono)', fontSize: 9, fontWeight: 700, background: 'rgba(255,255,255,0.04)', border: '1px solid var(--border)', borderRadius: 4, padding: '2px 6px', color: 'var(--text-secondary)' }}>${c.symbol}</span>
@@ -2348,7 +2368,7 @@ const AlphaBoard = ({ selectedAlpha, onSelect, onNewRunners, onLiveAlphas, onSzn
                 </div>
               )}
 
-              {/* My Calls */}
+              {/* My Folios */}
               {folioView === 'mine' && (
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
                   {!isAuthed ? (
@@ -2396,18 +2416,46 @@ const AlphaBoard = ({ selectedAlpha, onSelect, onNewRunners, onLiveAlphas, onSzn
                           No calls yet. Hit ◎ on any alpha to make your first call.
                         </p>
                       )}
-                      {folioCalls.map(c => (
-                        <div key={c.token_address} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: 'var(--surface-2)', border: '1px solid rgba(57,255,20,0.2)', borderRadius: 8, padding: '8px 10px' }}>
-                          <div>
-                            <span style={{ fontFamily: 'var(--font-mono)', fontSize: 11, fontWeight: 700, color: 'var(--neon-green)' }}>🎯 ${c.symbol}</span>
-                            {c.price_at_call && <span style={{ fontFamily: 'var(--font-number)', fontSize: 9, color: 'var(--text-muted)', marginLeft: 8 }}>@ ${Number(c.price_at_call).toFixed(6)}</span>}
+                      {folioCalls.map(c => {
+                        const isTagging = folioTagging === c.token_address
+                        const TAGS = ['AI', 'dogs', 'cats', 'sports', 'political', 'space', 'DeSci', 'gaming', 'anime', 'degen']
+                        return (
+                          <div key={c.token_address} style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: 'var(--surface-2)', border: '1px solid rgba(57,255,20,0.2)', borderRadius: 8, padding: '8px 10px' }}>
+                              <div style={{ display: 'flex', alignItems: 'center', gap: 6, minWidth: 0 }}>
+                                <span style={{ fontFamily: 'var(--font-mono)', fontSize: 11, fontWeight: 700, color: 'var(--neon-green)', flexShrink: 0 }}>🎯 ${c.symbol}</span>
+                                {c.narrative_tag && (
+                                  <span style={{ fontFamily: 'var(--font-mono)', fontSize: 8, fontWeight: 700, background: 'rgba(57,255,20,0.07)', border: '1px solid rgba(57,255,20,0.25)', borderRadius: 3, padding: '1px 5px', color: 'var(--neon-green)', textTransform: 'uppercase' }}>{c.narrative_tag}</span>
+                                )}
+                                {c.price_at_call && <span style={{ fontFamily: 'var(--font-number)', fontSize: 9, color: 'var(--text-muted)' }}>@ ${Number(c.price_at_call).toFixed(6)}</span>}
+                              </div>
+                              <div style={{ display: 'flex', gap: 4, flexShrink: 0 }}>
+                                <button onClick={() => setFolioTagging(isTagging ? null : c.token_address)}
+                                  style={{ padding: '2px 6px', borderRadius: 4, fontSize: 8, fontFamily: 'var(--font-mono)', cursor: 'pointer', background: 'transparent', border: '1px solid var(--border)', color: 'var(--text-muted)' }}>
+                                  {isTagging ? 'CANCEL' : c.narrative_tag ? 'RETAG' : '+ TAG'}
+                                </button>
+                                <button onClick={() => onFolioCall({ address: c.token_address, symbol: c.symbol })}
+                                  style={{ padding: '2px 6px', borderRadius: 4, fontSize: 8, fontFamily: 'var(--font-mono)', cursor: 'pointer', background: 'rgba(255,80,80,0.08)', border: '1px solid rgba(255,80,80,0.25)', color: '#ff5050' }}>
+                                  ✕
+                                </button>
+                              </div>
+                            </div>
+                            {isTagging && (
+                              <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap', paddingLeft: 4 }}>
+                                {TAGS.map(tag => (
+                                  <button key={tag} onClick={() => onFolioTag(c.token_address, tag)} style={{
+                                    padding: '3px 7px', borderRadius: 4, fontSize: 8, fontFamily: 'var(--font-mono)',
+                                    fontWeight: 700, cursor: 'pointer', textTransform: 'uppercase',
+                                    background: c.narrative_tag === tag ? 'rgba(57,255,20,0.12)' : 'rgba(0,212,255,0.07)',
+                                    border: c.narrative_tag === tag ? '1px solid rgba(57,255,20,0.4)' : '1px solid rgba(0,212,255,0.25)',
+                                    color: c.narrative_tag === tag ? 'var(--neon-green)' : 'var(--cyan)',
+                                  }}>{tag}</button>
+                                ))}
+                              </div>
+                            )}
                           </div>
-                          <button onClick={() => onFolioCall({ address: c.token_address, symbol: c.symbol })}
-                            style={{ padding: '2px 6px', borderRadius: 4, fontSize: 8, fontFamily: 'var(--font-mono)', cursor: 'pointer', background: 'rgba(255,80,80,0.08)', border: '1px solid rgba(255,80,80,0.25)', color: '#ff5050' }}>
-                            REMOVE
-                          </button>
-                        </div>
-                      ))}
+                        )
+                      })}
                     </>
                   )}
                 </div>
@@ -4515,7 +4563,8 @@ export default function App() {
   const [folioSearch,      setFolioSearch]      = useState('')
   const [folioSearchRes,   setFolioSearchRes]   = useState([])
   const [folioSearching,   setFolioSearching]   = useState(false)
-  const [folioActiveTab,   setFolioActiveTab]   = useState('live') // track alpha tab for folio load
+  const [folioActiveTab,   setFolioActiveTab]   = useState('live')
+  const [folioTagging,     setFolioTagging]     = useState(null) // address being tagged
 
   // Load my folio calls when authed (once on auth, not tab-gated so it's always ready)
   useEffect(() => {
@@ -4585,6 +4634,18 @@ export default function App() {
     } catch { setFolioSearchRes([]) }
     setFolioSearching(false)
   }, [])
+
+  const handleFolioTag = useCallback(async (address, tag) => {
+    setFolioTagging(null)
+    setFolioCalls(prev => prev.map(c => c.token_address === address ? { ...c, narrative_tag: tag } : c))
+    try {
+      await fetch(`${BACKEND_URL}/api/folio/call/${address}/tag`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${authToken}` },
+        body: JSON.stringify({ narrative_tag: tag }),
+      })
+    } catch { /* non-fatal */ }
+  }, [authToken])
 
   const handleFolioLeaderboard = useCallback(() => {
     setFolioLoading(true)
@@ -4733,7 +4794,7 @@ export default function App() {
       <Navbar onListBeta={() => setShowListModal(true)} newRunners={newRunners} liveAlphas={appLiveAlphas} coolingAlphas={appCoolingAlphas} onSettings={() => setShowSettings(true)} onWalletConnect={() => setWalletModalVisible(true)} onWalletSignIn={handleWalletSignIn} onWalletSignOut={handleSignOut} isAuthed={isAuthed} isConnected={connected} walletAddress={authWallet} />
       <NarrativeTicker liveAlphas={appLiveAlphas} sznCards={appSznCards} />
       <div className="main-layout" style={{ flex: 1, overflow: 'hidden' }}>
-        <AlphaBoard selectedAlpha={selectedAlpha} onSelect={handleSelectAlpha} onNewRunners={handleNewRunners} onLiveAlphas={setAppLiveAlphas} onSznCards={setAppSznCards} onCoolingAlphas={setAppCoolingAlphas} onCustomSearch={handleSearchCustomAlpha} customAlphaLoading={customAlphaLoading} onRegisterClearSearch={fn => { clearAlphaBoardSearch.current = fn }} alphaListRef={alphaListRef} searchResults={searchResults} onSelectSearchResult={(token) => { if (!token) { setSearchResults([]); return }; setSelectedAlpha(token); setSearchResults([]) }} defaultTab={settings.defaultTab} authToken={authToken} isAuthed={isAuthed} onFolioCall={handleFolioCall} folioCallAddrs={folioCallAddrs} folioLeaderboard={folioLeaderboard} folioLoading={folioLoading} folioView={folioView} setFolioView={setFolioView} folioNameEdit={folioNameEdit} setFolioNameEdit={setFolioNameEdit} folioSaving={folioSaving} folioSaveMsg={folioSaveMsg} folioCalls={folioCalls} folioSearch={folioSearch} folioSearchRes={folioSearchRes} folioSearching={folioSearching} onSaveFolioName={handleSaveFolioName} onFolioSearch={handleFolioSearch} onFolioLeaderboard={handleFolioLeaderboard} />
+        <AlphaBoard selectedAlpha={selectedAlpha} onSelect={handleSelectAlpha} onNewRunners={handleNewRunners} onLiveAlphas={setAppLiveAlphas} onSznCards={setAppSznCards} onCoolingAlphas={setAppCoolingAlphas} onCustomSearch={handleSearchCustomAlpha} customAlphaLoading={customAlphaLoading} onRegisterClearSearch={fn => { clearAlphaBoardSearch.current = fn }} alphaListRef={alphaListRef} searchResults={searchResults} onSelectSearchResult={(token) => { if (!token) { setSearchResults([]); return }; setSelectedAlpha(token); setSearchResults([]) }} defaultTab={settings.defaultTab} authToken={authToken} isAuthed={isAuthed} onFolioCall={handleFolioCall} folioCallAddrs={folioCallAddrs} folioLeaderboard={folioLeaderboard} folioLoading={folioLoading} folioView={folioView} setFolioView={setFolioView} folioNameEdit={folioNameEdit} setFolioNameEdit={setFolioNameEdit} folioSaving={folioSaving} folioSaveMsg={folioSaveMsg} folioCalls={folioCalls} folioSearch={folioSearch} folioSearchRes={folioSearchRes} folioSearching={folioSearching} onSaveFolioName={handleSaveFolioName} onFolioSearch={handleFolioSearch} onFolioLeaderboard={handleFolioLeaderboard} folioTagging={folioTagging} setFolioTagging={setFolioTagging} onFolioTag={handleFolioTag} />
         {isSzn
           ? <SznPanel  szn={selectedAlpha}   onListBeta={() => setShowListModal(true)} onOpenDrawer={setDrawerToken} />
           : <BetaPanel alpha={selectedAlpha} liveAlphas={appLiveAlphas} onListBeta={() => setShowListModal(true)} onOpenDrawer={setDrawerToken} onSwap={(t) => openJupiterSwap(t)} onScrollToAlpha={handleScrollToAlpha} onCustomSearch={handleSearchCustomAlpha} customAlphaLoading={customAlphaLoading} customAlphaError={customAlphaError} settings={settings} />
