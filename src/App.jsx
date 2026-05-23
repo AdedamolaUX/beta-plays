@@ -1542,6 +1542,148 @@ const AdminNominationPanel = ({ onClose }) => {
   )
 }
 
+// ─── FolioCard ───────────────────────────────────────────────────
+// Collapsed: shows folio profile info. Click → expands to show tokens + edit.
+const FolioCard = ({ profile, calls, authWallet, folioNameEdit, setFolioNameEdit, folioBioEdit, setFolioBioEdit, folioPublicEdit, setFolioPublicEdit, folioSaving, folioSaveMsg, onSave, folioSearch, folioSearchRes, folioSearching, onFolioSearch, onFolioCall, folioCallAddrs, folioTagging, setFolioTagging, onFolioTag }) => {
+  const [expanded, setExpanded] = useState(false)
+  const TAGS = ['AI', 'dogs', 'cats', 'sports', 'political', 'space', 'DeSci', 'gaming', 'anime', 'degen']
+  const displayName = profile?.folio_name || (authWallet ? authWallet.slice(0,4) + '…' + authWallet.slice(-4) : 'My Folio')
+  const memberSince = profile?.first_seen ? new Date(profile.first_seen).toLocaleDateString('en-US', { month: 'short', year: 'numeric' }) : null
+
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+      {/* Collapsed card — always visible */}
+      <div
+        onClick={() => setExpanded(e => !e)}
+        style={{
+          background: 'var(--surface-2)', border: '1px solid var(--border)',
+          borderRadius: 12, padding: '12px 14px', cursor: 'pointer',
+          transition: 'border-color 0.15s',
+        }}
+        onMouseEnter={e => e.currentTarget.style.borderColor = 'rgba(0,212,255,0.3)'}
+        onMouseLeave={e => e.currentTarget.style.borderColor = 'var(--border)'}
+      >
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+          <div style={{ minWidth: 0 }}>
+            <div style={{ fontFamily: 'var(--font-display)', fontSize: 14, fontWeight: 700, color: 'var(--text-primary)' }}>{displayName}</div>
+            {profile?.folio_bio && <div style={{ fontFamily: 'var(--font-mono)', fontSize: 9, color: 'var(--text-muted)', marginTop: 2 }}>{profile.folio_bio}</div>}
+            <div style={{ fontFamily: 'var(--font-mono)', fontSize: 9, color: 'var(--text-muted)', marginTop: 4 }}>
+              {authWallet ? authWallet.slice(0,6) + '…' + authWallet.slice(-4) : ''}
+              {memberSince && ' · member since ' + memberSince}
+            </div>
+          </div>
+          <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 2, flexShrink: 0 }}>
+            <div style={{ fontFamily: 'var(--font-mono)', fontSize: 12, fontWeight: 700, color: 'var(--cyan)' }}>{calls.length}</div>
+            <div style={{ fontFamily: 'var(--font-mono)', fontSize: 8, color: 'var(--text-muted)' }}>calls</div>
+            <span style={{ fontFamily: 'var(--font-mono)', fontSize: 8, color: 'var(--text-muted)', marginTop: 4 }}>{expanded ? '▲' : '▼'}</span>
+          </div>
+        </div>
+        <div style={{ marginTop: 6 }}>
+          <span style={{
+            fontFamily: 'var(--font-mono)', fontSize: 8, fontWeight: 700, padding: '2px 6px', borderRadius: 3,
+            background: folioPublicEdit ? 'rgba(57,255,20,0.07)' : 'rgba(255,255,255,0.05)',
+            border: folioPublicEdit ? '1px solid rgba(57,255,20,0.3)' : '1px solid var(--border)',
+            color: folioPublicEdit ? 'var(--neon-green)' : 'var(--text-muted)',
+          }}>{folioPublicEdit ? '🌐 PUBLIC' : '🔒 PRIVATE'}</span>
+        </div>
+      </div>
+
+      {/* Expanded panel */}
+      {expanded && (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 10, padding: '4px 2px' }}>
+          {/* Edit fields */}
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+            <input value={folioNameEdit} onChange={e => setFolioNameEdit(e.target.value)} placeholder="Folio name..."
+              style={{ width: '100%', background: 'var(--surface-2)', border: '1px solid var(--border)', borderRadius: 6, padding: '6px 8px', color: 'var(--text-primary)', fontFamily: 'var(--font-mono)', fontSize: 11, outline: 'none', boxSizing: 'border-box' }} />
+            <input value={folioBioEdit} onChange={e => setFolioBioEdit(e.target.value.slice(0, 80))} placeholder="Short bio (80 chars)..."
+              style={{ width: '100%', background: 'var(--surface-2)', border: '1px solid var(--border)', borderRadius: 6, padding: '6px 8px', color: 'var(--text-primary)', fontFamily: 'var(--font-mono)', fontSize: 10, outline: 'none', boxSizing: 'border-box' }} />
+            <div style={{ display: 'flex', gap: 6 }}>
+              <button onClick={() => setFolioPublicEdit(p => !p)} style={{
+                padding: '5px 10px', borderRadius: 6, fontSize: 9, fontFamily: 'var(--font-mono)', fontWeight: 700, cursor: 'pointer',
+                background: folioPublicEdit ? 'rgba(57,255,20,0.1)' : 'rgba(255,255,255,0.05)',
+                border: folioPublicEdit ? '1px solid rgba(57,255,20,0.4)' : '1px solid var(--border)',
+                color: folioPublicEdit ? 'var(--neon-green)' : 'var(--text-muted)',
+              }}>{folioPublicEdit ? '🌐 PUBLIC' : '🔒 PRIVATE'}</button>
+              <button onClick={() => { onSave(); setExpanded(false) }} disabled={folioSaving}
+                style={{ flex: 1, padding: '5px 10px', borderRadius: 6, fontSize: 10, fontFamily: 'var(--font-mono)', fontWeight: 700, cursor: 'pointer', background: 'rgba(0,212,255,0.1)', border: '1px solid rgba(0,212,255,0.3)', color: 'var(--cyan)', opacity: folioSaving ? 0.5 : 1 }}>
+                {folioSaving ? 'SAVING...' : 'SAVE & CLOSE'}
+              </button>
+            </div>
+            {folioSaveMsg && <p style={{ fontFamily: 'var(--font-mono)', fontSize: 10, color: folioSaveMsg.startsWith('✓') ? 'var(--neon-green)' : '#ff5050', margin: 0 }}>{folioSaveMsg}</p>}
+          </div>
+
+          {/* Add by CA or ticker */}
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+            <input value={folioSearch} onChange={e => onFolioSearch(e.target.value)} placeholder="Add by CA or ticker..."
+              style={{ width: '100%', background: 'var(--surface-2)', border: '1px solid var(--border)', borderRadius: 6, padding: '6px 8px', color: 'var(--text-primary)', fontFamily: 'var(--font-mono)', fontSize: 11, outline: 'none', boxSizing: 'border-box' }} />
+            {folioSearching && <p style={{ fontFamily: 'var(--font-mono)', fontSize: 9, color: 'var(--text-muted)' }}>Searching...</p>}
+            {(folioSearchRes || []).map(t => (
+              <div key={t.address} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: 'var(--surface-2)', border: '1px solid var(--border)', borderRadius: 8, padding: '8px 10px' }}>
+                <div>
+                  <span style={{ fontFamily: 'var(--font-mono)', fontSize: 11, fontWeight: 700, color: 'var(--text-primary)' }}>${t.symbol}</span>
+                  <span style={{ fontFamily: 'var(--font-mono)', fontSize: 9, color: 'var(--text-muted)', marginLeft: 6 }}>{t.name}</span>
+                </div>
+                <button onClick={() => { onFolioCall(t); onFolioSearch('') }}
+                  style={{ padding: '3px 8px', borderRadius: 4, fontSize: 9, fontFamily: 'var(--font-mono)', fontWeight: 700, cursor: 'pointer', background: folioCallAddrs?.has(t.address) ? 'rgba(57,255,20,0.1)' : 'rgba(0,212,255,0.08)', border: folioCallAddrs?.has(t.address) ? '1px solid rgba(57,255,20,0.3)' : '1px solid rgba(0,212,255,0.25)', color: folioCallAddrs?.has(t.address) ? 'var(--neon-green)' : 'var(--cyan)' }}>
+                  {folioCallAddrs?.has(t.address) ? '🎯 CALLED' : '🎯 CALL IT'}
+                </button>
+              </div>
+            ))}
+          </div>
+
+          {/* Token list */}
+          <p style={{ fontFamily: 'var(--font-mono)', fontSize: 9, color: 'var(--text-muted)', margin: 0 }}>
+            {calls.length} call{calls.length !== 1 ? 's' : ''} · Hit ◎ on any runner to add
+          </p>
+          {calls.length === 0 && (
+            <p style={{ fontFamily: 'var(--font-mono)', fontSize: 10, color: 'var(--text-muted)', borderLeft: '2px solid var(--border)', paddingLeft: 8 }}>
+              No calls yet. Hit ◎ on any alpha to make your first call.
+            </p>
+          )}
+          {calls.map(c => {
+            const isTagging = folioTagging === c.token_address
+            return (
+              <div key={c.token_address} style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: 'var(--surface-2)', border: '1px solid rgba(57,255,20,0.2)', borderRadius: 8, padding: '8px 10px' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 6, minWidth: 0 }}>
+                    <span style={{ fontFamily: 'var(--font-mono)', fontSize: 11, fontWeight: 700, color: 'var(--neon-green)', flexShrink: 0 }}>🎯 ${c.symbol}</span>
+                    {c.narrative_tag && (
+                      <span style={{ fontFamily: 'var(--font-mono)', fontSize: 8, fontWeight: 700, background: 'rgba(57,255,20,0.07)', border: '1px solid rgba(57,255,20,0.25)', borderRadius: 3, padding: '1px 5px', color: 'var(--neon-green)', textTransform: 'uppercase' }}>{c.narrative_tag}</span>
+                    )}
+                    {c.price_at_call && <span style={{ fontFamily: 'var(--font-number)', fontSize: 9, color: 'var(--text-muted)' }}>@ ${Number(c.price_at_call).toFixed(6)}</span>}
+                  </div>
+                  <div style={{ display: 'flex', gap: 4, flexShrink: 0 }}>
+                    <button onClick={() => setFolioTagging(isTagging ? null : c.token_address)}
+                      style={{ padding: '2px 6px', borderRadius: 4, fontSize: 8, fontFamily: 'var(--font-mono)', cursor: 'pointer', background: 'transparent', border: '1px solid var(--border)', color: 'var(--text-muted)' }}>
+                      {isTagging ? 'CANCEL' : c.narrative_tag ? 'RETAG' : '+ TAG'}
+                    </button>
+                    <button onClick={() => onFolioCall({ address: c.token_address, symbol: c.symbol })}
+                      style={{ padding: '2px 6px', borderRadius: 4, fontSize: 8, fontFamily: 'var(--font-mono)', cursor: 'pointer', background: 'rgba(255,80,80,0.08)', border: '1px solid rgba(255,80,80,0.25)', color: '#ff5050' }}>
+                      ✕
+                    </button>
+                  </div>
+                </div>
+                {isTagging && (
+                  <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap', paddingLeft: 4 }}>
+                    {TAGS.map(tag => (
+                      <button key={tag} onClick={() => onFolioTag(c.token_address, tag)} style={{
+                        padding: '3px 7px', borderRadius: 4, fontSize: 8, fontFamily: 'var(--font-mono)', fontWeight: 700, cursor: 'pointer', textTransform: 'uppercase',
+                        background: c.narrative_tag === tag ? 'rgba(57,255,20,0.12)' : 'rgba(0,212,255,0.07)',
+                        border: c.narrative_tag === tag ? '1px solid rgba(57,255,20,0.4)' : '1px solid rgba(0,212,255,0.25)',
+                        color: c.narrative_tag === tag ? 'var(--neon-green)' : 'var(--cyan)',
+                      }}>{tag}</button>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )
+          })}
+        </div>
+      )}
+    </div>
+  )
+}
+
 const AlphaBoard = ({ selectedAlpha, onSelect, onNewRunners, onLiveAlphas, onSznCards, onCoolingAlphas, onCustomSearch, customAlphaLoading, onRegisterClearSearch, alphaListRef, searchResults, onSelectSearchResult, defaultTab = 'live', authToken, isAuthed, authWallet, onFolioCall, folioCallAddrs, folioLeaderboard, folioLoading, folioView, setFolioView, folioNameEdit, setFolioNameEdit, folioSaving, folioSaveMsg, folioCalls, folioSearch, folioSearchRes, folioSearching, onSaveFolioName, onFolioSearch, onFolioLeaderboard, folioTagging, setFolioTagging, onFolioTag, folioProfile, folioBioEdit, setFolioBioEdit, folioPublicEdit, setFolioPublicEdit }) => {
   const [activeTab,        setActiveTab]        = useState(defaultTab)
   const [searchQuery,      setSearchQuery]      = useState('')
@@ -2394,6 +2536,7 @@ const AlphaBoard = ({ selectedAlpha, onSelect, onNewRunners, onLiveAlphas, onSzn
               )}
 
               {/* My Folios */}
+              {/* My Folios */}
               {folioView === 'mine' && (
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
                   {!isAuthed ? (
@@ -2401,114 +2544,29 @@ const AlphaBoard = ({ selectedAlpha, onSelect, onNewRunners, onLiveAlphas, onSzn
                       Connect wallet to create a folio and appear on the leaderboard.
                     </p>
                   ) : (
-                    <>
-                      {/* Profile header */}
-                      <div style={{ background: 'var(--surface-2)', border: '1px solid var(--border)', borderRadius: 12, padding: '12px 14px', display: 'flex', flexDirection: 'column', gap: 8 }}>
-                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
-                          <div style={{ minWidth: 0 }}>
-                            <div style={{ fontFamily: 'var(--font-display)', fontSize: 14, fontWeight: 700, color: 'var(--text-primary)' }}>
-                              {folioProfile?.folio_name || (authWallet ? authWallet.slice(0,4) + '…' + authWallet.slice(-4) : 'My Folio')}
-                            </div>
-                            {folioProfile?.folio_bio && (
-                              <div style={{ fontFamily: 'var(--font-mono)', fontSize: 9, color: 'var(--text-muted)', marginTop: 2 }}>{folioProfile.folio_bio}</div>
-                            )}
-                            <div style={{ fontFamily: 'var(--font-mono)', fontSize: 9, color: 'var(--text-muted)', marginTop: 4 }}>
-                              {authWallet ? authWallet.slice(0,6) + '…' + authWallet.slice(-4) : ''}
-                              {folioProfile?.first_seen && ' · member since ' + new Date(folioProfile.first_seen).toLocaleDateString('en-US', { month: 'short', year: 'numeric' })}
-                            </div>
-                          </div>
-                          <div style={{ textAlign: 'right', flexShrink: 0 }}>
-                            <div style={{ fontFamily: 'var(--font-mono)', fontSize: 12, fontWeight: 700, color: 'var(--cyan)' }}>{folioCalls.length}</div>
-                            <div style={{ fontFamily: 'var(--font-mono)', fontSize: 8, color: 'var(--text-muted)' }}>calls</div>
-                          </div>
-                        </div>
-                        <button onClick={() => setFolioPublicEdit(p => !p)} style={{
-                          alignSelf: 'flex-start', padding: '2px 8px', borderRadius: 4, fontSize: 9, fontFamily: 'var(--font-mono)', fontWeight: 700,
-                          cursor: 'pointer', transition: 'all 0.15s',
-                          background: folioPublicEdit ? 'rgba(57,255,20,0.1)' : 'rgba(255,255,255,0.05)',
-                          border: folioPublicEdit ? '1px solid rgba(57,255,20,0.4)' : '1px solid var(--border)',
-                          color: folioPublicEdit ? 'var(--neon-green)' : 'var(--text-muted)',
-                        }}>{folioPublicEdit ? '🌐 PUBLIC' : '🔒 PRIVATE'}</button>
-                      </div>
-
-                      {/* Edit fields */}
-                      <input value={folioNameEdit} onChange={e => setFolioNameEdit(e.target.value)} placeholder="Folio name..."
-                        style={{ width: '100%', background: 'var(--surface-2)', border: '1px solid var(--border)', borderRadius: 6, padding: '6px 8px', color: 'var(--text-primary)', fontFamily: 'var(--font-mono)', fontSize: 11, outline: 'none', boxSizing: 'border-box' }} />
-                      <input value={folioBioEdit} onChange={e => setFolioBioEdit(e.target.value.slice(0, 80))} placeholder="Short bio (80 chars max)..."
-                        style={{ width: '100%', background: 'var(--surface-2)', border: '1px solid var(--border)', borderRadius: 6, padding: '6px 8px', color: 'var(--text-primary)', fontFamily: 'var(--font-mono)', fontSize: 10, outline: 'none', boxSizing: 'border-box' }} />
-                      <button onClick={onSaveFolioName} disabled={folioSaving}
-                        style={{ padding: '6px 10px', borderRadius: 6, fontSize: 10, fontFamily: 'var(--font-mono)', fontWeight: 700, cursor: 'pointer', background: 'rgba(0,212,255,0.1)', border: '1px solid rgba(0,212,255,0.3)', color: 'var(--cyan)', opacity: folioSaving ? 0.5 : 1 }}>
-                        {folioSaving ? 'SAVING...' : 'SAVE PROFILE'}
-                      </button>
-                      {folioSaveMsg && <p style={{ fontFamily: 'var(--font-mono)', fontSize: 10, color: folioSaveMsg.startsWith('✓') ? 'var(--neon-green)' : '#ff5050', margin: 0 }}>{folioSaveMsg}</p>}
-
-                      {/* Search / add by CA or ticker */}
-                      <input value={folioSearch} onChange={e => onFolioSearch(e.target.value)} placeholder="Add by CA or ticker..."
-                        style={{ width: '100%', background: 'var(--surface-2)', border: '1px solid var(--border)', borderRadius: 6, padding: '6px 8px', color: 'var(--text-primary)', fontFamily: 'var(--font-mono)', fontSize: 11, outline: 'none', boxSizing: 'border-box' }} />
-                      {folioSearching && <p style={{ fontFamily: 'var(--font-mono)', fontSize: 9, color: 'var(--text-muted)' }}>Searching...</p>}
-                      {folioSearchRes.map(t => (
-                        <div key={t.address} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: 'var(--surface-2)', border: '1px solid var(--border)', borderRadius: 8, padding: '8px 10px' }}>
-                          <div>
-                            <span style={{ fontFamily: 'var(--font-mono)', fontSize: 11, fontWeight: 700, color: 'var(--text-primary)' }}>${t.symbol}</span>
-                            <span style={{ fontFamily: 'var(--font-mono)', fontSize: 9, color: 'var(--text-muted)', marginLeft: 6 }}>{t.name}</span>
-                          </div>
-                          <button onClick={() => { onFolioCall(t); onFolioSearch('') }}
-                            style={{ padding: '3px 8px', borderRadius: 4, fontSize: 9, fontFamily: 'var(--font-mono)', fontWeight: 700, cursor: 'pointer', background: folioCallAddrs?.has(t.address) ? 'rgba(57,255,20,0.1)' : 'rgba(0,212,255,0.08)', border: folioCallAddrs?.has(t.address) ? '1px solid rgba(57,255,20,0.3)' : '1px solid rgba(0,212,255,0.25)', color: folioCallAddrs?.has(t.address) ? 'var(--neon-green)' : 'var(--cyan)' }}>
-                            {folioCallAddrs?.has(t.address) ? '🎯 CALLED' : '🎯 CALL IT'}
-                          </button>
-                        </div>
-                      ))}
-
-                      {/* Calls list */}
-                      <p style={{ fontFamily: 'var(--font-mono)', fontSize: 9, color: 'var(--text-muted)', margin: 0 }}>
-                        {folioCalls.length} public call{folioCalls.length !== 1 ? 's' : ''} · Hit ◎ on any runner to add
-                      </p>
-                      {folioCalls.length === 0 && (
-                        <p style={{ fontFamily: 'var(--font-mono)', fontSize: 10, color: 'var(--text-muted)', borderLeft: '2px solid var(--border)', paddingLeft: 8 }}>
-                          No calls yet. Hit ◎ on any alpha to make your first call.
-                        </p>
-                      )}
-                      {folioCalls.map(c => {
-                        const isTagging = folioTagging === c.token_address
-                        const TAGS = ['AI', 'dogs', 'cats', 'sports', 'political', 'space', 'DeSci', 'gaming', 'anime', 'degen']
-                        return (
-                          <div key={c.token_address} style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: 'var(--surface-2)', border: '1px solid rgba(57,255,20,0.2)', borderRadius: 8, padding: '8px 10px' }}>
-                              <div style={{ display: 'flex', alignItems: 'center', gap: 6, minWidth: 0 }}>
-                                <span style={{ fontFamily: 'var(--font-mono)', fontSize: 11, fontWeight: 700, color: 'var(--neon-green)', flexShrink: 0 }}>🎯 ${c.symbol}</span>
-                                {c.narrative_tag && (
-                                  <span style={{ fontFamily: 'var(--font-mono)', fontSize: 8, fontWeight: 700, background: 'rgba(57,255,20,0.07)', border: '1px solid rgba(57,255,20,0.25)', borderRadius: 3, padding: '1px 5px', color: 'var(--neon-green)', textTransform: 'uppercase' }}>{c.narrative_tag}</span>
-                                )}
-                                {c.price_at_call && <span style={{ fontFamily: 'var(--font-number)', fontSize: 9, color: 'var(--text-muted)' }}>@ ${Number(c.price_at_call).toFixed(6)}</span>}
-                              </div>
-                              <div style={{ display: 'flex', gap: 4, flexShrink: 0 }}>
-                                <button onClick={() => setFolioTagging(isTagging ? null : c.token_address)}
-                                  style={{ padding: '2px 6px', borderRadius: 4, fontSize: 8, fontFamily: 'var(--font-mono)', cursor: 'pointer', background: 'transparent', border: '1px solid var(--border)', color: 'var(--text-muted)' }}>
-                                  {isTagging ? 'CANCEL' : c.narrative_tag ? 'RETAG' : '+ TAG'}
-                                </button>
-                                <button onClick={() => onFolioCall({ address: c.token_address, symbol: c.symbol })}
-                                  style={{ padding: '2px 6px', borderRadius: 4, fontSize: 8, fontFamily: 'var(--font-mono)', cursor: 'pointer', background: 'rgba(255,80,80,0.08)', border: '1px solid rgba(255,80,80,0.25)', color: '#ff5050' }}>
-                                  ✕
-                                </button>
-                              </div>
-                            </div>
-                            {isTagging && (
-                              <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap', paddingLeft: 4 }}>
-                                {TAGS.map(tag => (
-                                  <button key={tag} onClick={() => onFolioTag(c.token_address, tag)} style={{
-                                    padding: '3px 7px', borderRadius: 4, fontSize: 8, fontFamily: 'var(--font-mono)',
-                                    fontWeight: 700, cursor: 'pointer', textTransform: 'uppercase',
-                                    background: c.narrative_tag === tag ? 'rgba(57,255,20,0.12)' : 'rgba(0,212,255,0.07)',
-                                    border: c.narrative_tag === tag ? '1px solid rgba(57,255,20,0.4)' : '1px solid rgba(0,212,255,0.25)',
-                                    color: c.narrative_tag === tag ? 'var(--neon-green)' : 'var(--cyan)',
-                                  }}>{tag}</button>
-                                ))}
-                              </div>
-                            )}
-                          </div>
-                        )
-                      })}
-                    </>
+                    <FolioCard
+                      profile={folioProfile}
+                      calls={folioCalls}
+                      authWallet={authWallet}
+                      folioNameEdit={folioNameEdit}
+                      setFolioNameEdit={setFolioNameEdit}
+                      folioBioEdit={folioBioEdit}
+                      setFolioBioEdit={setFolioBioEdit}
+                      folioPublicEdit={folioPublicEdit}
+                      setFolioPublicEdit={setFolioPublicEdit}
+                      folioSaving={folioSaving}
+                      folioSaveMsg={folioSaveMsg}
+                      onSave={onSaveFolioName}
+                      folioSearch={folioSearch}
+                      folioSearchRes={folioSearchRes}
+                      folioSearching={folioSearching}
+                      onFolioSearch={onFolioSearch}
+                      onFolioCall={onFolioCall}
+                      folioCallAddrs={folioCallAddrs}
+                      folioTagging={folioTagging}
+                      setFolioTagging={setFolioTagging}
+                      onFolioTag={onFolioTag}
+                    />
                   )}
                 </div>
               )}
