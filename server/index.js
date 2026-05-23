@@ -3816,6 +3816,23 @@ app.delete('/api/folio/call/:address', requireAuth, async (req, res) => {
   }
 })
 
+// GET /api/folio/profile — get current user's full folio profile (JWT required)
+app.get('/api/folio/profile', requireAuth, async (req, res) => {
+  try {
+    await db.query(
+      `INSERT INTO users (wallet_address) VALUES ($1) ON CONFLICT (wallet_address) DO NOTHING`,
+      [req.user.wallet]
+    )
+    const result = await db.query(
+      `SELECT wallet_address, folio_name, folio_bio, folio_public, first_seen FROM users WHERE wallet_address = $1`,
+      [req.user.wallet]
+    )
+    res.json(result.rows[0] || { wallet_address: req.user.wallet, folio_name: null, folio_bio: null, folio_public: true })
+  } catch (err) {
+    res.status(500).json({ error: err.message })
+  }
+})
+
 // GET /api/folio/mine — get current user's folio calls (JWT required)
 app.get('/api/folio/mine', requireAuth, async (req, res) => {
   try {
@@ -3885,6 +3902,7 @@ app.get('/api/folio/leaderboard', async (req, res) => {
       SELECT
         u.wallet_address,
         u.folio_name,
+        u.folio_bio,
         u.first_seen,
         COUNT(f.token_address)          AS call_count,
         json_agg(json_build_object(
@@ -3899,12 +3917,74 @@ app.get('/api/folio/leaderboard', async (req, res) => {
         ) ORDER BY f.called_at DESC)    AS calls
       FROM users u
       JOIN folio f ON f.wallet_address = u.wallet_address
-      GROUP BY u.wallet_address, u.folio_name, u.first_seen
+      WHERE COALESCE(u.folio_public, TRUE) = TRUE
+      GROUP BY u.wallet_address, u.folio_name, u.folio_bio, u.first_seen
       HAVING COUNT(f.token_address) >= 1
       ORDER BY COUNT(f.token_address) DESC
       LIMIT 50
     `)
-    _leaderboardCache = { folios: result.rows, updatedAt: Date.now() }
+
+    const folios = result.rows
+
+    // Batch fetch live prices for all unique token addresses
+    const allAddresses = [...new Set(folios.flatMap(f => (f.calls || []).map(c => c.address).filter(Boolean)))]
+    const livePrices = {}
+
+    if (allAddresses.length > 0) {
+      // DEXScreener batch: 30 per call
+      const batches = []
+      for (let i = 0; i < allAddresses.length; i += 30) {
+        batches.push(allAddresses.slice(i, i + 30))
+      }
+      await Promise.allSettled(batches.map(async batch => {
+        try {
+          const r = await fetch(`https://api.dexscreener.com/latest/dex/tokens/${batch.join(',')}`, {
+            headers: { 'User-Agent': 'BetaPlays/1.0' }
+          })
+          const data = await r.json()
+          const pairs = data.pairs || []
+          // Keep best liquidity pair per token
+          for (const pair of pairs) {
+            const addr = pair.baseToken?.address
+            if (!addr) continue
+            const price = parseFloat(pair.priceUsd || 0)
+            if (!livePrices[addr] || price > 0) livePrices[addr] = price
+          }
+        } catch { /* non-fatal */ }
+      }))
+    }
+
+    // Compute P&L per folio
+    const foliosWithPnl = folios.map(folio => {
+      const calls = folio.calls || []
+      const callsWithPnl = calls.map(c => {
+        const currentPrice = livePrices[c.address]
+        const entryPrice = c.price_at_call
+        let pnlPct = null
+        if (currentPrice && entryPrice && entryPrice > 0) {
+          pnlPct = ((currentPrice - entryPrice) / entryPrice) * 100
+        }
+        return { ...c, current_price: currentPrice || null, pnl_pct: pnlPct }
+      })
+      const pnlValues = callsWithPnl.map(c => c.pnl_pct).filter(p => p !== null)
+      const avgPnl = pnlValues.length > 0 ? pnlValues.reduce((a, b) => a + b, 0) / pnlValues.length : null
+      const bestCall = callsWithPnl.reduce((best, c) => {
+        if (c.pnl_pct === null) return best
+        if (!best || c.pnl_pct > best.pnl_pct) return c
+        return best
+      }, null)
+      return { ...folio, calls: callsWithPnl, avg_pnl: avgPnl, best_call: bestCall }
+    })
+
+    // Sort by avg P&L (nulls last), then by call count
+    foliosWithPnl.sort((a, b) => {
+      if (a.avg_pnl !== null && b.avg_pnl !== null) return b.avg_pnl - a.avg_pnl
+      if (a.avg_pnl !== null) return -1
+      if (b.avg_pnl !== null) return 1
+      return b.call_count - a.call_count
+    })
+
+    _leaderboardCache = { folios: foliosWithPnl, updatedAt: Date.now() }
     _leaderboardCacheAt = Date.now()
     res.json(_leaderboardCache)
   } catch (err) {
@@ -3941,17 +4021,21 @@ app.get('/api/folio/:wallet', async (req, res) => {
   }
 })
 
-// PATCH /api/folio/settings — update folio name (JWT required)
+// PATCH /api/folio/settings — update folio name, bio, public toggle (JWT required)
 app.patch('/api/folio/settings', requireAuth, async (req, res) => {
-  const { folioName } = req.body
+  const { folioName, folioBio, folioPublic } = req.body
   try {
     await db.query(
       `INSERT INTO users (wallet_address) VALUES ($1) ON CONFLICT (wallet_address) DO NOTHING`,
       [req.user.wallet]
     )
     await db.query(
-      `UPDATE users SET folio_name = COALESCE($1, folio_name) WHERE wallet_address = $2`,
-      [folioName ?? null, req.user.wallet]
+      `UPDATE users SET
+         folio_name   = COALESCE($1, folio_name),
+         folio_bio    = COALESCE($2, folio_bio),
+         folio_public = COALESCE($3, folio_public)
+       WHERE wallet_address = $4`,
+      [folioName ?? null, folioBio ?? null, folioPublic ?? null, req.user.wallet]
     )
     res.json({ ok: true })
   } catch (err) {

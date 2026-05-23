@@ -189,6 +189,9 @@ const MIGRATIONS = [
   `CREATE INDEX IF NOT EXISTS idx_folio_called ON folio(called_at DESC)`,
   // Session 31 — narrative tags on folio calls
   `ALTER TABLE folio ADD COLUMN IF NOT EXISTS narrative_tag TEXT`,
+  // Session 31 — folio profile fields
+  `ALTER TABLE users ADD COLUMN IF NOT EXISTS folio_bio     TEXT`,
+  `ALTER TABLE users ADD COLUMN IF NOT EXISTS folio_public  BOOLEAN DEFAULT TRUE`,
 ]
 
 async function init () {
