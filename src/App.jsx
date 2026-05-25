@@ -2527,9 +2527,7 @@ const AlphaBoard = ({ selectedAlpha, onSelect, onNewRunners, onLiveAlphas, onSzn
                   })}
                 </div>
               )}
-              )}
 
-              {/* My Folios */}
               {/* My Folios */}
               {folioView === 'mine' && (
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
