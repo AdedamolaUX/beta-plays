@@ -2439,7 +2439,7 @@ const AlphaBoard = ({ selectedAlpha, onSelect, onNewRunners, onLiveAlphas, onSzn
             </p>
           )}
           {activeTab === 'folio' && (
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 12, overflowY: 'auto', flex: 1, minHeight: 0 }}>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 12, paddingBottom: 20 }}>
               {/* Sub-nav */}
               <div style={{ display: 'flex', gap: 6 }}>
                 {['leaderboard', 'mine'].map(v => (
