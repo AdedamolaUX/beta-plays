@@ -189,9 +189,29 @@ const MIGRATIONS = [
   `CREATE INDEX IF NOT EXISTS idx_folio_called ON folio(called_at DESC)`,
   // Session 31 — narrative tags on folio calls
   `ALTER TABLE folio ADD COLUMN IF NOT EXISTS narrative_tag TEXT`,
-  // Session 31 — folio profile fields
-  `ALTER TABLE users ADD COLUMN IF NOT EXISTS folio_bio     TEXT`,
-  `ALTER TABLE users ADD COLUMN IF NOT EXISTS folio_public  BOOLEAN DEFAULT TRUE`,
+  // Session 31 — multiple folios per wallet
+  `CREATE TABLE IF NOT EXISTS folios (
+    id             SERIAL PRIMARY KEY,
+    wallet_address TEXT NOT NULL REFERENCES users(wallet_address) ON DELETE CASCADE,
+    name           TEXT,
+    bio            TEXT,
+    public         BOOLEAN DEFAULT TRUE,
+    created_at     TIMESTAMPTZ DEFAULT NOW()
+  )`,
+  `CREATE INDEX IF NOT EXISTS idx_folios_wallet ON folios(wallet_address)`,
+  // Add folio_id to calls table (nullable for backward compat)
+  `ALTER TABLE folio ADD COLUMN IF NOT EXISTS folio_id INTEGER REFERENCES folios(id) ON DELETE CASCADE`,
+  `CREATE INDEX IF NOT EXISTS idx_folio_folio_id ON folio(folio_id)`,
+  // Migrate existing calls: create default folio per wallet and assign calls
+  `INSERT INTO folios (wallet_address, name, bio, public, created_at)
+   SELECT DISTINCT f.wallet_address, u.folio_name, u.folio_bio, COALESCE(u.folio_public, TRUE), NOW()
+   FROM folio f
+   JOIN users u ON u.wallet_address = f.wallet_address
+   WHERE f.folio_id IS NULL
+   ON CONFLICT DO NOTHING`,
+  `UPDATE folio SET folio_id = (
+     SELECT id FROM folios WHERE wallet_address = folio.wallet_address ORDER BY created_at LIMIT 1
+   ) WHERE folio_id IS NULL`,
 ]
 
 async function init () {
