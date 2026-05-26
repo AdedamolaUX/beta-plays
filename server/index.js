@@ -14,9 +14,10 @@
 // Required: GROQ_API_KEY, GEMINI_API_KEY
 // Optional: OPENROUTER_API_KEY (free at openrouter.ai — used as final fallback for Vector 8)
 
-const express   = require('express')
-const cors      = require('cors')
-const rateLimit = require('express-rate-limit')
+const express     = require('express')
+const cors        = require('cors')
+const rateLimit   = require('express-rate-limit')
+const compression = require('compression')
 const jwt       = require('jsonwebtoken')
 const nacl      = require('tweetnacl')
 const { PublicKey } = require('@solana/web3.js')
@@ -29,8 +30,9 @@ const db = require('./db')
 const { cacheGet, cacheSet, loadExpansionCache } = require('./db')
 
 const app = express()
+app.use(compression()) // gzip all responses — cuts egress 60-80%
 app.use(cors())
-app.use(express.json({ limit: '10mb' }))  // 10mb for base64 image payloads
+app.use(express.json({ limit: '10mb' }))
 
 // ─── Groq 70b daily limit tracker ─────────────────────────────────
 // Groq's free tier caps llama-3.3-70b at ~100K tokens/day (resets UTC midnight).
@@ -2850,19 +2852,20 @@ app.get('/api/beta-count', async (req, res) => {
 // Result: ~80-90% egress reduction vs original implementation.
 let _historyFullCache     = null
 let _historyFullCacheTime = 0
-const HISTORY_FULL_TTL_MS = 3 * 60 * 1000  // 3 minutes — shared across all users
+const HISTORY_FULL_TTL_MS = 15 * 60 * 1000  // 15 minutes — aggressive cache to cut egress
 
 app.get('/api/history/full', async (req, res) => {
   if (!process.env.DATABASE_URL) return res.json({ tokens: [] })
   const days = Math.min(parseInt(req.query.days) || 7, 30)
 
-  // Serve from server-side cache — all users share one DB read per 3 minutes
+  // Serve from server-side cache — all users share one DB read per 15 minutes
   const now = Date.now()
   if (_historyFullCache && (now - _historyFullCacheTime) < HISTORY_FULL_TTL_MS) {
     return res.json({ tokens: _historyFullCache })
   }
 
   try {
+    // Stripped to minimal columns — cuts payload/egress significantly
     const result = await db.query(`
       SELECT DISTINCT ON (r.token_address)
         r.token_address      AS address,
@@ -2870,16 +2873,11 @@ app.get('/api/history/full', async (req, res) => {
         t.name,
         t.logo_url           AS "logoUrl",
         t.peak_mcap          AS "peakMarketCap",
-        t.mcap_at_first_seen AS "mcapAtFirstSeen",
-        t.first_seen         AS "firstSeen",
-        t.last_seen          AS "lastSeen",
-        t.parent_address     AS "parentAddress",
-        t.parent_symbol      AS "parentSymbol",
         t.ath_mcap           AS "athMcap",
         t.ath_at             AS "athAt",
         t.ath_price          AS "athPrice",
-        t.first_run_at       AS "firstRunAt",
-        t.last_run_at        AS "lastRunAt",
+        t.parent_address     AS "parentAddress",
+        t.parent_symbol      AS "parentSymbol",
         t.total_run_count    AS "totalRunCount",
         r.mcap               AS "marketCap",
         r.volume_24h         AS "volume24h",
@@ -2903,29 +2901,23 @@ app.get('/api/history/full', async (req, res) => {
 
     const tokens = result.rows.map(t => ({
       ...t,
-      firstSeen:        t.firstSeen        ? new Date(t.firstSeen).getTime()        : null,
-      lastSeen:         t.lastSeen         ? new Date(t.lastSeen).getTime()         : null,
       priceRefreshedAt: t.priceRefreshedAt ? new Date(t.priceRefreshedAt).getTime() : null,
-      peakMarketCap:    parseFloat(t.peakMarketCap)    || 0,
-      mcapAtFirstSeen:  parseFloat(t.mcapAtFirstSeen)  || 0,
-      marketCap:        parseFloat(t.marketCap)        || 0,
-      volume24h:        parseFloat(t.volume24h)        || 0,
-      priceChange24h:   parseFloat(t.priceChange24h)   || 0,
+      peakMarketCap:    parseFloat(t.peakMarketCap)  || 0,
+      marketCap:        parseFloat(t.marketCap)      || 0,
+      volume24h:        parseFloat(t.volume24h)      || 0,
+      priceChange24h:   parseFloat(t.priceChange24h) || 0,
       recoveryPct:      t.recoveryPct ? parseFloat(t.recoveryPct) : null,
-      isRevival:        t.isRevival   || false,
-      liquidity:        parseFloat(t.liquidity)        || 0,
-      athMcap:          parseFloat(t.athMcap)          || 0,
-      athAt:            t.athAt       ? new Date(t.athAt).getTime() : null,
-      athPrice:         parseFloat(t.athPrice)         || 0,
-      firstRunAt:       t.firstRunAt  ? new Date(t.firstRunAt).getTime()  : null,
-      lastRunAt:        t.lastRunAt   ? new Date(t.lastRunAt).getTime()   : null,
-      totalRunCount:    parseInt(t.totalRunCount)      || 0,
+      isRevival:        t.isRevival || false,
+      liquidity:        parseFloat(t.liquidity)      || 0,
+      athMcap:          parseFloat(t.athMcap)        || 0,
+      athAt:            t.athAt ? new Date(t.athAt).getTime() : null,
+      athPrice:         parseFloat(t.athPrice)       || 0,
+      totalRunCount:    parseInt(t.totalRunCount)    || 0,
     }))
 
-    // Cache result server-side — shared across all concurrent users
     _historyFullCache     = tokens
     _historyFullCacheTime = now
-    console.log(`[HistoryFull] Cached ${tokens.length} active tokens (${days}d window)`)
+    console.log(`[HistoryFull] Cached ${tokens.length} tokens (${days}d) — egress-optimised`)
 
     return res.json({ tokens })
   } catch (err) {

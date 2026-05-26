@@ -15,6 +15,9 @@ const HISTORY_MAX_AGE_MS = 30 * 24 * 60 * 60 * 1000
 // ─── localStorage ────────────────────────────────────────────────
 const STORAGE_KEY = 'betaplays_seen_alphas'
 
+let _lastDbWrite = 0
+const DB_WRITE_THROTTLE_MS = 5 * 60_000  // write to Supabase max every 5 minutes per session
+
 const saveToHistory = (alphas) => {
   try {
     const existing = JSON.parse(localStorage.getItem(STORAGE_KEY) || '{}')
@@ -83,7 +86,9 @@ const saveToHistory = (alphas) => {
           source:           a.source || 'live_feed',
         }
       })
-    if (refreshPayload.length > 0) {
+    const nowMs = Date.now()
+    if (refreshPayload.length > 0 && (nowMs - _lastDbWrite) > DB_WRITE_THROTTLE_MS) {
+      _lastDbWrite = nowMs
       fetch(`${BACKEND_URL}/api/refresh-prices`, {
         method:  'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -103,7 +108,7 @@ const saveToHistory = (alphas) => {
 
 let _historyCache     = null   // in-memory for the current session
 let _historyCacheTime = 0
-const HISTORY_CACHE_TTL_MS = 5 * 60_000  // 5min — server-side cache handles multi-user; this is per-browser secondary reduction
+const HISTORY_CACHE_TTL_MS = 15 * 60_000  // 15min — matches server cache, minimises egress
 
 const loadNeonHistory = async () => {
   const now = Date.now()
@@ -911,7 +916,9 @@ const refreshHistoricalPrices = async () => {
             liquidity:      existing[token.address]?.liquidity      || 0,
             source:         token.source || 'price_refresh',
           }))
-        if (refreshPayload.length > 0) {
+        const nowMs2 = Date.now()
+        if (refreshPayload.length > 0 && (nowMs2 - _lastDbWrite) > DB_WRITE_THROTTLE_MS) {
+          _lastDbWrite = nowMs2
           fetch(`${BACKEND_URL}/api/refresh-prices`, {
             method:  'POST',
             headers: { 'Content-Type': 'application/json' },
@@ -1679,9 +1686,17 @@ const useAlphas = () => {
     fetchLive()
 
     // Supabase loads in background after live fetch starts — merges silently
-    // Uses a delay so the live fetch gets DB connections first (Supabase pooler handles concurrency)
+    // Skip entirely if localStorage already has data AND memory cache is warm (saves egress)
     setTimeout(async () => {
       try {
+        const local = JSON.parse(localStorage.getItem(STORAGE_KEY) || '{}')
+        const hasLocal = Object.keys(local).length > 0
+        const cacheWarm = _historyCache && (Date.now() - _historyCacheTime) < HISTORY_CACHE_TTL_MS
+        // If returning user with local data and cache is warm, skip the DB call entirely
+        if (hasLocal && cacheWarm) {
+          console.log('[Mount] Cache warm + localStorage present — skipping background Supabase fetch (egress saved)')
+          return
+        }
         const neon = await loadNeonHistory()
         if (!neon || Object.keys(neon).length === 0) return
         const currentAddrs = new Set(
@@ -1732,7 +1747,7 @@ const useAlphas = () => {
           console.log(`[SpawnCount] Synced beta spawn counts from Supabase in ${elapsed}s`)
         }
       } catch { /* non-fatal */ }
-    }, 8000)  // 8s delay — gives fetchLive + Supabase pool time to stabilise
+    }, 20_000)  // 20s delay — only fires if cache is cold or no localStorage data
   }, [fetchLive])
 
   useEffect(() => {
