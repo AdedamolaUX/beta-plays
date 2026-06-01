@@ -84,16 +84,16 @@ const markPumpFunDown = () => {
 // Rate limiting — split limits so vision batches don't eat the shared quota
 const limiter = rateLimit({
   windowMs: 60 * 1000,
-  max: 60,  // 60 req/min for general endpoints (birdeye, pumpfun, scoring)
+  max: 60,
   message: { error: 'Too many requests, slow down degen' },
 })
 const visionLimiter = rateLimit({
   windowMs: 60 * 1000,
-  max: 20,  // 20 req/min for vision — just under Gemini's 15/min free tier limit
+  max: 20,
   message: { error: 'Vision rate limit — slow down' },
 })
-app.use('/api/analyze-vision', visionLimiter)  // vision gets its own bucket
-app.use('/api/', limiter)                       // everything else shares the general bucket
+app.use('/api/analyze-vision', visionLimiter)
+app.use('/api/', limiter)
 
 // ─── Groq helper ──────────────────────────────────────────────────
 const callGroq = async (prompt, systemPrompt = null) => {
@@ -2504,8 +2504,6 @@ app.post('/api/refresh-prices', (req, res) => {
   if (!Array.isArray(tokens) || tokens.length === 0) {
     return res.status(400).json({ error: 'tokens array required' })
   }
-
-  // Respond immediately — client never waits for this
   res.json({ ok: true, count: tokens.length })
 
   // Process in background via write queue — same pattern as record-alphas

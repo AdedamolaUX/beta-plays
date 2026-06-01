@@ -115,24 +115,33 @@ const loadNeonHistory = async () => {
   if (_historyCache && (now - _historyCacheTime) < HISTORY_CACHE_TTL_MS) {
     return _historyCache
   }
+
+  // localStorage-first — only hit Supabase if localStorage is empty
+  // This eliminates egress for 95%+ of page loads (returning users)
+  try {
+    const local = JSON.parse(localStorage.getItem(STORAGE_KEY) || '{}')
+    if (Object.keys(local).length > 0) {
+      _historyCache     = local
+      _historyCacheTime = now
+      return local
+    }
+  } catch {}
+
+  // Only new users (empty localStorage) hit the DB
   try {
     const res = await fetch(`${BACKEND_URL}/api/history/full?days=7`)
     if (!res.ok) throw new Error('history/full failed')
     const { tokens } = await res.json()
     if (Array.isArray(tokens) && tokens.length > 0) {
-      // Convert array to address-keyed object — same shape as localStorage seen_alphas
       const map = {}
       tokens.forEach(t => { map[t.address] = t })
       _historyCache     = map
       _historyCacheTime = now
       return map
     }
-  } catch { /* fall through to localStorage */ }
+  } catch {}
 
-  // Fallback: localStorage
-  try {
-    return JSON.parse(localStorage.getItem(STORAGE_KEY) || '{}')
-  } catch { return {} }
+  return {}
 }
 
 // ─── Load historical tokens by price action ───────────────────────
