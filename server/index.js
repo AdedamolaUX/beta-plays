@@ -4020,6 +4020,175 @@ app.patch('/api/folio/settings', requireAuth, async (req, res) => {
   }
 })
 
+// ─── Boosts ───────────────────────────────────────────────────────────────────
+// BOOSTED mechanic: projects pay SOL to treasury wallet to elevate a detected
+// beta token. Boosted tokens appear:
+//   1. Pinned at top of parent alpha's beta row (with ⚡ badge)
+//   2. As a standard alpha card in the main feed (with ⚡ badge)
+// Max 3 active boost slots across the entire alpha feed at any time.
+// Each boost lasts 24 hours. Payment verified on-chain via Helius.
+
+const TREASURY_WALLET  = process.env.TREASURY_WALLET || '7LbtGZTToXYQ8FRnwBy6TfLMi4nMw2ge523mimwTSJUk'
+const BOOST_PRICE_SOL  = parseFloat(process.env.BOOST_PRICE_SOL || '0.2')
+const BOOST_MAX_SLOTS  = 3
+const BOOST_DURATION_MS = 24 * 60 * 60 * 1000 // 24 hours
+
+// Expire stale boosts and free their slots (called before every read)
+async function expireBoosts () {
+  try {
+    await db.query(`UPDATE boosts SET is_active = FALSE WHERE is_active = TRUE AND expires_at < NOW()`)
+  } catch (err) {
+    console.warn('[Boosts] Expire error (non-fatal):', err.message)
+  }
+}
+
+// GET /api/boosts/active — returns active boosts + slot availability
+app.get('/api/boosts/active', async (req, res) => {
+  try {
+    await expireBoosts()
+    const result = await db.query(`
+      SELECT id, token_address, token_symbol, token_name, logo_url,
+             parent_alpha_address, slot_number, starts_at, expires_at
+      FROM boosts
+      WHERE is_active = TRUE
+      ORDER BY slot_number ASC
+    `)
+    const activeBoosts = result.rows
+    const usedSlots    = activeBoosts.map(b => b.slot_number)
+    const freeSlots    = [1, 2, 3].filter(s => !usedSlots.includes(s))
+    res.json({
+      boosts:     activeBoosts,
+      slotsUsed:  usedSlots.length,
+      slotsFree:  freeSlots.length,
+      slotsAvail: freeSlots,
+      priceSol:   BOOST_PRICE_SOL,
+      treasury:   TREASURY_WALLET,
+    })
+  } catch (err) {
+    console.error('[Boosts] Active error:', err.message)
+    res.status(500).json({ error: err.message })
+  }
+})
+
+// POST /api/boosts/verify — verify SOL payment on-chain, write boost record (JWT required)
+// Body: { tx_signature, token_address, token_symbol, token_name, logo_url, parent_alpha_address }
+app.post('/api/boosts/verify', requireAuth, async (req, res) => {
+  const { tx_signature, token_address, token_symbol, token_name, logo_url, parent_alpha_address } = req.body
+
+  if (!tx_signature || !token_address || !parent_alpha_address) {
+    return res.status(400).json({ error: 'tx_signature, token_address and parent_alpha_address are required' })
+  }
+
+  try {
+    // 1. Check tx not already used
+    const existing = await db.query(`SELECT id FROM boosts WHERE tx_signature = $1`, [tx_signature])
+    if (existing.rows.length > 0) {
+      return res.status(409).json({ error: 'Transaction already used for a boost' })
+    }
+
+    // 2. Check slot availability
+    await expireBoosts()
+    const activeResult = await db.query(`SELECT slot_number FROM boosts WHERE is_active = TRUE ORDER BY slot_number ASC`)
+    const usedSlots    = activeResult.rows.map(r => r.slot_number)
+    if (usedSlots.length >= BOOST_MAX_SLOTS) {
+      return res.status(409).json({ error: 'All boost slots are currently full. Try again when a slot opens.' })
+    }
+    const nextSlot = [1, 2, 3].find(s => !usedSlots.includes(s))
+
+    // 3. Verify transaction on-chain via Helius
+    const HELIUS_KEY = process.env.HELIUS_API_KEY
+    if (!HELIUS_KEY) return res.status(500).json({ error: 'Helius API key not configured' })
+
+    const heliusRes = await fetch(
+      `https://api.helius.xyz/v0/transactions/?api-key=${HELIUS_KEY}`,
+      {
+        method:  'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body:    JSON.stringify({ transactions: [tx_signature] }),
+      }
+    )
+    if (!heliusRes.ok) {
+      return res.status(502).json({ error: 'Helius verification failed — try again' })
+    }
+    const txData = await heliusRes.json()
+    const tx     = txData?.[0]
+
+    if (!tx) {
+      return res.status(404).json({ error: 'Transaction not found on-chain. It may still be confirming — wait 10s and retry.' })
+    }
+    if (tx.transactionError) {
+      return res.status(400).json({ error: 'Transaction failed on-chain' })
+    }
+
+    // 4. Verify payment: sender = boosted_by_wallet, receiver = treasury, amount >= BOOST_PRICE_SOL
+    const LAMPORTS_PER_SOL = 1_000_000_000
+    const minLamports      = Math.floor(BOOST_PRICE_SOL * LAMPORTS_PER_SOL)
+
+    // Helius enhanced transaction — check nativeTransfers
+    const transfers = tx.nativeTransfers || []
+    const validPayment = transfers.some(t =>
+      t.fromUserAccount === req.user.wallet &&
+      t.toUserAccount   === TREASURY_WALLET &&
+      t.amount          >= minLamports
+    )
+
+    if (!validPayment) {
+      return res.status(400).json({
+        error: `Payment not verified. Expected ≥${BOOST_PRICE_SOL} SOL from ${req.user.wallet} to treasury.`
+      })
+    }
+
+    // 5. Write boost record
+    const expiresAt = new Date(Date.now() + BOOST_DURATION_MS)
+    const insertResult = await db.query(`
+      INSERT INTO boosts
+        (token_address, token_symbol, token_name, logo_url, parent_alpha_address,
+         boosted_by_wallet, amount_sol, tx_signature, slot_number, expires_at)
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+      RETURNING id, slot_number, starts_at, expires_at
+    `, [
+      token_address,
+      token_symbol  || null,
+      token_name    || null,
+      logo_url      || null,
+      parent_alpha_address,
+      req.user.wallet,
+      BOOST_PRICE_SOL,
+      tx_signature,
+      nextSlot,
+      expiresAt,
+    ])
+
+    console.log(`[Boosts] New boost: ${token_symbol || token_address} → slot ${nextSlot} by ${req.user.wallet}`)
+    res.json({ ok: true, boost: insertResult.rows[0] })
+
+  } catch (err) {
+    console.error('[Boosts] Verify error:', err.message)
+    res.status(500).json({ error: err.message })
+  }
+})
+
+// DELETE /api/boosts/:id — admin removal (JWT required — owner or treasury wallet only)
+app.delete('/api/boosts/:id', requireAuth, async (req, res) => {
+  try {
+    const result = await db.query(
+      `SELECT boosted_by_wallet FROM boosts WHERE id = $1`, [req.params.id]
+    )
+    if (result.rows.length === 0) return res.status(404).json({ error: 'Boost not found' })
+
+    const isOwner    = result.rows[0].boosted_by_wallet === req.user.wallet
+    const isAdmin    = req.user.wallet === TREASURY_WALLET
+    if (!isOwner && !isAdmin) return res.status(403).json({ error: 'Not authorised' })
+
+    await db.query(`UPDATE boosts SET is_active = FALSE WHERE id = $1`, [req.params.id])
+    res.json({ ok: true })
+  } catch (err) {
+    res.status(500).json({ error: err.message })
+  }
+})
+
+// ─── End Boosts ───────────────────────────────────────────────────────────────
+
 // ─── End Folios ───────────────────────────────────────────────────────────────
 
 

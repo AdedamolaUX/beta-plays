@@ -212,6 +212,32 @@ const MIGRATIONS = [
   `UPDATE folio SET folio_id = (
      SELECT id FROM folios WHERE wallet_address = folio.wallet_address ORDER BY created_at LIMIT 1
    ) WHERE folio_id IS NULL`,
+
+  // Session 32 — BOOSTED mechanic
+  // Projects pay SOL to treasury wallet to boost a detected beta token.
+  // Boosted tokens appear at top of their parent alpha's beta row AND
+  // as a standard alpha card in the main feed, with ⚡ BOOSTED badge.
+  // Max 3 active boost slots across the entire alpha feed at any time.
+  // Each boost lasts 24 hours from payment confirmation.
+  `CREATE TABLE IF NOT EXISTS boosts (
+    id                   UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    token_address        TEXT NOT NULL,
+    token_symbol         TEXT,
+    token_name           TEXT,
+    logo_url             TEXT,
+    parent_alpha_address TEXT NOT NULL,
+    boosted_by_wallet    TEXT NOT NULL,
+    amount_sol           NUMERIC(10,4) NOT NULL,
+    tx_signature         TEXT NOT NULL UNIQUE,
+    slot_number          INTEGER CHECK (slot_number BETWEEN 1 AND 3),
+    starts_at            TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    expires_at           TIMESTAMPTZ NOT NULL,
+    is_active            BOOLEAN DEFAULT TRUE,
+    created_at           TIMESTAMPTZ DEFAULT NOW()
+  )`,
+  `CREATE INDEX IF NOT EXISTS idx_boosts_active ON boosts(is_active, expires_at)`,
+  `CREATE INDEX IF NOT EXISTS idx_boosts_parent ON boosts(parent_alpha_address)`,
+  `CREATE INDEX IF NOT EXISTS idx_boosts_token  ON boosts(token_address)`,
 ]
 
 async function init () {

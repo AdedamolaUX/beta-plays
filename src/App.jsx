@@ -2111,7 +2111,42 @@ const AlphaBoard = ({ selectedAlpha, onSelect, onNewRunners, onLiveAlphas, onSzn
   // Final list shown in the alpha panel — uses filter/sort on live tab
   const finalDisplayList = activeTab === 'live' && !searchQuery ? filteredSortedLive : displayList
 
-  // Also filter szn cards
+  // ── Boosted tokens injection into alpha feed ──────────────────
+  // Fetch active boosts and prepend them to the live feed as alpha cards
+  const [boostedAlphas, setBoostedAlphas] = useState([])
+  useEffect(() => {
+    fetch(`${BACKEND_URL}/api/boosts/active`)
+      .then(r => r.json())
+      .then(data => {
+        const boosts = data.boosts || []
+        // Shape boosted tokens to match alpha card format
+        const shaped = boosts.map(b => ({
+          address:      b.token_address,
+          symbol:       b.token_symbol || '???',
+          name:         b.token_name   || '',
+          logoUrl:      b.logo_url,
+          source:       'boost',
+          isBoostedFeed: true,
+          boostExpiresAt: b.expires_at,
+          parentAlphaAddress: b.parent_alpha_address,
+          // minimal price data — BetaPanel will load the rest
+          priceChange24h: 0,
+          marketCap: 0,
+          volume24h: 0,
+        }))
+        setBoostedAlphas(shaped)
+      })
+      .catch(() => {})
+  }, [])
+
+  const liveAddressSet = useMemo(() => new Set(finalDisplayList.map(a => a.address)), [finalDisplayList])
+
+  // Prepend boosted tokens that aren't already in the live feed
+  const feedWithBoosts = useMemo(() => {
+    if (!boostedAlphas.length || activeTab !== 'live' || searchQuery) return finalDisplayList
+    const newBoosts = boostedAlphas.filter(b => !liveAddressSet.has(b.address))
+    return [...newBoosts, ...finalDisplayList]
+  }, [finalDisplayList, boostedAlphas, liveAddressSet, activeTab, searchQuery])
   // Deduplicate tokens across szn cards — a token should only appear
   // in the highest-scoring szn card it belongs to, not multiple.
   const dedupedSznCards = useMemo(() => {
@@ -2759,7 +2794,7 @@ const AlphaBoard = ({ selectedAlpha, onSelect, onNewRunners, onLiveAlphas, onSzn
           </div>
         )}
 
-        {!loading && finalDisplayList.map((alpha) => {
+        {!loading && feedWithBoosts.map((alpha) => {
           if (!alpha?.address || !alpha?.symbol) return null
           const watched = watchedAddresses.has(alpha.address)
           if (activeTab === 'positioning' || alpha.isPositioning) {
@@ -2778,7 +2813,16 @@ const AlphaBoard = ({ selectedAlpha, onSelect, onNewRunners, onLiveAlphas, onSzn
             )
           }
           return (
-            <div key={alpha.id || alpha.address} data-address={alpha.address}>
+            <div key={alpha.id || alpha.address} data-address={alpha.address} style={alpha.isBoostedFeed ? { position: 'relative' } : {}}>
+              {alpha.isBoostedFeed && (
+                <div style={{
+                  position: 'absolute', top: 4, right: 6, zIndex: 2,
+                  fontSize: 9, fontFamily: 'var(--font-mono)', fontWeight: 800,
+                  color: 'rgb(255,200,0)', background: 'rgba(255,200,0,0.12)',
+                  border: '1px solid rgba(255,200,0,0.4)', borderRadius: 3,
+                  padding: '1px 5px', pointerEvents: 'none',
+                }}>⚡ BOOSTED</div>
+              )}
               <AlphaCard
                 alpha={alpha}
                 isSelected={selectedAlpha?.id === alpha.id}
@@ -3514,7 +3558,7 @@ const openJupiterSwap = (token) => {
 }
 // ─── Beta Row ────────────────────────────────────────────────────
 
-const BetaRow = ({ beta, alpha, isPinned, trenchOnly, onOpenDrawer, onSwap }) => {
+const BetaRow = ({ beta, alpha, isPinned, isBoosted, trenchOnly, onOpenDrawer, onSwap, onBoost, isAuthed, boostSlotsAvail }) => {
   const change     = parseFloat(beta.priceChange24h) || 0
   const isPositive = change >= 0
   const wave       = getWavePhase(alpha, beta)
@@ -3526,11 +3570,17 @@ const BetaRow = ({ beta, alpha, isPinned, trenchOnly, onOpenDrawer, onSwap }) =>
 
   if (trenchOnly && !isTrench) return null
 
+  const rowStyle = isBoosted
+    ? { borderColor: 'rgba(255,200,0,0.5)', background: 'rgba(255,200,0,0.04)' }
+    : isLPPair
+      ? { borderColor: 'var(--cyan)', background: 'rgba(0,212,255,0.04)' }
+      : {}
+
   return (
     <div
-      className={`beta-row ${isPinned ? 'pinned' : ''}`}
+      className={`beta-row ${isPinned ? 'pinned' : ''} ${isBoosted ? 'boosted' : ''}`}
       onClick={() => onOpenDrawer ? onOpenDrawer(beta) : (beta.dexUrl && window.open(beta.dexUrl, '_blank'))}
-      style={isLPPair ? { borderColor: 'var(--cyan)', background: 'rgba(0,212,255,0.04)' } : {}}
+      style={rowStyle}
     >
       <div className="token-info">
         <div className="token-icon" style={{ width: 28, height: 28, fontSize: 9 }}>
@@ -3541,6 +3591,7 @@ const BetaRow = ({ beta, alpha, isPinned, trenchOnly, onOpenDrawer, onSwap }) =>
             <span style={{ fontFamily: 'var(--font-display)', fontWeight: 700, fontSize: 13, color: 'var(--text-primary)' }}>
               ${beta.symbol}
             </span>
+            {isBoosted      && <Tooltip text="Boosted — project paid to promote this beta"><span className="badge" style={{ fontSize: 10, padding: '1px 4px', background: 'rgba(255,200,0,0.15)', borderColor: 'rgba(255,200,0,0.5)', color: 'rgb(255,200,0)', cursor: 'default', fontWeight: 700 }}>⚡ BOOSTED</span></Tooltip>}
             {isLPPair       && <Tooltip text="LP pair — direct on-chain liquidity link"><span className="badge badge-cabal" style={{ fontSize: 11, padding: '1px 3px', cursor: 'default' }}>🔗</span></Tooltip>}
             {isTelegramSig  && <Tooltip text="Telegram signal — spotted in CT alpha channels"><span className="badge" style={{ fontSize: 11, padding: '1px 3px', background: 'rgba(0,212,180,0.15)', borderColor: 'rgba(0,212,180,0.4)', color: 'rgb(0,212,180)', animation: 'pulse 2s infinite', cursor: 'default' }}>📡</span></Tooltip>}
             {isTwitterSig   && <Tooltip text="Twitter signal — spotted on CT"><span className="badge" style={{ fontSize: 11, padding: '1px 3px', background: 'rgba(29,161,242,0.15)', borderColor: 'rgba(29,161,242,0.4)', color: 'rgb(29,161,242)', animation: 'pulse 2s infinite', cursor: 'default' }}>🐦</span></Tooltip>}
@@ -3559,6 +3610,21 @@ const BetaRow = ({ beta, alpha, isPinned, trenchOnly, onOpenDrawer, onSwap }) =>
             )}
             {isPinned       && <Tooltip text="Dev verified — project team verified"><span className="badge badge-verified" style={{ fontSize: 11, padding: '1px 3px', cursor: 'default' }}>✓</span></Tooltip>}
             {beta.isSibling && <Tooltip text="Sibling — shares the same parent alpha"><span className="badge badge-cabal" style={{ fontSize: 11, padding: '1px 3px', opacity: 0.85, cursor: 'default' }}>👥</span></Tooltip>}
+            {isAuthed && !isBoosted && onBoost && (
+              <Tooltip text={boostSlotsAvail > 0 ? `Boost this token — 0.2 SOL / 24hrs (${boostSlotsAvail} slot${boostSlotsAvail !== 1 ? 's' : ''} free)` : 'All boost slots full — check back soon'}>
+                <button
+                  onClick={e => { e.stopPropagation(); onBoost(beta) }}
+                  disabled={boostSlotsAvail === 0}
+                  style={{
+                    fontSize: 9, padding: '1px 5px', cursor: boostSlotsAvail > 0 ? 'pointer' : 'not-allowed',
+                    background: 'rgba(255,200,0,0.08)', border: '1px solid rgba(255,200,0,0.3)',
+                    borderRadius: 3, color: boostSlotsAvail > 0 ? 'rgb(255,200,0)' : 'var(--text-muted)',
+                    fontFamily: 'var(--font-mono)', fontWeight: 700, letterSpacing: 0.3,
+                    opacity: boostSlotsAvail === 0 ? 0.4 : 1,
+                  }}
+                >⚡ BOOST</button>
+              </Tooltip>
+            )}
           </div>
           <div style={{ display: 'flex', gap: 6, alignItems: 'center', marginTop: 1 }}>
             <CopyAddress address={beta.address} />
@@ -3768,9 +3834,151 @@ const SznPanel = ({ szn, onListBeta, onOpenDrawer }) => {
   )
 }
 
+// ─── Boost Modal ─────────────────────────────────────────────────
+// Handles the full boost payment flow:
+// 1. Shows boost details + price
+// 2. User sends SOL to treasury via wallet adapter
+// 3. Backend verifies tx on-chain and writes boost record
+
+const BoostModal = ({ beta, alpha, authToken, authWallet, priceSol = 0.2, onClose, onSuccess }) => {
+  const { sendTransaction, publicKey } = useWallet()
+  const [step,    setStep]    = useState('confirm') // confirm | sending | verifying | done | error
+  const [errMsg,  setErrMsg]  = useState(null)
+
+  const TREASURY = '7LbtGZTToXYQ8FRnwBy6TfLMi4nMw2ge523mimwTSJUk'
+  const LAMPORTS = Math.round(priceSol * 1_000_000_000)
+
+  const handleBoost = async () => {
+    if (!publicKey) return setErrMsg('Wallet not connected')
+    setStep('sending')
+    setErrMsg(null)
+    try {
+      // Build a simple SOL transfer transaction
+      const { Connection, Transaction, SystemProgram, PublicKey, LAMPORTS_PER_SOL } = await import('@solana/web3.js')
+      const connection = new Connection('https://mainnet.helius-rpc.com/?api-key=' + (import.meta.env.VITE_HELIUS_API_KEY || ''), 'confirmed')
+      const tx = new Transaction().add(
+        SystemProgram.transfer({
+          fromPubkey: publicKey,
+          toPubkey:   new PublicKey(TREASURY),
+          lamports:   LAMPORTS,
+        })
+      )
+      const { blockhash } = await connection.getLatestBlockhash()
+      tx.recentBlockhash = blockhash
+      tx.feePayer        = publicKey
+
+      const sig = await sendTransaction(tx, connection)
+      // Wait for confirmation
+      await connection.confirmTransaction(sig, 'confirmed')
+
+      setStep('verifying')
+      // Call backend to verify + record boost
+      const res = await fetch(`${BACKEND_URL}/api/boosts/verify`, {
+        method:  'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${authToken}` },
+        body: JSON.stringify({
+          tx_signature:         sig,
+          token_address:        beta.address,
+          token_symbol:         beta.symbol,
+          token_name:           beta.name,
+          logo_url:             beta.logoUrl,
+          parent_alpha_address: alpha.address,
+        }),
+      })
+      const data = await res.json()
+      if (!res.ok) throw new Error(data.error || 'Verification failed')
+
+      setStep('done')
+      onSuccess(data.boost)
+    } catch (err) {
+      console.error('[Boost] Error:', err)
+      setErrMsg(err.message || 'Something went wrong')
+      setStep('error')
+    }
+  }
+
+  return createPortal(
+    <div style={{
+      position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.75)',
+      display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 9999,
+    }} onClick={onClose}>
+      <div style={{
+        background: 'var(--surface)', border: '1px solid rgba(255,200,0,0.3)',
+        borderRadius: 12, padding: '24px 28px', minWidth: 320, maxWidth: 400,
+        fontFamily: 'var(--font-mono)',
+      }} onClick={e => e.stopPropagation()}>
+        <div style={{ fontSize: 16, fontWeight: 800, color: 'rgb(255,200,0)', marginBottom: 4, fontFamily: 'var(--font-display)' }}>
+          ⚡ BOOST ${beta.symbol}
+        </div>
+        <div style={{ fontSize: 10, color: 'var(--text-muted)', marginBottom: 20 }}>
+          Pins this beta to the top of the {alpha?.symbol ? `$${alpha.symbol}` : 'alpha'} beta list and adds it to the main feed for 24 hours.
+        </div>
+
+        <div style={{ background: 'rgba(255,200,0,0.06)', border: '1px solid rgba(255,200,0,0.2)', borderRadius: 8, padding: '12px 14px', marginBottom: 20 }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 6 }}>
+            <span style={{ fontSize: 10, color: 'var(--text-muted)' }}>Token</span>
+            <span style={{ fontSize: 11, color: 'var(--text-primary)', fontWeight: 700 }}>${beta.symbol}</span>
+          </div>
+          <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 6 }}>
+            <span style={{ fontSize: 10, color: 'var(--text-muted)' }}>Parent alpha</span>
+            <span style={{ fontSize: 11, color: 'var(--text-primary)', fontWeight: 700 }}>${alpha?.symbol || '—'}</span>
+          </div>
+          <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 6 }}>
+            <span style={{ fontSize: 10, color: 'var(--text-muted)' }}>Duration</span>
+            <span style={{ fontSize: 11, color: 'var(--text-primary)', fontWeight: 700 }}>24 hours</span>
+          </div>
+          <div style={{ display: 'flex', justifyContent: 'space-between', borderTop: '1px solid rgba(255,200,0,0.15)', paddingTop: 8, marginTop: 4 }}>
+            <span style={{ fontSize: 11, color: 'var(--text-muted)', fontWeight: 700 }}>Total cost</span>
+            <span style={{ fontSize: 14, color: 'rgb(255,200,0)', fontWeight: 800 }}>{priceSol} SOL</span>
+          </div>
+        </div>
+
+        {step === 'confirm' && (
+          <div style={{ display: 'flex', gap: 10 }}>
+            <button onClick={onClose} style={{
+              flex: 1, padding: '9px 0', borderRadius: 6, fontSize: 11, fontWeight: 700,
+              background: 'transparent', border: '1px solid var(--border)', color: 'var(--text-muted)', cursor: 'pointer',
+            }}>Cancel</button>
+            <button onClick={handleBoost} style={{
+              flex: 2, padding: '9px 0', borderRadius: 6, fontSize: 12, fontWeight: 800,
+              background: 'rgba(255,200,0,0.15)', border: '1px solid rgba(255,200,0,0.5)',
+              color: 'rgb(255,200,0)', cursor: 'pointer',
+            }}>⚡ Pay {priceSol} SOL & Boost</button>
+          </div>
+        )}
+        {step === 'sending' && (
+          <div style={{ textAlign: 'center', color: 'var(--text-muted)', fontSize: 11, padding: '10px 0' }}>
+            ✍️ Confirm transaction in wallet...
+          </div>
+        )}
+        {step === 'verifying' && (
+          <div style={{ textAlign: 'center', color: 'var(--cyan)', fontSize: 11, padding: '10px 0' }}>
+            🔍 Verifying payment on-chain...
+          </div>
+        )}
+        {step === 'done' && (
+          <div style={{ textAlign: 'center', color: 'rgb(57,255,20)', fontSize: 12, fontWeight: 700, padding: '10px 0' }}>
+            ✅ Boost confirmed! Token is now live.
+          </div>
+        )}
+        {step === 'error' && (
+          <>
+            <div style={{ color: 'var(--red)', fontSize: 10, marginBottom: 12, textAlign: 'center' }}>{errMsg}</div>
+            <div style={{ display: 'flex', gap: 10 }}>
+              <button onClick={onClose} style={{ flex: 1, padding: '8px 0', borderRadius: 6, fontSize: 11, background: 'transparent', border: '1px solid var(--border)', color: 'var(--text-muted)', cursor: 'pointer', fontWeight: 700 }}>Close</button>
+              <button onClick={handleBoost} style={{ flex: 2, padding: '8px 0', borderRadius: 6, fontSize: 11, background: 'rgba(255,200,0,0.1)', border: '1px solid rgba(255,200,0,0.4)', color: 'rgb(255,200,0)', cursor: 'pointer', fontWeight: 700 }}>Retry</button>
+            </div>
+          </>
+        )}
+      </div>
+    </div>,
+    document.body
+  )
+}
+
 // ─── Beta Panel ──────────────────────────────────────────────────
 
-const BetaPanel = ({ alpha, liveAlphas, onListBeta, onOpenDrawer, onSwap, onScrollToAlpha, onCustomSearch, customAlphaLoading, customAlphaError, settings = {} }) => {
+const BetaPanel = ({ alpha, liveAlphas, onListBeta, onOpenDrawer, onSwap, onScrollToAlpha, onCustomSearch, customAlphaLoading, customAlphaError, settings = {}, isAuthed, authToken, authWallet, onBoostSuccess }) => {
   const { parent, loading: parentLoading }               = useParentAlpha(alpha, liveAlphas)
   const { betas, loading: betasLoading, error, scanPhase, refresh } = useBetas(alpha, parent, { metaSeedEnabled: settings.metaSeedEnabled ?? true })
   const { birdeye }                                       = useBirdeye(alpha?.address)
@@ -3778,6 +3986,23 @@ const BetaPanel = ({ alpha, liveAlphas, onListBeta, onOpenDrawer, onSwap, onScro
   const [mcapFilter,   setMcapFilter]   = useState('all')
   const [sortBy,       setSortBy]       = useState(settings.defaultBetaSort || 'rank')
   const [sortDir,      setSortDir]      = useState('desc')
+
+  // ── Boost state ──────────────────────────────────────────────
+  const [activeBoosts,    setActiveBoosts]    = useState([])   // boosts from backend
+  const [boostSlotsAvail, setBoostSlotsAvail] = useState(3)
+  const [boostTarget,     setBoostTarget]     = useState(null) // beta selected for boost
+  const [boostTxPending,  setBoostTxPending]  = useState(false)
+  const [boostMsg,        setBoostMsg]        = useState(null)
+
+  useEffect(() => {
+    fetch(`${BACKEND_URL}/api/boosts/active`)
+      .then(r => r.json())
+      .then(data => {
+        setActiveBoosts(data.boosts || [])
+        setBoostSlotsAvail(data.slotsFree ?? 3)
+      })
+      .catch(() => {})
+  }, [alpha?.address])
 
   const mcapFilterFn = {
     all:   () => true,
@@ -3792,6 +4017,10 @@ const BetaPanel = ({ alpha, liveAlphas, onListBeta, onOpenDrawer, onSwap, onScro
     else { setSortBy(col); setSortDir('desc') }
   }
 
+  const boostedAddresses = useMemo(() =>
+    new Set(activeBoosts.filter(b => b.parent_alpha_address === alpha?.address).map(b => b.token_address))
+  , [activeBoosts, alpha?.address])
+
   const filteredBetas = useMemo(() => {
     const filtered = betas.filter(b => {
       if (!mcapFilterFn[mcapFilter](b)) return false
@@ -3801,7 +4030,11 @@ const BetaPanel = ({ alpha, liveAlphas, onListBeta, onOpenDrawer, onSwap, onScro
       return true
     })
     return [...filtered].sort((a, b) => {
-      // LP pairs always float to top regardless of sort
+      // Boosted always float above everything
+      const aBoosted = boostedAddresses.has(a.address) ? 2 : 0
+      const bBoosted = boostedAddresses.has(b.address) ? 2 : 0
+      if (bBoosted !== aBoosted) return bBoosted - aBoosted
+      // LP pairs float above non-boosted
       const aLP = a.signalSources?.includes('lp_pair') ? 1 : 0
       const bLP = b.signalSources?.includes('lp_pair') ? 1 : 0
       if (bLP !== aLP) return bLP - aLP
@@ -3813,7 +4046,7 @@ const BetaPanel = ({ alpha, liveAlphas, onListBeta, onOpenDrawer, onSwap, onScro
       else                          { aVal = parseFloat(a.priceChange24h) || 0; bVal = parseFloat(b.priceChange24h) || 0 }
       return sortDir === 'desc' ? bVal - aVal : aVal - bVal
     })
-  }, [betas, mcapFilter, sortBy, sortDir])
+  }, [betas, mcapFilter, sortBy, sortDir, boostedAddresses])
 
   const trenchCount   = betas.filter(b => (b.marketCap || 0) < 30_000).length
 
@@ -4023,9 +4256,13 @@ const BetaPanel = ({ alpha, liveAlphas, onListBeta, onOpenDrawer, onSwap, onScro
                 beta={beta}
                 alpha={alpha}
                 isPinned={false}
+                isBoosted={boostedAddresses.has(beta.address)}
                 trenchOnly={trenchOnly}
                 onOpenDrawer={onOpenDrawer}
                 onSwap={onSwap}
+                isAuthed={isAuthed}
+                boostSlotsAvail={boostSlotsAvail}
+                onBoost={b => setBoostTarget(b)}
               />
             ))}
 
@@ -4084,6 +4321,34 @@ const BetaPanel = ({ alpha, liveAlphas, onListBeta, onOpenDrawer, onSwap, onScro
             )}
           </div>
         </>
+      )}
+
+      {/* ── Boost Modal ── */}
+      {boostTarget && (
+        <BoostModal
+          beta={boostTarget}
+          alpha={alpha}
+          authToken={authToken}
+          authWallet={authWallet}
+          priceSol={0.2}
+          onClose={() => { setBoostTarget(null); setBoostMsg(null) }}
+          onSuccess={(boost) => {
+            setActiveBoosts(prev => [...prev, boost])
+            setBoostSlotsAvail(prev => Math.max(0, prev - 1))
+            setBoostTarget(null)
+            setBoostMsg('⚡ Boost live! Token is now pinned to the top of this beta list.')
+            if (onBoostSuccess) onBoostSuccess(boost)
+            setTimeout(() => setBoostMsg(null), 6000)
+          }}
+        />
+      )}
+      {boostMsg && (
+        <div style={{
+          position: 'fixed', bottom: 80, left: '50%', transform: 'translateX(-50%)',
+          background: 'rgba(255,200,0,0.15)', border: '1px solid rgba(255,200,0,0.4)',
+          borderRadius: 8, padding: '10px 18px', fontFamily: 'var(--font-mono)',
+          fontSize: 12, color: 'rgb(255,200,0)', fontWeight: 700, zIndex: 9999,
+        }}>{boostMsg}</div>
       )}
     </section>
   )
@@ -4957,7 +5222,7 @@ export default function App() {
         <AlphaBoard selectedAlpha={selectedAlpha} onSelect={handleSelectAlpha} onNewRunners={handleNewRunners} onLiveAlphas={setAppLiveAlphas} onSznCards={setAppSznCards} onCoolingAlphas={setAppCoolingAlphas} onCustomSearch={handleSearchCustomAlpha} customAlphaLoading={customAlphaLoading} onRegisterClearSearch={fn => { clearAlphaBoardSearch.current = fn }} alphaListRef={alphaListRef} searchResults={searchResults} onSelectSearchResult={(token) => { if (!token) { setSearchResults([]); return }; setSelectedAlpha(token); setSearchResults([]) }} defaultTab={settings.defaultTab} authToken={authToken} isAuthed={isAuthed} authWallet={authWallet} onFolioCall={handleFolioCall} folioCallAddrs={folioCallAddrs} folioLeaderboard={folioLeaderboard} folioLoading={folioLoading} folioView={folioView} setFolioView={setFolioView} folioSaveMsg={folioSaveMsg} myFolios={myFolios} setMyFolios={setMyFolios} folioSearch={folioSearch} folioSearchRes={folioSearchRes} folioSearching={folioSearching} onSaveFolioName={handleSaveFolioName} onFolioSearch={handleFolioSearch} onFolioLeaderboard={handleFolioLeaderboard} folioTagging={folioTagging} setFolioTagging={setFolioTagging} onFolioTag={handleFolioTag} folioProfile={folioProfile} onCreateFolio={handleCreateFolio} activeFolioId={activeFolioId} setActiveFolioId={setActiveFolioId} />
         {isSzn
           ? <SznPanel  szn={selectedAlpha}   onListBeta={() => setShowListModal(true)} onOpenDrawer={setDrawerToken} />
-          : <BetaPanel alpha={selectedAlpha} liveAlphas={appLiveAlphas} onListBeta={() => setShowListModal(true)} onOpenDrawer={setDrawerToken} onSwap={(t) => openJupiterSwap(t)} onScrollToAlpha={handleScrollToAlpha} onCustomSearch={handleSearchCustomAlpha} customAlphaLoading={customAlphaLoading} customAlphaError={customAlphaError} settings={settings} />
+          : <BetaPanel alpha={selectedAlpha} liveAlphas={appLiveAlphas} onListBeta={() => setShowListModal(true)} onOpenDrawer={setDrawerToken} onSwap={(t) => openJupiterSwap(t)} onScrollToAlpha={handleScrollToAlpha} onCustomSearch={handleSearchCustomAlpha} customAlphaLoading={customAlphaLoading} customAlphaError={customAlphaError} settings={settings} isAuthed={isAuthed} authToken={authToken} authWallet={authWallet} onBoostSuccess={(boost) => { console.log('[App] Boost confirmed:', boost.token_symbol, 'slot', boost.slot_number) }} />
         }
       </div>
 
