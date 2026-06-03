@@ -5824,8 +5824,6 @@ export default function App() {
         document.body
       )}
 
-      )}
-
       {showListModal && (
         <ListYourBetaModal
           prefilledAlpha={showListModal !== true ? showListModal : null}
