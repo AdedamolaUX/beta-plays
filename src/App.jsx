@@ -3628,21 +3628,6 @@ const BetaRow = ({ beta, alpha, isPinned, isBoosted, isListed, trenchOnly, onOpe
                 >⚡ BOOST</button>
               </Tooltip>
             )}
-            {isAuthed && !isListed && onList && (
-              <Tooltip text={listSlotsAvail > 0 ? `List under this alpha — 1 SOL / 24hrs (${listSlotsAvail} slot${listSlotsAvail !== 1 ? 's' : ''} free)` : 'All listing slots for this alpha are full'}>
-                <button
-                  onClick={e => { e.stopPropagation(); onList(beta) }}
-                  disabled={listSlotsAvail === 0}
-                  style={{
-                    fontSize: 9, padding: '1px 5px', cursor: listSlotsAvail > 0 ? 'pointer' : 'not-allowed',
-                    background: 'rgba(100,180,255,0.08)', border: '1px solid rgba(100,180,255,0.3)',
-                    borderRadius: 3, color: listSlotsAvail > 0 ? 'rgb(100,180,255)' : 'var(--text-muted)',
-                    fontFamily: 'var(--font-mono)', fontWeight: 700, letterSpacing: 0.3,
-                    opacity: listSlotsAvail === 0 ? 0.4 : 1,
-                  }}
-                >📋 LIST</button>
-              </Tooltip>
-            )}
           </div>
           <div style={{ display: 'flex', gap: 6, alignItems: 'center', marginTop: 1 }}>
             <CopyAddress address={beta.address} />
@@ -4280,13 +4265,13 @@ const ListedModal = ({ beta, alpha, authToken, priceSol = 1, onClose, onSuccess 
 
   return createPortal(
     <div style={{
-      position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.75)',
-      display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 9999,
+      position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.85)',
+      display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 99999,
     }} onClick={onClose}>
       <div style={{
         background: 'var(--surface)', border: '1px solid rgba(100,180,255,0.3)',
         borderRadius: 12, padding: '24px 28px', minWidth: 320, maxWidth: 400,
-        fontFamily: 'var(--font-mono)',
+        fontFamily: 'var(--font-mono)', position: 'relative', zIndex: 100000,
       }} onClick={e => e.stopPropagation()}>
         <div style={{ fontSize: 16, fontWeight: 800, color: 'rgb(100,180,255)', marginBottom: 4, fontFamily: 'var(--font-display)' }}>
           📋 LIST ${beta.symbol}
@@ -4410,13 +4395,13 @@ const BoostModal = ({ beta, alpha, authToken, authWallet, priceSol = 1, onClose,
 
   return createPortal(
     <div style={{
-      position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.75)',
-      display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 9999,
+      position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.85)',
+      display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 99999,
     }} onClick={onClose}>
       <div style={{
         background: 'var(--surface)', border: '1px solid rgba(255,200,0,0.3)',
         borderRadius: 12, padding: '24px 28px', minWidth: 320, maxWidth: 400,
-        fontFamily: 'var(--font-mono)',
+        fontFamily: 'var(--font-mono)', position: 'relative', zIndex: 100000,
       }} onClick={e => e.stopPropagation()}>
         <div style={{ fontSize: 16, fontWeight: 800, color: 'rgb(255,200,0)', marginBottom: 4, fontFamily: 'var(--font-display)' }}>
           ⚡ BOOST ${beta.symbol}
@@ -4508,8 +4493,6 @@ const BetaPanel = ({ alpha, liveAlphas, onListBeta, onOpenDrawer, onSwap, onScro
   // ── Listing state ─────────────────────────────────────────────
   const [activeListings,  setActiveListings]  = useState([])
   const [listSlotsAvail,  setListSlotsAvail]  = useState(2)
-  const [listTarget,      setListTarget]      = useState(null)
-  const [listMsg,         setListMsg]         = useState(null)
 
   useEffect(() => {
     fetch(`${BACKEND_URL}/api/boosts/active`)
@@ -4797,9 +4780,7 @@ const BetaPanel = ({ alpha, liveAlphas, onListBeta, onOpenDrawer, onSwap, onScro
                 onSwap={onSwap}
                 isAuthed={isAuthed}
                 boostSlotsAvail={boostSlotsAvail}
-                listSlotsAvail={listSlotsAvail}
                 onBoost={b => setBoostTarget(b)}
-                onList={b => setListTarget(b)}
               />
             ))}
 
@@ -4879,37 +4860,15 @@ const BetaPanel = ({ alpha, liveAlphas, onListBeta, onOpenDrawer, onSwap, onScro
           }}
         />
       )}
-      {listTarget && (
-        <ListedModal
-          beta={listTarget}
-          alpha={alpha}
-          authToken={authToken}
-          priceSol={1}
-          onClose={() => { setListTarget(null); setListMsg(null) }}
-          onSuccess={(listing) => {
-            setActiveListings(prev => [...prev, listing])
-            setListSlotsAvail(prev => Math.max(0, prev - 1))
-            setListTarget(null)
-            setListMsg('📋 Listing live! Token is now listed under this alpha.')
-            setTimeout(() => setListMsg(null), 6000)
-          }}
-        />
-      )}
-      {boostMsg && (
+      {boostMsg && createPortal(
         <div style={{
           position: 'fixed', bottom: 80, left: '50%', transform: 'translateX(-50%)',
           background: 'rgba(255,200,0,0.15)', border: '1px solid rgba(255,200,0,0.4)',
           borderRadius: 8, padding: '10px 18px', fontFamily: 'var(--font-mono)',
-          fontSize: 12, color: 'rgb(255,200,0)', fontWeight: 700, zIndex: 9999,
-        }}>{boostMsg}</div>
-      )}
-      {listMsg && (
-        <div style={{
-          position: 'fixed', bottom: 110, left: '50%', transform: 'translateX(-50%)',
-          background: 'rgba(100,180,255,0.15)', border: '1px solid rgba(100,180,255,0.4)',
-          borderRadius: 8, padding: '10px 18px', fontFamily: 'var(--font-mono)',
-          fontSize: 12, color: 'rgb(100,180,255)', fontWeight: 700, zIndex: 9999,
-        }}>{listMsg}</div>
+          fontSize: 12, color: 'rgb(255,200,0)', fontWeight: 700, zIndex: 99999,
+          pointerEvents: 'none',
+        }}>{boostMsg}</div>,
+        document.body
       )}
     </section>
   )
