@@ -3558,7 +3558,7 @@ const openJupiterSwap = (token) => {
 }
 // ─── Beta Row ────────────────────────────────────────────────────
 
-const BetaRow = ({ beta, alpha, isPinned, isBoosted, trenchOnly, onOpenDrawer, onSwap, onBoost, isAuthed, boostSlotsAvail }) => {
+const BetaRow = ({ beta, alpha, isPinned, isBoosted, isListed, trenchOnly, onOpenDrawer, onSwap, onBoost, onList, isAuthed, boostSlotsAvail, listSlotsAvail }) => {
   const change     = parseFloat(beta.priceChange24h) || 0
   const isPositive = change >= 0
   const wave       = getWavePhase(alpha, beta)
@@ -3572,13 +3572,15 @@ const BetaRow = ({ beta, alpha, isPinned, isBoosted, trenchOnly, onOpenDrawer, o
 
   const rowStyle = isBoosted
     ? { borderColor: 'rgba(255,200,0,0.5)', background: 'rgba(255,200,0,0.04)' }
-    : isLPPair
-      ? { borderColor: 'var(--cyan)', background: 'rgba(0,212,255,0.04)' }
-      : {}
+    : isListed
+      ? { borderColor: 'rgba(100,180,255,0.5)', background: 'rgba(100,180,255,0.04)' }
+      : isLPPair
+        ? { borderColor: 'var(--cyan)', background: 'rgba(0,212,255,0.04)' }
+        : {}
 
   return (
     <div
-      className={`beta-row ${isPinned ? 'pinned' : ''} ${isBoosted ? 'boosted' : ''}`}
+      className={`beta-row ${isPinned ? 'pinned' : ''} ${isBoosted ? 'boosted' : ''} ${isListed ? 'listed' : ''}`}
       onClick={() => onOpenDrawer ? onOpenDrawer(beta) : (beta.dexUrl && window.open(beta.dexUrl, '_blank'))}
       style={rowStyle}
     >
@@ -3592,6 +3594,7 @@ const BetaRow = ({ beta, alpha, isPinned, isBoosted, trenchOnly, onOpenDrawer, o
               ${beta.symbol}
             </span>
             {isBoosted      && <Tooltip text="Boosted — project paid to promote this beta"><span className="badge" style={{ fontSize: 10, padding: '1px 4px', background: 'rgba(255,200,0,0.15)', borderColor: 'rgba(255,200,0,0.5)', color: 'rgb(255,200,0)', cursor: 'default', fontWeight: 700 }}>⚡ BOOSTED</span></Tooltip>}
+            {isListed       && <Tooltip text="Listed — project paid to place this token as a beta here"><span className="badge" style={{ fontSize: 10, padding: '1px 4px', background: 'rgba(100,180,255,0.15)', borderColor: 'rgba(100,180,255,0.5)', color: 'rgb(100,180,255)', cursor: 'default', fontWeight: 700 }}>📋 LISTED</span></Tooltip>}
             {isLPPair       && <Tooltip text="LP pair — direct on-chain liquidity link"><span className="badge badge-cabal" style={{ fontSize: 11, padding: '1px 3px', cursor: 'default' }}>🔗</span></Tooltip>}
             {isTelegramSig  && <Tooltip text="Telegram signal — spotted in CT alpha channels"><span className="badge" style={{ fontSize: 11, padding: '1px 3px', background: 'rgba(0,212,180,0.15)', borderColor: 'rgba(0,212,180,0.4)', color: 'rgb(0,212,180)', animation: 'pulse 2s infinite', cursor: 'default' }}>📡</span></Tooltip>}
             {isTwitterSig   && <Tooltip text="Twitter signal — spotted on CT"><span className="badge" style={{ fontSize: 11, padding: '1px 3px', background: 'rgba(29,161,242,0.15)', borderColor: 'rgba(29,161,242,0.4)', color: 'rgb(29,161,242)', animation: 'pulse 2s infinite', cursor: 'default' }}>🐦</span></Tooltip>}
@@ -3623,6 +3626,21 @@ const BetaRow = ({ beta, alpha, isPinned, isBoosted, trenchOnly, onOpenDrawer, o
                     opacity: boostSlotsAvail === 0 ? 0.4 : 1,
                   }}
                 >⚡ BOOST</button>
+              </Tooltip>
+            )}
+            {isAuthed && !isListed && onList && (
+              <Tooltip text={listSlotsAvail > 0 ? `List under this alpha — 1 SOL / 24hrs (${listSlotsAvail} slot${listSlotsAvail !== 1 ? 's' : ''} free)` : 'All listing slots for this alpha are full'}>
+                <button
+                  onClick={e => { e.stopPropagation(); onList(beta) }}
+                  disabled={listSlotsAvail === 0}
+                  style={{
+                    fontSize: 9, padding: '1px 5px', cursor: listSlotsAvail > 0 ? 'pointer' : 'not-allowed',
+                    background: 'rgba(100,180,255,0.08)', border: '1px solid rgba(100,180,255,0.3)',
+                    borderRadius: 3, color: listSlotsAvail > 0 ? 'rgb(100,180,255)' : 'var(--text-muted)',
+                    fontFamily: 'var(--font-mono)', fontWeight: 700, letterSpacing: 0.3,
+                    opacity: listSlotsAvail === 0 ? 0.4 : 1,
+                  }}
+                >📋 LIST</button>
               </Tooltip>
             )}
           </div>
@@ -3834,6 +3852,128 @@ const SznPanel = ({ szn, onListBeta, onOpenDrawer }) => {
   )
 }
 
+// ─── Listed Modal ─────────────────────────────────────────────────
+const ListedModal = ({ beta, alpha, authToken, priceSol = 1, onClose, onSuccess }) => {
+  const { sendTransaction, publicKey } = useWallet()
+  const [step,   setStep]   = useState('confirm')
+  const [errMsg, setErrMsg] = useState(null)
+
+  const TREASURY    = '7LbtGZTToXYQ8FRnwBy6TfLMi4nMw2ge523mimwTSJUk'
+  const LAMPORTS    = Math.round(priceSol * 1_000_000_000)
+
+  const handleList = async () => {
+    if (!publicKey) return setErrMsg('Wallet not connected')
+    setStep('sending')
+    setErrMsg(null)
+    try {
+      const { Connection, Transaction, SystemProgram, PublicKey } = await import('@solana/web3.js')
+      const connection = new Connection('https://mainnet.helius-rpc.com/?api-key=' + (import.meta.env.VITE_HELIUS_API_KEY || ''), 'confirmed')
+      const tx = new Transaction().add(
+        SystemProgram.transfer({
+          fromPubkey: publicKey,
+          toPubkey:   new PublicKey(TREASURY),
+          lamports:   LAMPORTS,
+        })
+      )
+      const { blockhash } = await connection.getLatestBlockhash()
+      tx.recentBlockhash = blockhash
+      tx.feePayer        = publicKey
+
+      const sig = await sendTransaction(tx, connection)
+      await connection.confirmTransaction(sig, 'confirmed')
+
+      setStep('verifying')
+      const res = await fetch(`${BACKEND_URL}/api/listings/verify`, {
+        method:  'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${authToken}` },
+        body: JSON.stringify({
+          tx_signature:         sig,
+          token_address:        beta.address,
+          token_symbol:         beta.symbol,
+          token_name:           beta.name,
+          logo_url:             beta.logoUrl,
+          target_alpha_address: alpha.address,
+        }),
+      })
+      const data = await res.json()
+      if (!res.ok) throw new Error(data.error || 'Verification failed')
+
+      setStep('done')
+      onSuccess(data.listing)
+    } catch (err) {
+      console.error('[Listed] Error:', err)
+      setErrMsg(err.message || 'Something went wrong')
+      setStep('error')
+    }
+  }
+
+  return createPortal(
+    <div style={{
+      position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.75)',
+      display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 9999,
+    }} onClick={onClose}>
+      <div style={{
+        background: 'var(--surface)', border: '1px solid rgba(100,180,255,0.3)',
+        borderRadius: 12, padding: '24px 28px', minWidth: 320, maxWidth: 400,
+        fontFamily: 'var(--font-mono)',
+      }} onClick={e => e.stopPropagation()}>
+        <div style={{ fontSize: 16, fontWeight: 800, color: 'rgb(100,180,255)', marginBottom: 4, fontFamily: 'var(--font-display)' }}>
+          📋 LIST ${beta.symbol}
+        </div>
+        <div style={{ fontSize: 10, color: 'var(--text-muted)', marginBottom: 20 }}>
+          Places this token as a beta under ${alpha?.symbol || 'this alpha'} for 24 hours. Clearly marked as a paid listing — separate from organic detections.
+        </div>
+
+        <div style={{ background: 'rgba(100,180,255,0.06)', border: '1px solid rgba(100,180,255,0.2)', borderRadius: 8, padding: '12px 14px', marginBottom: 20 }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 6 }}>
+            <span style={{ fontSize: 10, color: 'var(--text-muted)' }}>Token</span>
+            <span style={{ fontSize: 11, color: 'var(--text-primary)', fontWeight: 700 }}>${beta.symbol}</span>
+          </div>
+          <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 6 }}>
+            <span style={{ fontSize: 10, color: 'var(--text-muted)' }}>Listed under</span>
+            <span style={{ fontSize: 11, color: 'var(--text-primary)', fontWeight: 700 }}>${alpha?.symbol || '—'}</span>
+          </div>
+          <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 6 }}>
+            <span style={{ fontSize: 10, color: 'var(--text-muted)' }}>Duration</span>
+            <span style={{ fontSize: 11, color: 'var(--text-primary)', fontWeight: 700 }}>24 hours</span>
+          </div>
+          <div style={{ display: 'flex', justifyContent: 'space-between', borderTop: '1px solid rgba(100,180,255,0.15)', paddingTop: 8, marginTop: 4 }}>
+            <span style={{ fontSize: 11, color: 'var(--text-muted)', fontWeight: 700 }}>Total cost</span>
+            <span style={{ fontSize: 14, color: 'rgb(100,180,255)', fontWeight: 800 }}>{priceSol} SOL</span>
+          </div>
+        </div>
+
+        {step === 'confirm' && (
+          <div style={{ display: 'flex', gap: 10 }}>
+            <button onClick={onClose} style={{
+              flex: 1, padding: '9px 0', borderRadius: 6, fontSize: 11, fontWeight: 700,
+              background: 'transparent', border: '1px solid var(--border)', color: 'var(--text-muted)', cursor: 'pointer',
+            }}>Cancel</button>
+            <button onClick={handleList} style={{
+              flex: 2, padding: '9px 0', borderRadius: 6, fontSize: 12, fontWeight: 800,
+              background: 'rgba(100,180,255,0.15)', border: '1px solid rgba(100,180,255,0.5)',
+              color: 'rgb(100,180,255)', cursor: 'pointer',
+            }}>📋 Pay {priceSol} SOL & List</button>
+          </div>
+        )}
+        {step === 'sending'   && <div style={{ textAlign: 'center', color: 'var(--text-muted)', fontSize: 11, padding: '10px 0' }}>✍️ Confirm transaction in wallet...</div>}
+        {step === 'verifying' && <div style={{ textAlign: 'center', color: 'var(--cyan)', fontSize: 11, padding: '10px 0' }}>🔍 Verifying payment on-chain...</div>}
+        {step === 'done'      && <div style={{ textAlign: 'center', color: 'rgb(57,255,20)', fontSize: 12, fontWeight: 700, padding: '10px 0' }}>✅ Listing confirmed! Token is now live.</div>}
+        {step === 'error' && (
+          <>
+            <div style={{ color: 'var(--red)', fontSize: 10, marginBottom: 12, textAlign: 'center' }}>{errMsg}</div>
+            <div style={{ display: 'flex', gap: 10 }}>
+              <button onClick={onClose} style={{ flex: 1, padding: '8px 0', borderRadius: 6, fontSize: 11, background: 'transparent', border: '1px solid var(--border)', color: 'var(--text-muted)', cursor: 'pointer', fontWeight: 700 }}>Close</button>
+              <button onClick={handleList} style={{ flex: 2, padding: '8px 0', borderRadius: 6, fontSize: 11, background: 'rgba(100,180,255,0.1)', border: '1px solid rgba(100,180,255,0.4)', color: 'rgb(100,180,255)', cursor: 'pointer', fontWeight: 700 }}>Retry</button>
+            </div>
+          </>
+        )}
+      </div>
+    </div>,
+    document.body
+  )
+}
+
 // ─── Boost Modal ─────────────────────────────────────────────────
 // Handles the full boost payment flow:
 // 1. Shows boost details + price
@@ -3988,11 +4128,17 @@ const BetaPanel = ({ alpha, liveAlphas, onListBeta, onOpenDrawer, onSwap, onScro
   const [sortDir,      setSortDir]      = useState('desc')
 
   // ── Boost state ──────────────────────────────────────────────
-  const [activeBoosts,    setActiveBoosts]    = useState([])   // boosts from backend
+  const [activeBoosts,    setActiveBoosts]    = useState([])
   const [boostSlotsAvail, setBoostSlotsAvail] = useState(3)
-  const [boostTarget,     setBoostTarget]     = useState(null) // beta selected for boost
+  const [boostTarget,     setBoostTarget]     = useState(null)
   const [boostTxPending,  setBoostTxPending]  = useState(false)
   const [boostMsg,        setBoostMsg]        = useState(null)
+
+  // ── Listing state ─────────────────────────────────────────────
+  const [activeListings,  setActiveListings]  = useState([])
+  const [listSlotsAvail,  setListSlotsAvail]  = useState(2)
+  const [listTarget,      setListTarget]      = useState(null)
+  const [listMsg,         setListMsg]         = useState(null)
 
   useEffect(() => {
     fetch(`${BACKEND_URL}/api/boosts/active`)
@@ -4000,6 +4146,15 @@ const BetaPanel = ({ alpha, liveAlphas, onListBeta, onOpenDrawer, onSwap, onScro
       .then(data => {
         setActiveBoosts(data.boosts || [])
         setBoostSlotsAvail(data.slotsFree ?? 3)
+      })
+      .catch(() => {})
+    fetch(`${BACKEND_URL}/api/listings/active`)
+      .then(r => r.json())
+      .then(data => {
+        setActiveListings(data.listings || [])
+        // Slots are per-alpha — count how many are used for THIS alpha
+        const usedForThisAlpha = (data.byAlpha?.[alpha?.address] || []).length
+        setListSlotsAvail(Math.max(0, 2 - usedForThisAlpha))
       })
       .catch(() => {})
   }, [alpha?.address])
@@ -4021,6 +4176,10 @@ const BetaPanel = ({ alpha, liveAlphas, onListBeta, onOpenDrawer, onSwap, onScro
     new Set(activeBoosts.filter(b => b.parent_alpha_address === alpha?.address).map(b => b.token_address))
   , [activeBoosts, alpha?.address])
 
+  const listedAddresses = useMemo(() =>
+    new Set(activeListings.filter(l => l.target_alpha_address === alpha?.address).map(l => l.token_address))
+  , [activeListings, alpha?.address])
+
   const filteredBetas = useMemo(() => {
     const filtered = betas.filter(b => {
       if (!mcapFilterFn[mcapFilter](b)) return false
@@ -4031,10 +4190,14 @@ const BetaPanel = ({ alpha, liveAlphas, onListBeta, onOpenDrawer, onSwap, onScro
     })
     return [...filtered].sort((a, b) => {
       // Boosted always float above everything
-      const aBoosted = boostedAddresses.has(a.address) ? 2 : 0
-      const bBoosted = boostedAddresses.has(b.address) ? 2 : 0
+      const aBoosted = boostedAddresses.has(a.address) ? 3 : 0
+      const bBoosted = boostedAddresses.has(b.address) ? 3 : 0
       if (bBoosted !== aBoosted) return bBoosted - aBoosted
-      // LP pairs float above non-boosted
+      // Listed float above LP pairs and organic
+      const aListed = listedAddresses.has(a.address) ? 2 : 0
+      const bListed = listedAddresses.has(b.address) ? 2 : 0
+      if (bListed !== aListed) return bListed - aListed
+      // LP pairs float above organic
       const aLP = a.signalSources?.includes('lp_pair') ? 1 : 0
       const bLP = b.signalSources?.includes('lp_pair') ? 1 : 0
       if (bLP !== aLP) return bLP - aLP
@@ -4046,7 +4209,7 @@ const BetaPanel = ({ alpha, liveAlphas, onListBeta, onOpenDrawer, onSwap, onScro
       else                          { aVal = parseFloat(a.priceChange24h) || 0; bVal = parseFloat(b.priceChange24h) || 0 }
       return sortDir === 'desc' ? bVal - aVal : aVal - bVal
     })
-  }, [betas, mcapFilter, sortBy, sortDir, boostedAddresses])
+  }, [betas, mcapFilter, sortBy, sortDir, boostedAddresses, listedAddresses])
 
   const trenchCount   = betas.filter(b => (b.marketCap || 0) < 30_000).length
 
@@ -4257,12 +4420,15 @@ const BetaPanel = ({ alpha, liveAlphas, onListBeta, onOpenDrawer, onSwap, onScro
                 alpha={alpha}
                 isPinned={false}
                 isBoosted={boostedAddresses.has(beta.address)}
+                isListed={listedAddresses.has(beta.address)}
                 trenchOnly={trenchOnly}
                 onOpenDrawer={onOpenDrawer}
                 onSwap={onSwap}
                 isAuthed={isAuthed}
                 boostSlotsAvail={boostSlotsAvail}
+                listSlotsAvail={listSlotsAvail}
                 onBoost={b => setBoostTarget(b)}
+                onList={b => setListTarget(b)}
               />
             ))}
 
@@ -4330,7 +4496,7 @@ const BetaPanel = ({ alpha, liveAlphas, onListBeta, onOpenDrawer, onSwap, onScro
           alpha={alpha}
           authToken={authToken}
           authWallet={authWallet}
-          priceSol={0.2}
+          priceSol={1}
           onClose={() => { setBoostTarget(null); setBoostMsg(null) }}
           onSuccess={(boost) => {
             setActiveBoosts(prev => [...prev, boost])
@@ -4342,6 +4508,22 @@ const BetaPanel = ({ alpha, liveAlphas, onListBeta, onOpenDrawer, onSwap, onScro
           }}
         />
       )}
+      {listTarget && (
+        <ListedModal
+          beta={listTarget}
+          alpha={alpha}
+          authToken={authToken}
+          priceSol={1}
+          onClose={() => { setListTarget(null); setListMsg(null) }}
+          onSuccess={(listing) => {
+            setActiveListings(prev => [...prev, listing])
+            setListSlotsAvail(prev => Math.max(0, prev - 1))
+            setListTarget(null)
+            setListMsg('📋 Listing live! Token is now listed under this alpha.')
+            setTimeout(() => setListMsg(null), 6000)
+          }}
+        />
+      )}
       {boostMsg && (
         <div style={{
           position: 'fixed', bottom: 80, left: '50%', transform: 'translateX(-50%)',
@@ -4349,6 +4531,14 @@ const BetaPanel = ({ alpha, liveAlphas, onListBeta, onOpenDrawer, onSwap, onScro
           borderRadius: 8, padding: '10px 18px', fontFamily: 'var(--font-mono)',
           fontSize: 12, color: 'rgb(255,200,0)', fontWeight: 700, zIndex: 9999,
         }}>{boostMsg}</div>
+      )}
+      {listMsg && (
+        <div style={{
+          position: 'fixed', bottom: 110, left: '50%', transform: 'translateX(-50%)',
+          background: 'rgba(100,180,255,0.15)', border: '1px solid rgba(100,180,255,0.4)',
+          borderRadius: 8, padding: '10px 18px', fontFamily: 'var(--font-mono)',
+          fontSize: 12, color: 'rgb(100,180,255)', fontWeight: 700, zIndex: 9999,
+        }}>{listMsg}</div>
       )}
     </section>
   )

@@ -238,6 +238,29 @@ const MIGRATIONS = [
   `CREATE INDEX IF NOT EXISTS idx_boosts_active ON boosts(is_active, expires_at)`,
   `CREATE INDEX IF NOT EXISTS idx_boosts_parent ON boosts(parent_alpha_address)`,
   `CREATE INDEX IF NOT EXISTS idx_boosts_token  ON boosts(token_address)`,
+
+  // Session 32 — LISTED mechanic
+  // Projects pay SOL to place their token as a beta under a specific alpha.
+  // Distinct from BOOSTED. Max 2 slots per alpha card. 24hr. 1 SOL flat fee.
+  `CREATE TABLE IF NOT EXISTS listings (
+    id                   UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    token_address        TEXT NOT NULL,
+    token_symbol         TEXT,
+    token_name           TEXT,
+    logo_url             TEXT,
+    target_alpha_address TEXT NOT NULL,
+    listed_by_wallet     TEXT NOT NULL,
+    amount_sol           NUMERIC(10,4) NOT NULL,
+    tx_signature         TEXT NOT NULL UNIQUE,
+    slot_number          INTEGER CHECK (slot_number BETWEEN 1 AND 2),
+    starts_at            TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    expires_at           TIMESTAMPTZ NOT NULL,
+    is_active            BOOLEAN DEFAULT TRUE,
+    created_at           TIMESTAMPTZ DEFAULT NOW()
+  )`,
+  `CREATE INDEX IF NOT EXISTS idx_listings_active ON listings(is_active, expires_at)`,
+  `CREATE INDEX IF NOT EXISTS idx_listings_alpha  ON listings(target_alpha_address)`,
+  `CREATE INDEX IF NOT EXISTS idx_listings_token  ON listings(token_address)`,
 ]
 
 async function init () {

@@ -4189,6 +4189,178 @@ app.delete('/api/boosts/:id', requireAuth, async (req, res) => {
 
 // ─── End Boosts ───────────────────────────────────────────────────────────────
 
+// ─── Listed ───────────────────────────────────────────────────────────────────
+// LISTED mechanic: projects pay SOL to place their token as a beta under a
+// specific alpha they choose. Distinct from BOOSTED (which elevates organic
+// detections). LISTED = explicit paid placement with 📋 badge.
+// Max 2 LISTED slots per alpha card. 24hr duration. 1 SOL flat fee.
+
+const LISTED_PRICE_SOL   = parseFloat(process.env.LISTED_PRICE_SOL || '1')
+const LISTED_MAX_SLOTS   = 2
+const LISTED_DURATION_MS = 24 * 60 * 60 * 1000 // 24 hours
+
+async function expireListings () {
+  try {
+    await db.query(`UPDATE listings SET is_active = FALSE WHERE is_active = TRUE AND expires_at < NOW()`)
+  } catch (err) {
+    console.warn('[Listed] Expire error (non-fatal):', err.message)
+  }
+}
+
+// GET /api/listings/active — returns active listings + per-alpha slot availability
+app.get('/api/listings/active', async (req, res) => {
+  try {
+    await expireListings()
+    const result = await db.query(`
+      SELECT id, token_address, token_symbol, token_name, logo_url,
+             target_alpha_address, slot_number, starts_at, expires_at
+      FROM listings
+      WHERE is_active = TRUE
+      ORDER BY target_alpha_address, slot_number ASC
+    `)
+    const listings = result.rows
+
+    // Group by alpha so frontend can check per-card slot availability
+    const byAlpha = {}
+    for (const l of listings) {
+      if (!byAlpha[l.target_alpha_address]) byAlpha[l.target_alpha_address] = []
+      byAlpha[l.target_alpha_address].push(l)
+    }
+
+    res.json({
+      listings,
+      byAlpha,
+      priceSol:  LISTED_PRICE_SOL,
+      maxSlots:  LISTED_MAX_SLOTS,
+      treasury:  TREASURY_WALLET,
+    })
+  } catch (err) {
+    console.error('[Listed] Active error:', err.message)
+    res.status(500).json({ error: err.message })
+  }
+})
+
+// POST /api/listings/verify — verify SOL payment, write listing record (JWT required)
+// Body: { tx_signature, token_address, token_symbol, token_name, logo_url, target_alpha_address }
+app.post('/api/listings/verify', requireAuth, async (req, res) => {
+  const { tx_signature, token_address, token_symbol, token_name, logo_url, target_alpha_address } = req.body
+
+  if (!tx_signature || !token_address || !target_alpha_address) {
+    return res.status(400).json({ error: 'tx_signature, token_address and target_alpha_address are required' })
+  }
+
+  try {
+    // 1. Check tx not already used
+    const existing = await db.query(`SELECT id FROM listings WHERE tx_signature = $1`, [tx_signature])
+    if (existing.rows.length > 0) {
+      return res.status(409).json({ error: 'Transaction already used for a listing' })
+    }
+
+    // 2. Check per-alpha slot availability
+    await expireListings()
+    const activeResult = await db.query(
+      `SELECT slot_number FROM listings WHERE is_active = TRUE AND target_alpha_address = $1 ORDER BY slot_number ASC`,
+      [target_alpha_address]
+    )
+    const usedSlots = activeResult.rows.map(r => r.slot_number)
+    if (usedSlots.length >= LISTED_MAX_SLOTS) {
+      return res.status(409).json({ error: 'All listing slots for this alpha are currently full. Try again when a slot opens.' })
+    }
+    const nextSlot = [1, 2].find(s => !usedSlots.includes(s))
+
+    // 3. Verify transaction on-chain via Helius
+    const HELIUS_KEY = process.env.HELIUS_API_KEY
+    if (!HELIUS_KEY) return res.status(500).json({ error: 'Helius API key not configured' })
+
+    const heliusRes = await fetch(
+      `https://api.helius.xyz/v0/transactions/?api-key=${HELIUS_KEY}`,
+      {
+        method:  'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body:    JSON.stringify({ transactions: [tx_signature] }),
+      }
+    )
+    if (!heliusRes.ok) {
+      return res.status(502).json({ error: 'Helius verification failed — try again' })
+    }
+    const txData = await heliusRes.json()
+    const tx     = txData?.[0]
+
+    if (!tx) {
+      return res.status(404).json({ error: 'Transaction not found on-chain. It may still be confirming — wait 10s and retry.' })
+    }
+    if (tx.transactionError) {
+      return res.status(400).json({ error: 'Transaction failed on-chain' })
+    }
+
+    // 4. Verify payment: sender = listed_by_wallet, receiver = treasury, amount >= LISTED_PRICE_SOL
+    const LAMPORTS_PER_SOL = 1_000_000_000
+    const minLamports      = Math.floor(LISTED_PRICE_SOL * LAMPORTS_PER_SOL)
+
+    const transfers    = tx.nativeTransfers || []
+    const validPayment = transfers.some(t =>
+      t.fromUserAccount === req.user.wallet &&
+      t.toUserAccount   === TREASURY_WALLET &&
+      t.amount          >= minLamports
+    )
+
+    if (!validPayment) {
+      return res.status(400).json({
+        error: `Payment not verified. Expected ≥${LISTED_PRICE_SOL} SOL from ${req.user.wallet} to treasury.`
+      })
+    }
+
+    // 5. Write listing record
+    const expiresAt    = new Date(Date.now() + LISTED_DURATION_MS)
+    const insertResult = await db.query(`
+      INSERT INTO listings
+        (token_address, token_symbol, token_name, logo_url, target_alpha_address,
+         listed_by_wallet, amount_sol, tx_signature, slot_number, expires_at)
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+      RETURNING id, slot_number, starts_at, expires_at
+    `, [
+      token_address,
+      token_symbol  || null,
+      token_name    || null,
+      logo_url      || null,
+      target_alpha_address,
+      req.user.wallet,
+      LISTED_PRICE_SOL,
+      tx_signature,
+      nextSlot,
+      expiresAt,
+    ])
+
+    console.log(`[Listed] New listing: ${token_symbol || token_address} → under ${target_alpha_address} slot ${nextSlot} by ${req.user.wallet}`)
+    res.json({ ok: true, listing: insertResult.rows[0] })
+
+  } catch (err) {
+    console.error('[Listed] Verify error:', err.message)
+    res.status(500).json({ error: err.message })
+  }
+})
+
+// DELETE /api/listings/:id — owner or treasury wallet only (JWT required)
+app.delete('/api/listings/:id', requireAuth, async (req, res) => {
+  try {
+    const result = await db.query(
+      `SELECT listed_by_wallet FROM listings WHERE id = $1`, [req.params.id]
+    )
+    if (result.rows.length === 0) return res.status(404).json({ error: 'Listing not found' })
+
+    const isOwner = result.rows[0].listed_by_wallet === req.user.wallet
+    const isAdmin = req.user.wallet === TREASURY_WALLET
+    if (!isOwner && !isAdmin) return res.status(403).json({ error: 'Not authorised' })
+
+    await db.query(`UPDATE listings SET is_active = FALSE WHERE id = $1`, [req.params.id])
+    res.json({ ok: true })
+  } catch (err) {
+    res.status(500).json({ error: err.message })
+  }
+})
+
+// ─── End Listed ───────────────────────────────────────────────────────────────
+
 // ─── End Folios ───────────────────────────────────────────────────────────────
 
 
