@@ -3852,6 +3852,377 @@ const SznPanel = ({ szn, onListBeta, onOpenDrawer }) => {
   )
 }
 
+// ─── List Your Beta Modal ─────────────────────────────────────────
+// Self-serve listing flow. Three steps:
+// 1. Enter token CA → fetch from DEXScreener
+// 2. Search/select alpha to list under (pre-filled if opened from beta panel)
+// 3. Confirm details + pay 1 SOL → backend verifies on-chain → listed
+
+const LISTING_PRICE_SOL = 1
+
+const ListYourBetaModal = ({ prefilledAlpha, authToken, authWallet, isAuthed, liveAlphas, onClose, onSuccess }) => {
+  const { sendTransaction, publicKey } = useWallet()
+  const BACKEND = typeof BACKEND_URL !== 'undefined' ? BACKEND_URL : import.meta.env.VITE_BACKEND_URL
+
+  const [step,         setStep]         = useState('token')  // token | alpha | confirm | sending | verifying | done | error
+  const [tokenCA,      setTokenCA]       = useState('')
+  const [tokenData,    setTokenData]     = useState(null)
+  const [tokenLoading, setTokenLoading]  = useState(false)
+  const [tokenErr,     setTokenErr]      = useState(null)
+  const [alphaQuery,   setAlphaQuery]    = useState('')
+  const [selectedAlpha, setSelectedAlpha] = useState(prefilledAlpha || null)
+  const [alphaSlots,   setAlphaSlots]    = useState(null)  // null = unchecked
+  const [payErr,       setPayErr]        = useState(null)
+
+  // Filter live alphas by search query
+  const alphaResults = useMemo(() => {
+    if (!alphaQuery.trim()) return liveAlphas?.slice(0, 8) || []
+    const q = alphaQuery.toLowerCase()
+    return (liveAlphas || [])
+      .filter(a => a.symbol?.toLowerCase().includes(q) || a.address?.toLowerCase().includes(q))
+      .slice(0, 8)
+  }, [alphaQuery, liveAlphas])
+
+  // Step 1 — fetch token data from DEXScreener by CA
+  const fetchToken = async () => {
+    const ca = tokenCA.trim()
+    if (!ca) return
+    setTokenLoading(true)
+    setTokenErr(null)
+    try {
+      const res  = await fetch(`https://api.dexscreener.com/latest/dex/tokens/${ca}`)
+      const data = await res.json()
+      const pair = data?.pairs?.find(p => p.chainId === 'solana') || data?.pairs?.[0]
+      if (!pair) throw new Error('Token not found on DEXScreener. Check the CA and try again.')
+      setTokenData({
+        address:  ca,
+        symbol:   pair.baseToken?.symbol || '???',
+        name:     pair.baseToken?.name   || '',
+        logoUrl:  pair.info?.imageUrl    || null,
+        mcap:     pair.fdv              || 0,
+        price:    parseFloat(pair.priceUsd) || 0,
+        dexUrl:   pair.url,
+      })
+      setStep('alpha')
+    } catch (err) {
+      setTokenErr(err.message || 'Failed to fetch token data')
+    } finally {
+      setTokenLoading(false)
+    }
+  }
+
+  // Check slot availability for selected alpha
+  const checkSlots = async (alpha) => {
+    setSelectedAlpha(alpha)
+    setAlphaSlots(null)
+    try {
+      const res  = await fetch(`${BACKEND}/api/listings/active`)
+      const data = await res.json()
+      const used = (data.byAlpha?.[alpha.address] || []).length
+      setAlphaSlots(2 - used)
+    } catch {
+      setAlphaSlots(2) // assume available on error
+    }
+    setStep('confirm')
+  }
+
+  // Step 3 — pay and verify
+  const handlePay = async () => {
+    if (!publicKey) return setPayErr('Wallet not connected')
+    if (!isAuthed)  return setPayErr('Please sign in with your wallet first')
+    setStep('sending')
+    setPayErr(null)
+    try {
+      const { Connection, Transaction, SystemProgram, PublicKey } = await import('@solana/web3.js')
+      const TREASURY   = '7LbtGZTToXYQ8FRnwBy6TfLMi4nMw2ge523mimwTSJUk'
+      const connection = new Connection(
+        'https://mainnet.helius-rpc.com/?api-key=' + (import.meta.env.VITE_HELIUS_API_KEY || ''),
+        'confirmed'
+      )
+      const tx = new Transaction().add(
+        SystemProgram.transfer({
+          fromPubkey: publicKey,
+          toPubkey:   new PublicKey(TREASURY),
+          lamports:   Math.round(LISTING_PRICE_SOL * 1_000_000_000),
+        })
+      )
+      const { blockhash } = await connection.getLatestBlockhash()
+      tx.recentBlockhash = blockhash
+      tx.feePayer        = publicKey
+
+      const sig = await sendTransaction(tx, connection)
+      await connection.confirmTransaction(sig, 'confirmed')
+
+      setStep('verifying')
+      const res = await fetch(`${BACKEND}/api/listings/verify`, {
+        method:  'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${authToken}` },
+        body: JSON.stringify({
+          tx_signature:         sig,
+          token_address:        tokenData.address,
+          token_symbol:         tokenData.symbol,
+          token_name:           tokenData.name,
+          logo_url:             tokenData.logoUrl,
+          target_alpha_address: selectedAlpha.address,
+        }),
+      })
+      const result = await res.json()
+      if (!res.ok) throw new Error(result.error || 'Verification failed')
+
+      setStep('done')
+      setTimeout(() => { onSuccess(); }, 2000)
+    } catch (err) {
+      console.error('[ListYourBeta] Pay error:', err)
+      setPayErr(err.message || 'Something went wrong')
+      setStep('error')
+    }
+  }
+
+  const inputStyle = {
+    width: '100%', padding: '9px 12px', borderRadius: 6, fontSize: 12,
+    background: 'rgba(255,255,255,0.05)', border: '1px solid var(--border)',
+    color: 'var(--text-primary)', fontFamily: 'var(--font-mono)', outline: 'none',
+    boxSizing: 'border-box',
+  }
+  const btnPrimary = {
+    width: '100%', padding: '10px 0', borderRadius: 6, fontSize: 12, fontWeight: 800,
+    background: 'rgba(100,180,255,0.15)', border: '1px solid rgba(100,180,255,0.5)',
+    color: 'rgb(100,180,255)', cursor: 'pointer', fontFamily: 'var(--font-mono)',
+  }
+  const btnGhost = {
+    padding: '8px 16px', borderRadius: 6, fontSize: 11, fontWeight: 700,
+    background: 'transparent', border: '1px solid var(--border)',
+    color: 'var(--text-muted)', cursor: 'pointer', fontFamily: 'var(--font-mono)',
+  }
+
+  return createPortal(
+    <div style={{
+      position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.8)',
+      display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 9999,
+    }} onClick={onClose}>
+      <div style={{
+        background: 'var(--surface)', border: '1px solid rgba(100,180,255,0.25)',
+        borderRadius: 14, padding: '26px 28px', width: 420, maxWidth: '95vw',
+        fontFamily: 'var(--font-mono)',
+      }} onClick={e => e.stopPropagation()}>
+
+        {/* Header */}
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 20 }}>
+          <div>
+            <div style={{ fontSize: 17, fontWeight: 800, color: 'rgb(100,180,255)', fontFamily: 'var(--font-display)' }}>
+              📋 List Your Beta
+            </div>
+            <div style={{ fontSize: 10, color: 'var(--text-muted)', marginTop: 3 }}>
+              Place your token as a beta under a specific alpha · {LISTING_PRICE_SOL} SOL · 24 hours
+            </div>
+          </div>
+          <button onClick={onClose} style={{ ...btnGhost, padding: '4px 8px', fontSize: 10 }}>✕</button>
+        </div>
+
+        {/* Step indicator */}
+        <div style={{ display: 'flex', gap: 6, marginBottom: 20 }}>
+          {['Token', 'Alpha', 'Pay'].map((label, i) => {
+            const stepIndex = step === 'token' ? 0 : step === 'alpha' ? 1 : 2
+            const active = i === stepIndex
+            const done   = i < stepIndex
+            return (
+              <div key={label} style={{
+                flex: 1, textAlign: 'center', fontSize: 9, fontWeight: 700, padding: '4px 0',
+                borderRadius: 4,
+                background: done ? 'rgba(100,180,255,0.2)' : active ? 'rgba(100,180,255,0.1)' : 'rgba(255,255,255,0.04)',
+                color: done || active ? 'rgb(100,180,255)' : 'var(--text-muted)',
+                border: `1px solid ${done || active ? 'rgba(100,180,255,0.3)' : 'var(--border)'}`,
+              }}>{done ? '✓ ' : ''}{label}</div>
+            )
+          })}
+        </div>
+
+        {/* ── Step 1: Token CA ── */}
+        {step === 'token' && (
+          <>
+            <div style={{ fontSize: 10, color: 'var(--text-muted)', marginBottom: 8 }}>
+              Enter your token's contract address
+            </div>
+            <input
+              style={inputStyle}
+              placeholder="Token CA (e.g. 7xKX…)"
+              value={tokenCA}
+              onChange={e => setTokenCA(e.target.value)}
+              onKeyDown={e => e.key === 'Enter' && fetchToken()}
+              autoFocus
+            />
+            {tokenErr && <div style={{ color: 'var(--red)', fontSize: 10, marginTop: 6 }}>{tokenErr}</div>}
+            <button
+              onClick={fetchToken}
+              disabled={tokenLoading || !tokenCA.trim()}
+              style={{ ...btnPrimary, marginTop: 12, opacity: tokenLoading || !tokenCA.trim() ? 0.5 : 1 }}
+            >{tokenLoading ? 'Fetching...' : 'Look Up Token →'}</button>
+          </>
+        )}
+
+        {/* ── Step 2: Select Alpha ── */}
+        {step === 'alpha' && tokenData && (
+          <>
+            {/* Token preview */}
+            <div style={{
+              display: 'flex', alignItems: 'center', gap: 10, padding: '10px 12px',
+              background: 'rgba(100,180,255,0.06)', border: '1px solid rgba(100,180,255,0.2)',
+              borderRadius: 8, marginBottom: 14,
+            }}>
+              {tokenData.logoUrl
+                ? <img src={tokenData.logoUrl} style={{ width: 28, height: 28, borderRadius: '50%' }} alt="" />
+                : <div style={{ width: 28, height: 28, borderRadius: '50%', background: 'rgba(100,180,255,0.2)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 9, fontWeight: 700, color: 'rgb(100,180,255)' }}>{tokenData.symbol.slice(0,3)}</div>
+              }
+              <div>
+                <div style={{ fontWeight: 800, fontSize: 13, color: 'var(--text-primary)' }}>${tokenData.symbol}</div>
+                <div style={{ fontSize: 10, color: 'var(--text-muted)' }}>{tokenData.name}</div>
+              </div>
+              <button onClick={() => setStep('token')} style={{ ...btnGhost, marginLeft: 'auto', padding: '3px 8px', fontSize: 9 }}>Change</button>
+            </div>
+
+            <div style={{ fontSize: 10, color: 'var(--text-muted)', marginBottom: 8 }}>
+              {prefilledAlpha ? 'Listing under this alpha:' : 'Search for the alpha you want to list under'}
+            </div>
+
+            {prefilledAlpha ? (
+              // Pre-filled from beta panel
+              <div style={{
+                display: 'flex', alignItems: 'center', gap: 10, padding: '10px 12px',
+                background: 'rgba(57,255,20,0.06)', border: '1px solid rgba(57,255,20,0.2)',
+                borderRadius: 8, marginBottom: 14,
+              }}>
+                {prefilledAlpha.logoUrl && <img src={prefilledAlpha.logoUrl} style={{ width: 24, height: 24, borderRadius: '50%' }} alt="" />}
+                <div style={{ fontWeight: 800, fontSize: 13, color: 'var(--text-primary)' }}>${prefilledAlpha.symbol}</div>
+                <div style={{ fontSize: 10, color: 'var(--text-muted)', marginLeft: 4 }}>{prefilledAlpha.name}</div>
+              </div>
+            ) : (
+              <>
+                <input
+                  style={inputStyle}
+                  placeholder="Search by symbol or CA..."
+                  value={alphaQuery}
+                  onChange={e => setAlphaQuery(e.target.value)}
+                  autoFocus
+                />
+                <div style={{ marginTop: 6, maxHeight: 180, overflowY: 'auto' }}>
+                  {alphaResults.map(a => (
+                    <div
+                      key={a.address}
+                      onClick={() => checkSlots(a)}
+                      style={{
+                        display: 'flex', alignItems: 'center', gap: 8, padding: '8px 10px',
+                        borderRadius: 6, cursor: 'pointer', marginBottom: 3,
+                        background: 'rgba(255,255,255,0.03)',
+                        border: '1px solid transparent',
+                      }}
+                      onMouseEnter={e => e.currentTarget.style.borderColor = 'rgba(100,180,255,0.3)'}
+                      onMouseLeave={e => e.currentTarget.style.borderColor = 'transparent'}
+                    >
+                      {a.logoUrl
+                        ? <img src={a.logoUrl} style={{ width: 22, height: 22, borderRadius: '50%' }} alt="" />
+                        : <div style={{ width: 22, height: 22, borderRadius: '50%', background: 'rgba(100,180,255,0.15)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 8, fontWeight: 700, color: 'rgb(100,180,255)' }}>{a.symbol?.slice(0,3)}</div>
+                      }
+                      <div style={{ fontWeight: 700, fontSize: 12, color: 'var(--text-primary)' }}>${a.symbol}</div>
+                      <div style={{ fontSize: 10, color: 'var(--text-muted)', marginLeft: 2 }}>{a.name}</div>
+                      <div style={{ marginLeft: 'auto', fontSize: 9, color: 'var(--text-muted)' }}>
+                        {a.marketCap ? `$${(a.marketCap/1000).toFixed(0)}K` : ''}
+                      </div>
+                    </div>
+                  ))}
+                  {alphaResults.length === 0 && (
+                    <div style={{ fontSize: 10, color: 'var(--text-muted)', padding: '10px 0', textAlign: 'center' }}>
+                      No matching alphas found
+                    </div>
+                  )}
+                </div>
+              </>
+            )}
+
+            {prefilledAlpha && (
+              <button onClick={() => checkSlots(prefilledAlpha)} style={{ ...btnPrimary, marginTop: 8 }}>
+                Continue →
+              </button>
+            )}
+          </>
+        )}
+
+        {/* ── Step 3: Confirm + Pay ── */}
+        {(step === 'confirm' || step === 'sending' || step === 'verifying' || step === 'error') && tokenData && selectedAlpha && (
+          <>
+            <div style={{
+              background: 'rgba(100,180,255,0.06)', border: '1px solid rgba(100,180,255,0.15)',
+              borderRadius: 8, padding: '12px 14px', marginBottom: 16,
+            }}>
+              {[
+                ['Your token',    `$${tokenData.symbol} — ${tokenData.name}`],
+                ['Listed under',  `$${selectedAlpha.symbol}`],
+                ['Badge',         '📋 LISTED (clearly marked as paid)'],
+                ['Duration',      '24 hours'],
+                ['Slots available', alphaSlots !== null ? `${alphaSlots} of 2` : 'Checking...'],
+              ].map(([k, v]) => (
+                <div key={k} style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 6, fontSize: 11 }}>
+                  <span style={{ color: 'var(--text-muted)' }}>{k}</span>
+                  <span style={{ color: 'var(--text-primary)', fontWeight: 700, textAlign: 'right', maxWidth: '55%' }}>{v}</span>
+                </div>
+              ))}
+              <div style={{ display: 'flex', justifyContent: 'space-between', borderTop: '1px solid rgba(100,180,255,0.15)', paddingTop: 8, marginTop: 4 }}>
+                <span style={{ fontSize: 11, color: 'var(--text-muted)', fontWeight: 700 }}>Total cost</span>
+                <span style={{ fontSize: 15, color: 'rgb(100,180,255)', fontWeight: 800 }}>{LISTING_PRICE_SOL} SOL</span>
+              </div>
+            </div>
+
+            {alphaSlots === 0 && (
+              <div style={{ color: 'var(--red)', fontSize: 10, marginBottom: 10, textAlign: 'center' }}>
+                All listing slots for ${selectedAlpha.symbol} are full. Try another alpha or check back later.
+              </div>
+            )}
+
+            {!isAuthed && (
+              <div style={{ color: 'rgb(255,200,0)', fontSize: 10, marginBottom: 10, textAlign: 'center' }}>
+                ⚠️ Connect and sign in with your wallet to complete this listing.
+              </div>
+            )}
+
+            {step === 'confirm' && (
+              <div style={{ display: 'flex', gap: 10 }}>
+                <button onClick={() => setStep('alpha')} style={btnGhost}>← Back</button>
+                <button
+                  onClick={handlePay}
+                  disabled={!isAuthed || alphaSlots === 0}
+                  style={{ ...btnPrimary, flex: 1, opacity: (!isAuthed || alphaSlots === 0) ? 0.4 : 1 }}
+                >📋 Pay {LISTING_PRICE_SOL} SOL & List</button>
+              </div>
+            )}
+            {step === 'sending'   && <div style={{ textAlign: 'center', color: 'var(--text-muted)', fontSize: 11, padding: '10px 0' }}>✍️ Confirm transaction in wallet...</div>}
+            {step === 'verifying' && <div style={{ textAlign: 'center', color: 'var(--cyan)', fontSize: 11, padding: '10px 0' }}>🔍 Verifying payment on-chain...</div>}
+            {step === 'error' && (
+              <>
+                <div style={{ color: 'var(--red)', fontSize: 10, marginBottom: 10, textAlign: 'center' }}>{payErr}</div>
+                <div style={{ display: 'flex', gap: 10 }}>
+                  <button onClick={() => setStep('confirm')} style={btnGhost}>← Back</button>
+                  <button onClick={handlePay} style={{ ...btnPrimary, flex: 1 }}>Retry</button>
+                </div>
+              </>
+            )}
+          </>
+        )}
+
+        {/* ── Done ── */}
+        {step === 'done' && (
+          <div style={{ textAlign: 'center', padding: '20px 0' }}>
+            <div style={{ fontSize: 28, marginBottom: 10 }}>✅</div>
+            <div style={{ fontSize: 14, fontWeight: 800, color: 'rgb(57,255,20)', marginBottom: 6 }}>Listing confirmed!</div>
+            <div style={{ fontSize: 10, color: 'var(--text-muted)' }}>
+              ${tokenData?.symbol} is now listed as a beta under ${selectedAlpha?.symbol} for 24 hours.
+            </div>
+          </div>
+        )}
+      </div>
+    </div>,
+    document.body
+  )
+}
+
 // ─── Listed Modal ─────────────────────────────────────────────────
 const ListedModal = ({ beta, alpha, authToken, priceSol = 1, onClose, onSuccess }) => {
   const { sendTransaction, publicKey } = useWallet()
@@ -5411,8 +5782,8 @@ export default function App() {
       <div className="main-layout" style={{ flex: 1, overflow: 'hidden' }}>
         <AlphaBoard selectedAlpha={selectedAlpha} onSelect={handleSelectAlpha} onNewRunners={handleNewRunners} onLiveAlphas={setAppLiveAlphas} onSznCards={setAppSznCards} onCoolingAlphas={setAppCoolingAlphas} onCustomSearch={handleSearchCustomAlpha} customAlphaLoading={customAlphaLoading} onRegisterClearSearch={fn => { clearAlphaBoardSearch.current = fn }} alphaListRef={alphaListRef} searchResults={searchResults} onSelectSearchResult={(token) => { if (!token) { setSearchResults([]); return }; setSelectedAlpha(token); setSearchResults([]) }} defaultTab={settings.defaultTab} authToken={authToken} isAuthed={isAuthed} authWallet={authWallet} onFolioCall={handleFolioCall} folioCallAddrs={folioCallAddrs} folioLeaderboard={folioLeaderboard} folioLoading={folioLoading} folioView={folioView} setFolioView={setFolioView} folioSaveMsg={folioSaveMsg} myFolios={myFolios} setMyFolios={setMyFolios} folioSearch={folioSearch} folioSearchRes={folioSearchRes} folioSearching={folioSearching} onSaveFolioName={handleSaveFolioName} onFolioSearch={handleFolioSearch} onFolioLeaderboard={handleFolioLeaderboard} folioTagging={folioTagging} setFolioTagging={setFolioTagging} onFolioTag={handleFolioTag} folioProfile={folioProfile} onCreateFolio={handleCreateFolio} activeFolioId={activeFolioId} setActiveFolioId={setActiveFolioId} />
         {isSzn
-          ? <SznPanel  szn={selectedAlpha}   onListBeta={() => setShowListModal(true)} onOpenDrawer={setDrawerToken} />
-          : <BetaPanel alpha={selectedAlpha} liveAlphas={appLiveAlphas} onListBeta={() => setShowListModal(true)} onOpenDrawer={setDrawerToken} onSwap={(t) => openJupiterSwap(t)} onScrollToAlpha={handleScrollToAlpha} onCustomSearch={handleSearchCustomAlpha} customAlphaLoading={customAlphaLoading} customAlphaError={customAlphaError} settings={settings} isAuthed={isAuthed} authToken={authToken} authWallet={authWallet} onBoostSuccess={(boost) => { console.log('[App] Boost confirmed:', boost.token_symbol, 'slot', boost.slot_number) }} />
+          ? <SznPanel  szn={selectedAlpha}   onListBeta={() => setShowListModal(selectedAlpha || true)} onOpenDrawer={setDrawerToken} />
+          : <BetaPanel alpha={selectedAlpha} liveAlphas={appLiveAlphas} onListBeta={() => setShowListModal(selectedAlpha || true)} onOpenDrawer={setDrawerToken} onSwap={(t) => openJupiterSwap(t)} onScrollToAlpha={handleScrollToAlpha} onCustomSearch={handleSearchCustomAlpha} customAlphaLoading={customAlphaLoading} customAlphaError={customAlphaError} settings={settings} isAuthed={isAuthed} authToken={authToken} authWallet={authWallet} onBoostSuccess={(boost) => { console.log('[App] Boost confirmed:', boost.token_symbol, 'slot', boost.slot_number) }} />
         }
       </div>
 
@@ -5453,14 +5824,18 @@ export default function App() {
         document.body
       )}
 
+      )}
+
       {showListModal && (
-        <div className="modal-overlay" onClick={() => setShowListModal(false)}>
-          <div className="modal" onClick={(e) => e.stopPropagation()}>
-            <div className="modal-title">⚡ List Your Beta</div>
-            <div className="modal-sub">Monetization flow — coming in Phase 3</div>
-            <button className="btn btn-ghost" onClick={() => setShowListModal(false)}>Close</button>
-          </div>
-        </div>
+        <ListYourBetaModal
+          prefilledAlpha={showListModal !== true ? showListModal : null}
+          authToken={authToken}
+          authWallet={authWallet}
+          isAuthed={isAuthed}
+          liveAlphas={appLiveAlphas}
+          onClose={() => setShowListModal(false)}
+          onSuccess={() => setShowListModal(false)}
+        />
       )}
 
       {/* Token detail drawer — rendered via portal into document.body so
