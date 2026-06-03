@@ -4029,7 +4029,7 @@ app.patch('/api/folio/settings', requireAuth, async (req, res) => {
 // Each boost lasts 24 hours. Payment verified on-chain via Helius.
 
 const TREASURY_WALLET  = process.env.TREASURY_WALLET || '7LbtGZTToXYQ8FRnwBy6TfLMi4nMw2ge523mimwTSJUk'
-const BOOST_PRICE_SOL  = parseFloat(process.env.BOOST_PRICE_SOL || '0.2')
+const BOOST_PRICE_SOL  = parseFloat(process.env.BOOST_PRICE_SOL || '1')
 const BOOST_MAX_SLOTS  = 3
 const BOOST_DURATION_MS = 24 * 60 * 60 * 1000 // 24 hours
 

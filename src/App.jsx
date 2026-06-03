@@ -3611,7 +3611,7 @@ const BetaRow = ({ beta, alpha, isPinned, isBoosted, trenchOnly, onOpenDrawer, o
             {isPinned       && <Tooltip text="Dev verified — project team verified"><span className="badge badge-verified" style={{ fontSize: 11, padding: '1px 3px', cursor: 'default' }}>✓</span></Tooltip>}
             {beta.isSibling && <Tooltip text="Sibling — shares the same parent alpha"><span className="badge badge-cabal" style={{ fontSize: 11, padding: '1px 3px', opacity: 0.85, cursor: 'default' }}>👥</span></Tooltip>}
             {isAuthed && !isBoosted && onBoost && (
-              <Tooltip text={boostSlotsAvail > 0 ? `Boost this token — 0.2 SOL / 24hrs (${boostSlotsAvail} slot${boostSlotsAvail !== 1 ? 's' : ''} free)` : 'All boost slots full — check back soon'}>
+              <Tooltip text={boostSlotsAvail > 0 ? `Boost this token — 1 SOL / 24hrs (${boostSlotsAvail} slot${boostSlotsAvail !== 1 ? 's' : ''} free)` : 'All boost slots full — check back soon'}>
                 <button
                   onClick={e => { e.stopPropagation(); onBoost(beta) }}
                   disabled={boostSlotsAvail === 0}
@@ -3840,7 +3840,7 @@ const SznPanel = ({ szn, onListBeta, onOpenDrawer }) => {
 // 2. User sends SOL to treasury via wallet adapter
 // 3. Backend verifies tx on-chain and writes boost record
 
-const BoostModal = ({ beta, alpha, authToken, authWallet, priceSol = 0.2, onClose, onSuccess }) => {
+const BoostModal = ({ beta, alpha, authToken, authWallet, priceSol = 1, onClose, onSuccess }) => {
   const { sendTransaction, publicKey } = useWallet()
   const [step,    setStep]    = useState('confirm') // confirm | sending | verifying | done | error
   const [errMsg,  setErrMsg]  = useState(null)
