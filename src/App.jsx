@@ -3859,14 +3859,51 @@ const ListYourBetaModal = ({ prefilledAlpha, authToken, authWallet, isAuthed, li
   const [alphaSlots,   setAlphaSlots]    = useState(null)  // null = unchecked
   const [payErr,       setPayErr]        = useState(null)
 
-  // Filter live alphas by search query
+  const [alphaFetching, setAlphaFetching] = useState(false)
+  const [alphaFetchErr, setAlphaFetchErr] = useState(null)
+
+  // Filter live alphas by query — symbol, name, or CA
+  // Show ALL live alphas when no query (scrollable)
   const alphaResults = useMemo(() => {
-    if (!alphaQuery.trim()) return liveAlphas?.slice(0, 8) || []
-    const q = alphaQuery.toLowerCase()
-    return (liveAlphas || [])
-      .filter(a => a.symbol?.toLowerCase().includes(q) || a.address?.toLowerCase().includes(q))
-      .slice(0, 8)
+    if (!alphaQuery.trim()) return liveAlphas || []
+    const q = alphaQuery.toLowerCase().trim()
+    return (liveAlphas || []).filter(a =>
+      a.symbol?.toLowerCase().includes(q) ||
+      a.name?.toLowerCase().includes(q) ||
+      a.address?.toLowerCase() === q
+    )
   }, [alphaQuery, liveAlphas])
+
+  // Detect if query looks like a CA (base58, 32-44 chars, no spaces)
+  const looksLikeCA = (s) => /^[1-9A-HJ-NP-Za-km-z]{32,44}$/.test(s.trim())
+
+  const handleAlphaSelect = async (alphaOrCA) => {
+    // If it's already an alpha object, go straight to slot check
+    if (typeof alphaOrCA === 'object') return checkSlots(alphaOrCA)
+
+    // Otherwise fetch by CA from DEXScreener
+    const ca = alphaOrCA.trim()
+    setAlphaFetching(true)
+    setAlphaFetchErr(null)
+    try {
+      const res  = await fetch(`https://api.dexscreener.com/latest/dex/tokens/${ca}`)
+      const data = await res.json()
+      const pair = data?.pairs?.find(p => p.chainId === 'solana') || data?.pairs?.[0]
+      if (!pair) throw new Error('Alpha not found on DEXScreener. Check the CA.')
+      const fetched = {
+        address: ca,
+        symbol:  pair.baseToken?.symbol || '???',
+        name:    pair.baseToken?.name   || '',
+        logoUrl: pair.info?.imageUrl    || null,
+        marketCap: pair.fdv            || 0,
+      }
+      checkSlots(fetched)
+    } catch (err) {
+      setAlphaFetchErr(err.message)
+    } finally {
+      setAlphaFetching(false)
+    }
+  }
 
   // Step 1 — fetch token data from DEXScreener by CA
   const fetchToken = async () => {
@@ -4083,16 +4120,32 @@ const ListYourBetaModal = ({ prefilledAlpha, authToken, authWallet, isAuthed, li
               <>
                 <input
                   style={inputStyle}
-                  placeholder="Search by symbol or CA..."
+                  placeholder="Search by symbol, name, or paste CA..."
                   value={alphaQuery}
-                  onChange={e => setAlphaQuery(e.target.value)}
+                  onChange={e => { setAlphaQuery(e.target.value); setAlphaFetchErr(null) }}
                   autoFocus
                 />
-                <div style={{ marginTop: 6, maxHeight: 180, overflowY: 'auto' }}>
+                {alphaFetchErr && (
+                  <div style={{ color: 'var(--red)', fontSize: 10, marginTop: 5 }}>{alphaFetchErr}</div>
+                )}
+                {/* CA fallback — show fetch button when query looks like a CA and not in live list */}
+                {looksLikeCA(alphaQuery) && alphaResults.length === 0 && (
+                  <button
+                    onClick={() => handleAlphaSelect(alphaQuery)}
+                    disabled={alphaFetching}
+                    style={{ ...btnPrimary, marginTop: 8, opacity: alphaFetching ? 0.5 : 1 }}
+                  >{alphaFetching ? 'Fetching alpha...' : '🔍 Look up this CA as alpha →'}</button>
+                )}
+                <div style={{ marginTop: 6, maxHeight: 220, overflowY: 'auto', paddingRight: 2 }}>
+                  {alphaResults.length === 0 && !looksLikeCA(alphaQuery) && (
+                    <div style={{ fontSize: 10, color: 'var(--text-muted)', padding: '10px 0', textAlign: 'center' }}>
+                      No matching runners — try a different name or paste the alpha's CA
+                    </div>
+                  )}
                   {alphaResults.map(a => (
                     <div
                       key={a.address}
-                      onClick={() => checkSlots(a)}
+                      onClick={() => handleAlphaSelect(a)}
                       style={{
                         display: 'flex', alignItems: 'center', gap: 8, padding: '8px 10px',
                         borderRadius: 6, cursor: 'pointer', marginBottom: 3,
@@ -4103,21 +4156,16 @@ const ListYourBetaModal = ({ prefilledAlpha, authToken, authWallet, isAuthed, li
                       onMouseLeave={e => e.currentTarget.style.borderColor = 'transparent'}
                     >
                       {a.logoUrl
-                        ? <img src={a.logoUrl} style={{ width: 22, height: 22, borderRadius: '50%' }} alt="" />
-                        : <div style={{ width: 22, height: 22, borderRadius: '50%', background: 'rgba(100,180,255,0.15)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 8, fontWeight: 700, color: 'rgb(100,180,255)' }}>{a.symbol?.slice(0,3)}</div>
+                        ? <img src={a.logoUrl} style={{ width: 22, height: 22, borderRadius: '50%', flexShrink: 0 }} alt="" />
+                        : <div style={{ width: 22, height: 22, borderRadius: '50%', background: 'rgba(100,180,255,0.15)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 8, fontWeight: 700, color: 'rgb(100,180,255)', flexShrink: 0 }}>{a.symbol?.slice(0,3)}</div>
                       }
                       <div style={{ fontWeight: 700, fontSize: 12, color: 'var(--text-primary)' }}>${a.symbol}</div>
-                      <div style={{ fontSize: 10, color: 'var(--text-muted)', marginLeft: 2 }}>{a.name}</div>
-                      <div style={{ marginLeft: 'auto', fontSize: 9, color: 'var(--text-muted)' }}>
+                      <div style={{ fontSize: 10, color: 'var(--text-muted)', marginLeft: 2, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{a.name}</div>
+                      <div style={{ marginLeft: 'auto', fontSize: 9, color: 'var(--text-muted)', flexShrink: 0 }}>
                         {a.marketCap ? `$${(a.marketCap/1000).toFixed(0)}K` : ''}
                       </div>
                     </div>
                   ))}
-                  {alphaResults.length === 0 && (
-                    <div style={{ fontSize: 10, color: 'var(--text-muted)', padding: '10px 0', textAlign: 'center' }}>
-                      No matching alphas found
-                    </div>
-                  )}
                 </div>
               </>
             )}
