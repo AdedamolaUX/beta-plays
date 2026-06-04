@@ -3970,7 +3970,7 @@ const ListYourBetaModal = ({ prefilledAlpha, authToken, authWallet, isAuthed, li
       const { Connection, Transaction, SystemProgram, PublicKey } = await import('@solana/web3.js')
       const TREASURY   = '7LbtGZTToXYQ8FRnwBy6TfLMi4nMw2ge523mimwTSJUk'
       const connection = new Connection(
-        'https://mainnet.helius-rpc.com/?api-key=' + (import.meta.env.VITE_HELIUS_API_KEY || ''),
+        import.meta.env.VITE_HELIUS_API_KEY ? `https://mainnet.helius-rpc.com/?api-key=${import.meta.env.VITE_HELIUS_API_KEY}` : 'https://api.mainnet-beta.solana.com',
         'confirmed'
       )
       const tx = new Transaction().add(
@@ -4346,7 +4346,7 @@ const ListedModal = ({ beta, alpha, authToken, priceSol = 1, onClose, onSuccess 
     setErrMsg(null)
     try {
       const { Connection, Transaction, SystemProgram, PublicKey } = await import('@solana/web3.js')
-      const connection = new Connection('https://mainnet.helius-rpc.com/?api-key=' + (import.meta.env.VITE_HELIUS_API_KEY || ''), 'confirmed')
+      const connection = new Connection(import.meta.env.VITE_HELIUS_API_KEY ? `https://mainnet.helius-rpc.com/?api-key=${import.meta.env.VITE_HELIUS_API_KEY}` : 'https://api.mainnet-beta.solana.com', 'confirmed')
       const tx = new Transaction().add(
         SystemProgram.transfer({
           fromPubkey: publicKey,
@@ -4473,7 +4473,7 @@ const BoostModal = ({ beta, alpha, authToken, authWallet, priceSol = 1, onClose,
     try {
       // Build a simple SOL transfer transaction
       const { Connection, Transaction, SystemProgram, PublicKey, LAMPORTS_PER_SOL } = await import('@solana/web3.js')
-      const connection = new Connection('https://mainnet.helius-rpc.com/?api-key=' + (import.meta.env.VITE_HELIUS_API_KEY || ''), 'confirmed')
+      const connection = new Connection(import.meta.env.VITE_HELIUS_API_KEY ? `https://mainnet.helius-rpc.com/?api-key=${import.meta.env.VITE_HELIUS_API_KEY}` : 'https://api.mainnet-beta.solana.com', 'confirmed')
       const tx = new Transaction().add(
         SystemProgram.transfer({
           fromPubkey: publicKey,
