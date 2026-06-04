@@ -679,7 +679,7 @@ const SettingsPanel = ({ settings, onUpdate, onReset, onClose }) => {
 
 // ─── Navbar ─────────────────────────────────────────────────────
 
-const Navbar = ({ onListBeta, newRunners, liveAlphas, coolingAlphas, onSettings, onWalletConnect, onWalletSignIn, onWalletSignOut, isAuthed, isConnected, walletAddress }) => (
+const Navbar = ({ onListBeta, onAdvertise, newRunners, liveAlphas, coolingAlphas, onSettings, onWalletConnect, onWalletSignIn, onWalletSignOut, isAuthed, isConnected, walletAddress }) => (
   <nav className="navbar">
   <div className="navbar-brand">
     <img
@@ -755,6 +755,18 @@ const Navbar = ({ onListBeta, newRunners, liveAlphas, coolingAlphas, onSettings,
       <button className="btn btn-amber btn-sm" onClick={onListBeta}>
         ⚡ List Your Beta
       </button>
+      <button
+        onClick={onAdvertise}
+        style={{
+          background: 'rgba(100,180,255,0.08)', border: '1px solid rgba(100,180,255,0.3)',
+          borderRadius: 8, cursor: 'pointer', color: 'rgb(100,180,255)',
+          fontSize: 11, padding: '6px 12px', lineHeight: 1, fontFamily: 'var(--font-mono)',
+          fontWeight: 700, letterSpacing: '0.05em', transition: 'all 0.15s ease',
+        }}
+        onMouseEnter={e => { e.currentTarget.style.background = 'rgba(100,180,255,0.15)'; e.currentTarget.style.borderColor = 'rgba(100,180,255,0.6)' }}
+        onMouseLeave={e => { e.currentTarget.style.background = 'rgba(100,180,255,0.08)'; e.currentTarget.style.borderColor = 'rgba(100,180,255,0.3)' }}
+        title="Advertise on BetaPlays"
+      >📢 Advertise</button>
     </div>
   </nav>
 )
@@ -4262,42 +4274,40 @@ const ListYourBetaModal = ({ prefilledAlpha, authToken, authWallet, isAuthed, li
 const AdCard = ({ ad }) => {
   if (!ad) return null
   return (
-    <a
-      href={ad.cta_url}
-      target="_blank"
-      rel="noopener noreferrer"
-      style={{ textDecoration: 'none', display: 'block' }}
-      onClick={e => e.stopPropagation()}
-    >
+    <div style={{
+      margin: '6px 0', borderRadius: 8,
+      background: 'linear-gradient(135deg, rgba(100,180,255,0.08) 0%, rgba(60,120,200,0.05) 100%)',
+      border: '1px solid rgba(100,180,255,0.25)',
+      overflow: 'hidden',
+    }}>
+      {/* AD label bar */}
       <div style={{
-        display: 'flex', alignItems: 'center', gap: 10,
-        padding: '9px 12px', margin: '4px 0',
-        background: 'rgba(255,255,255,0.02)',
-        border: '1px solid rgba(255,255,255,0.07)',
-        borderRadius: 7, cursor: 'pointer', position: 'relative',
-        transition: 'border-color 0.15s',
-      }}
-        onMouseEnter={e => e.currentTarget.style.borderColor = 'rgba(255,255,255,0.15)'}
-        onMouseLeave={e => e.currentTarget.style.borderColor = 'rgba(255,255,255,0.07)'}
-      >
-        {/* AD label — always visible, never hidden */}
-        <span style={{
-          position: 'absolute', top: 4, right: 6,
-          fontSize: 8, fontFamily: 'var(--font-mono)', fontWeight: 700,
-          color: 'var(--text-muted)', background: 'rgba(255,255,255,0.06)',
-          border: '1px solid rgba(255,255,255,0.1)', borderRadius: 3,
-          padding: '1px 4px', letterSpacing: 0.5,
-        }}>📢 AD</span>
+        display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+        padding: '3px 10px',
+        background: 'rgba(100,180,255,0.08)',
+        borderBottom: '1px solid rgba(100,180,255,0.12)',
+      }}>
+        <span style={{ fontSize: 8, fontFamily: 'var(--font-mono)', fontWeight: 700, color: 'rgba(100,180,255,0.6)', letterSpacing: 1 }}>📢 SPONSORED</span>
+        <span style={{ fontSize: 8, fontFamily: 'var(--font-mono)', color: 'rgba(255,255,255,0.2)' }}>Not financial advice</span>
+      </div>
 
+      {/* Ad content */}
+      <a
+        href={ad.cta_url}
+        target="_blank"
+        rel="noopener noreferrer"
+        style={{ textDecoration: 'none', display: 'flex', alignItems: 'center', gap: 12, padding: '10px 12px' }}
+        onClick={e => e.stopPropagation()}
+      >
         {/* Logo */}
         {ad.logo_url
-          ? <img src={ad.logo_url} alt={ad.project_name} style={{ width: 32, height: 32, borderRadius: 6, objectFit: 'cover', flexShrink: 0 }} />
-          : <div style={{ width: 32, height: 32, borderRadius: 6, background: 'rgba(100,180,255,0.1)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 11, fontWeight: 800, color: 'rgb(100,180,255)', flexShrink: 0 }}>{ad.project_name?.slice(0,2).toUpperCase()}</div>
+          ? <img src={ad.logo_url} alt={ad.project_name} style={{ width: 36, height: 36, borderRadius: 8, objectFit: 'cover', flexShrink: 0, border: '1px solid rgba(255,255,255,0.1)' }} />
+          : <div style={{ width: 36, height: 36, borderRadius: 8, background: 'rgba(100,180,255,0.15)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 13, fontWeight: 800, color: 'rgb(100,180,255)', flexShrink: 0 }}>{ad.project_name?.slice(0,2).toUpperCase()}</div>
         }
 
         {/* Text */}
         <div style={{ flex: 1, minWidth: 0 }}>
-          <div style={{ fontFamily: 'var(--font-display)', fontWeight: 700, fontSize: 12, color: 'var(--text-primary)', marginBottom: 1 }}>
+          <div style={{ fontFamily: 'var(--font-display)', fontWeight: 800, fontSize: 13, color: 'var(--text-primary)', marginBottom: 2 }}>
             {ad.project_name}
           </div>
           {ad.tagline && (
@@ -4309,13 +4319,15 @@ const AdCard = ({ ad }) => {
 
         {/* CTA */}
         <div style={{
-          fontSize: 10, fontWeight: 700, fontFamily: 'var(--font-mono)',
-          color: 'rgb(100,180,255)', background: 'rgba(100,180,255,0.1)',
-          border: '1px solid rgba(100,180,255,0.3)', borderRadius: 4,
-          padding: '4px 9px', flexShrink: 0, whiteSpace: 'nowrap',
+          fontSize: 11, fontWeight: 700, fontFamily: 'var(--font-mono)',
+          color: 'rgb(100,180,255)',
+          background: 'rgba(100,180,255,0.15)',
+          border: '1px solid rgba(100,180,255,0.4)',
+          borderRadius: 6, padding: '6px 12px',
+          flexShrink: 0, whiteSpace: 'nowrap',
         }}>{ad.cta_text || 'Learn More'} →</div>
-      </div>
-    </a>
+      </a>
+    </div>
   )
 }
 
@@ -5824,7 +5836,8 @@ export default function App() {
       setCustomAlphaLoading(false)
     }
   }
-  const [showListModal, setShowListModal]  = useState(false)
+  const [showListModal,      setShowListModal]      = useState(false)
+  const [showAdvertiseModal, setShowAdvertiseModal] = useState(false)
   const [drawerToken,   setDrawerToken]    = useState(null)
 
   const [newRunners,    setNewRunners]     = useState(false)
@@ -5856,7 +5869,7 @@ export default function App() {
 
   return (
     <div className="app-wrapper">
-      <Navbar onListBeta={() => setShowListModal(true)} newRunners={newRunners} liveAlphas={appLiveAlphas} coolingAlphas={appCoolingAlphas} onSettings={() => setShowSettings(true)} onWalletConnect={() => setWalletModalVisible(true)} onWalletSignIn={handleWalletSignIn} onWalletSignOut={handleSignOut} isAuthed={isAuthed} isConnected={connected} walletAddress={authWallet} />
+      <Navbar onListBeta={() => setShowListModal(true)} onAdvertise={() => setShowAdvertiseModal(true)} newRunners={newRunners} liveAlphas={appLiveAlphas} coolingAlphas={appCoolingAlphas} onSettings={() => setShowSettings(true)} onWalletConnect={() => setWalletModalVisible(true)} onWalletSignIn={handleWalletSignIn} onWalletSignOut={handleSignOut} isAuthed={isAuthed} isConnected={connected} walletAddress={authWallet} />
       <NarrativeTicker liveAlphas={appLiveAlphas} sznCards={appSznCards} />
       <div className="main-layout" style={{ flex: 1, overflow: 'hidden' }}>
         <AlphaBoard selectedAlpha={selectedAlpha} onSelect={handleSelectAlpha} onNewRunners={handleNewRunners} onLiveAlphas={setAppLiveAlphas} onSznCards={setAppSznCards} onCoolingAlphas={setAppCoolingAlphas} onCustomSearch={handleSearchCustomAlpha} customAlphaLoading={customAlphaLoading} onRegisterClearSearch={fn => { clearAlphaBoardSearch.current = fn }} alphaListRef={alphaListRef} searchResults={searchResults} onSelectSearchResult={(token) => { if (!token) { setSearchResults([]); return }; setSelectedAlpha(token); setSearchResults([]) }} defaultTab={settings.defaultTab} authToken={authToken} isAuthed={isAuthed} authWallet={authWallet} onFolioCall={handleFolioCall} folioCallAddrs={folioCallAddrs} folioLeaderboard={folioLeaderboard} folioLoading={folioLoading} folioView={folioView} setFolioView={setFolioView} folioSaveMsg={folioSaveMsg} myFolios={myFolios} setMyFolios={setMyFolios} folioSearch={folioSearch} folioSearchRes={folioSearchRes} folioSearching={folioSearching} onSaveFolioName={handleSaveFolioName} onFolioSearch={handleFolioSearch} onFolioLeaderboard={handleFolioLeaderboard} folioTagging={folioTagging} setFolioTagging={setFolioTagging} onFolioTag={handleFolioTag} folioProfile={folioProfile} onCreateFolio={handleCreateFolio} activeFolioId={activeFolioId} setActiveFolioId={setActiveFolioId} />
@@ -5913,6 +5926,77 @@ export default function App() {
           onClose={() => setShowListModal(false)}
           onSuccess={() => setShowListModal(false)}
         />
+      )}
+
+      {showAdvertiseModal && createPortal(
+        <div style={{
+          position: 'fixed', top: 0, left: 0, right: 0, bottom: 0,
+          background: 'rgba(8,10,14,0.96)', backdropFilter: 'blur(4px)',
+          display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 99999,
+        }} onClick={() => setShowAdvertiseModal(false)}>
+          <div style={{
+            background: 'var(--surface)', border: '1px solid rgba(100,180,255,0.25)',
+            borderRadius: 14, padding: '32px 36px', width: 420, maxWidth: '92vw',
+            fontFamily: 'var(--font-mono)', position: 'relative', zIndex: 100000,
+          }} onClick={e => e.stopPropagation()}>
+            <button onClick={() => setShowAdvertiseModal(false)} style={{
+              position: 'absolute', top: 14, right: 14, background: 'transparent',
+              border: 'none', color: 'var(--text-muted)', cursor: 'pointer', fontSize: 16,
+            }}>✕</button>
+
+            <div style={{ fontSize: 22, fontWeight: 800, color: 'rgb(100,180,255)', fontFamily: 'var(--font-display)', marginBottom: 6 }}>
+              📢 Advertise on BetaPlays
+            </div>
+            <div style={{ fontSize: 11, color: 'var(--text-muted)', marginBottom: 24, lineHeight: 1.6 }}>
+              Reach active Solana degens when they're in discovery mode. Your ad appears in the beta panel — the most viewed section of the app.
+            </div>
+
+            {/* Stats */}
+            <div style={{ display: 'flex', gap: 10, marginBottom: 24 }}>
+              {[
+                ['Daily active users', 'Growing'],
+                ['Placement', 'Beta panel'],
+                ['Rate', '0.5 SOL / day'],
+              ].map(([k, v]) => (
+                <div key={k} style={{
+                  flex: 1, padding: '10px 12px', borderRadius: 8, textAlign: 'center',
+                  background: 'rgba(100,180,255,0.06)', border: '1px solid rgba(100,180,255,0.15)',
+                }}>
+                  <div style={{ fontSize: 12, fontWeight: 800, color: 'rgb(100,180,255)', marginBottom: 3 }}>{v}</div>
+                  <div style={{ fontSize: 9, color: 'var(--text-muted)' }}>{k}</div>
+                </div>
+              ))}
+            </div>
+
+            {/* Who can advertise */}
+            <div style={{ fontSize: 10, color: 'var(--text-muted)', marginBottom: 16, lineHeight: 1.7 }}>
+              ✅ Wallets, portfolio tools, DEX aggregators, launchpads, block explorers<br/>
+              ❌ Token projects (use <span style={{ color: 'rgb(255,200,0)' }}>⚡ BOOSTED</span> or <span style={{ color: 'rgb(100,180,255)' }}>📋 LISTED</span> instead)
+            </div>
+
+            <div style={{
+              padding: '12px 14px', borderRadius: 8, marginBottom: 20,
+              background: 'rgba(57,255,20,0.05)', border: '1px solid rgba(57,255,20,0.2)',
+              fontSize: 10, color: 'var(--text-muted)', lineHeight: 1.6,
+            }}>
+              🚀 Self-serve advertising is coming soon. For now, reach out directly on{' '}
+              <a href="https://t.me/betaplays" target="_blank" rel="noopener noreferrer" style={{ color: 'rgb(57,255,20)' }}>Telegram</a>{' '}
+              or{' '}
+              <a href="https://twitter.com/betaplays" target="_blank" rel="noopener noreferrer" style={{ color: 'rgb(57,255,20)' }}>Twitter/X</a>{' '}
+              to discuss ad placement.
+            </div>
+
+            <button
+              onClick={() => setShowAdvertiseModal(false)}
+              style={{
+                width: '100%', padding: '11px 0', borderRadius: 8, fontSize: 12, fontWeight: 800,
+                background: 'rgba(100,180,255,0.12)', border: '1px solid rgba(100,180,255,0.4)',
+                color: 'rgb(100,180,255)', cursor: 'pointer', fontFamily: 'var(--font-mono)',
+              }}
+            >Got it</button>
+          </div>
+        </div>,
+        document.body
       )}
 
       {/* Token detail drawer — rendered via portal into document.body so
