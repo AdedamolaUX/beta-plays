@@ -3982,8 +3982,7 @@ const ListYourBetaModal = ({ prefilledAlpha, authToken, authWallet, isAuthed, li
 
   return createPortal(
     <div style={{
-      position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.8)',
-      display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 9999,
+      position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, background: 'rgba(8,10,14,0.96)', backdropFilter: 'blur(4px)', WebkitBackdropFilter: 'blur(4px)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 99999,
     }} onClick={onClose}>
       <div style={{
         background: 'var(--surface)', border: '1px solid rgba(100,180,255,0.25)',
@@ -4265,8 +4264,7 @@ const ListedModal = ({ beta, alpha, authToken, priceSol = 1, onClose, onSuccess 
 
   return createPortal(
     <div style={{
-      position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.85)',
-      display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 99999,
+      position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, background: 'rgba(8,10,14,0.96)', backdropFilter: 'blur(4px)', WebkitBackdropFilter: 'blur(4px)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 99999,
     }} onClick={onClose}>
       <div style={{
         background: 'var(--surface)', border: '1px solid rgba(100,180,255,0.3)',
@@ -4395,8 +4393,7 @@ const BoostModal = ({ beta, alpha, authToken, authWallet, priceSol = 1, onClose,
 
   return createPortal(
     <div style={{
-      position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.85)',
-      display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 99999,
+      position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, background: 'rgba(8,10,14,0.96)', backdropFilter: 'blur(4px)', WebkitBackdropFilter: 'blur(4px)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 99999,
     }} onClick={onClose}>
       <div style={{
         background: 'var(--surface)', border: '1px solid rgba(255,200,0,0.3)',
