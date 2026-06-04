@@ -1,5 +1,5 @@
 import betaplaysLogo from './assets/betaplays-logo.png'
-import { useState, useMemo, useCallback, useRef, useEffect } from 'react'
+import { useState, useMemo, useCallback, useRef, useEffect, Fragment } from 'react'
 import { createPortal } from 'react-dom'
 import { useWallet } from '@solana/wallet-adapter-react'
 import { useWalletModal } from '@solana/wallet-adapter-react-ui'
@@ -4255,6 +4255,70 @@ const ListYourBetaModal = ({ prefilledAlpha, authToken, authWallet, isAuthed, li
   )
 }
 
+// ─── Ad Card ─────────────────────────────────────────────────────
+// Injected after beta row 3. Clearly marked as 📢 AD.
+// Random rotation — one ad picked per beta panel load.
+
+const AdCard = ({ ad }) => {
+  if (!ad) return null
+  return (
+    <a
+      href={ad.cta_url}
+      target="_blank"
+      rel="noopener noreferrer"
+      style={{ textDecoration: 'none', display: 'block' }}
+      onClick={e => e.stopPropagation()}
+    >
+      <div style={{
+        display: 'flex', alignItems: 'center', gap: 10,
+        padding: '9px 12px', margin: '4px 0',
+        background: 'rgba(255,255,255,0.02)',
+        border: '1px solid rgba(255,255,255,0.07)',
+        borderRadius: 7, cursor: 'pointer', position: 'relative',
+        transition: 'border-color 0.15s',
+      }}
+        onMouseEnter={e => e.currentTarget.style.borderColor = 'rgba(255,255,255,0.15)'}
+        onMouseLeave={e => e.currentTarget.style.borderColor = 'rgba(255,255,255,0.07)'}
+      >
+        {/* AD label — always visible, never hidden */}
+        <span style={{
+          position: 'absolute', top: 4, right: 6,
+          fontSize: 8, fontFamily: 'var(--font-mono)', fontWeight: 700,
+          color: 'var(--text-muted)', background: 'rgba(255,255,255,0.06)',
+          border: '1px solid rgba(255,255,255,0.1)', borderRadius: 3,
+          padding: '1px 4px', letterSpacing: 0.5,
+        }}>📢 AD</span>
+
+        {/* Logo */}
+        {ad.logo_url
+          ? <img src={ad.logo_url} alt={ad.project_name} style={{ width: 32, height: 32, borderRadius: 6, objectFit: 'cover', flexShrink: 0 }} />
+          : <div style={{ width: 32, height: 32, borderRadius: 6, background: 'rgba(100,180,255,0.1)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 11, fontWeight: 800, color: 'rgb(100,180,255)', flexShrink: 0 }}>{ad.project_name?.slice(0,2).toUpperCase()}</div>
+        }
+
+        {/* Text */}
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <div style={{ fontFamily: 'var(--font-display)', fontWeight: 700, fontSize: 12, color: 'var(--text-primary)', marginBottom: 1 }}>
+            {ad.project_name}
+          </div>
+          {ad.tagline && (
+            <div style={{ fontSize: 10, color: 'var(--text-muted)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+              {ad.tagline}
+            </div>
+          )}
+        </div>
+
+        {/* CTA */}
+        <div style={{
+          fontSize: 10, fontWeight: 700, fontFamily: 'var(--font-mono)',
+          color: 'rgb(100,180,255)', background: 'rgba(100,180,255,0.1)',
+          border: '1px solid rgba(100,180,255,0.3)', borderRadius: 4,
+          padding: '4px 9px', flexShrink: 0, whiteSpace: 'nowrap',
+        }}>{ad.cta_text || 'Learn More'} →</div>
+      </div>
+    </a>
+  )
+}
+
 // ─── Listed Modal ─────────────────────────────────────────────────
 const ListedModal = ({ beta, alpha, authToken, priceSol = 1, onClose, onSuccess }) => {
   const { sendTransaction, publicKey } = useWallet()
@@ -4539,6 +4603,9 @@ const BetaPanel = ({ alpha, liveAlphas, onListBeta, onOpenDrawer, onSwap, onScro
   const [activeListings,  setActiveListings]  = useState([])
   const [listSlotsAvail,  setListSlotsAvail]  = useState(2)
 
+  // ── Ad state ──────────────────────────────────────────────────
+  const [panelAd, setPanelAd] = useState(null)
+
   useEffect(() => {
     fetch(`${BACKEND_URL}/api/boosts/active`)
       .then(r => r.json())
@@ -4551,9 +4618,15 @@ const BetaPanel = ({ alpha, liveAlphas, onListBeta, onOpenDrawer, onSwap, onScro
       .then(r => r.json())
       .then(data => {
         setActiveListings(data.listings || [])
-        // Slots are per-alpha — count how many are used for THIS alpha
         const usedForThisAlpha = (data.byAlpha?.[alpha?.address] || []).length
         setListSlotsAvail(Math.max(0, 2 - usedForThisAlpha))
+      })
+      .catch(() => {})
+    fetch(`${BACKEND_URL}/api/ads/active`)
+      .then(r => r.json())
+      .then(data => {
+        const ads = data.ads || []
+        if (ads.length > 0) setPanelAd(ads[Math.floor(Math.random() * ads.length)])
       })
       .catch(() => {})
   }, [alpha?.address])
@@ -4813,20 +4886,22 @@ const BetaPanel = ({ alpha, liveAlphas, onListBeta, onOpenDrawer, onSwap, onScro
 
             {/* Show betas whenever available — even while loading is still true */}
             {filteredBetas.map((beta, i) => (
-              <BetaRow
-                key={beta.id || i}
-                beta={beta}
-                alpha={alpha}
-                isPinned={false}
-                isBoosted={boostedAddresses.has(beta.address)}
-                isListed={listedAddresses.has(beta.address)}
-                trenchOnly={trenchOnly}
-                onOpenDrawer={onOpenDrawer}
-                onSwap={onSwap}
-                isAuthed={isAuthed}
-                boostSlotsAvail={boostSlotsAvail}
-                onBoost={b => setBoostTarget(b)}
-              />
+              <Fragment key={beta.id || i}>
+                <BetaRow
+                  beta={beta}
+                  alpha={alpha}
+                  isPinned={false}
+                  isBoosted={boostedAddresses.has(beta.address)}
+                  isListed={listedAddresses.has(beta.address)}
+                  trenchOnly={trenchOnly}
+                  onOpenDrawer={onOpenDrawer}
+                  onSwap={onSwap}
+                  isAuthed={isAuthed}
+                  boostSlotsAvail={boostSlotsAvail}
+                  onBoost={b => setBoostTarget(b)}
+                />
+                {i === 2 && panelAd && <AdCard ad={panelAd} />}
+              </Fragment>
             ))}
 
             {/* Complete status + AI availability banner */}

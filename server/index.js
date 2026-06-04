@@ -4361,6 +4361,146 @@ app.delete('/api/listings/:id', requireAuth, async (req, res) => {
 
 // ─── End Listed ───────────────────────────────────────────────────────────────
 
+// ─── Display Ads ──────────────────────────────────────────────────────────────
+// Crypto-adjacent project ads injected after beta row 3 in the beta panel.
+// Random rotation per beta panel load. Max 5 active ads simultaneously.
+// 0.5 SOL/day flat fee. Manual approval by treasury wallet admin.
+
+const AD_MAX_SLOTS   = 5
+const AD_PRICE_SOL   = parseFloat(process.env.AD_PRICE_SOL || '0.5')
+const AD_DURATION_MS = 24 * 60 * 60 * 1000
+
+async function expireAds () {
+  try {
+    await db.query(`UPDATE ads SET is_active = FALSE WHERE is_active = TRUE AND expires_at < NOW()`)
+  } catch (err) {
+    console.warn('[Ads] Expire error (non-fatal):', err.message)
+  }
+}
+
+// GET /api/ads/active — returns all active approved ads (public, no auth)
+app.get('/api/ads/active', async (req, res) => {
+  try {
+    await expireAds()
+    const result = await db.query(`
+      SELECT id, project_name, tagline, logo_url, cta_text, cta_url, category
+      FROM ads
+      WHERE is_active = TRUE AND approved = TRUE
+      ORDER BY starts_at ASC
+    `)
+    res.json({ ads: result.rows, count: result.rows.length, maxSlots: AD_MAX_SLOTS })
+  } catch (err) {
+    console.error('[Ads] Active error:', err.message)
+    res.status(500).json({ error: err.message })
+  }
+})
+
+// POST /api/ads/submit — project submits ad for manual review (JWT required)
+// Body: { project_name, tagline, logo_url, cta_text, cta_url, category, tx_signature, days }
+app.post('/api/ads/submit', requireAuth, async (req, res) => {
+  const { project_name, tagline, logo_url, cta_text, cta_url, category, tx_signature, days = 1 } = req.body
+  if (!project_name || !cta_url || !tx_signature) {
+    return res.status(400).json({ error: 'project_name, cta_url and tx_signature are required' })
+  }
+
+  try {
+    // 1. Check tx not already used
+    const existing = await db.query(`SELECT id FROM ads WHERE tx_signature = $1`, [tx_signature])
+    if (existing.rows.length > 0) return res.status(409).json({ error: 'Transaction already used' })
+
+    // 2. Verify payment on-chain via Helius
+    const HELIUS_KEY   = process.env.HELIUS_API_KEY
+    const totalSol     = AD_PRICE_SOL * days
+    const minLamports  = Math.floor(totalSol * 1_000_000_000)
+
+    const heliusRes = await fetch(
+      `https://api.helius.xyz/v0/transactions/?api-key=${HELIUS_KEY}`,
+      { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ transactions: [tx_signature] }) }
+    )
+    if (!heliusRes.ok) return res.status(502).json({ error: 'Helius verification failed' })
+    const txData = await heliusRes.json()
+    const tx     = txData?.[0]
+    if (!tx)                  return res.status(404).json({ error: 'Transaction not found on-chain. Wait 10s and retry.' })
+    if (tx.transactionError)  return res.status(400).json({ error: 'Transaction failed on-chain' })
+
+    const transfers    = tx.nativeTransfers || []
+    const validPayment = transfers.some(t =>
+      t.fromUserAccount === req.user.wallet &&
+      t.toUserAccount   === TREASURY_WALLET &&
+      t.amount          >= minLamports
+    )
+    if (!validPayment) return res.status(400).json({ error: `Payment not verified. Expected ≥${totalSol} SOL to treasury.` })
+
+    // 3. Write ad record — pending approval
+    const result = await db.query(`
+      INSERT INTO ads (project_name, tagline, logo_url, cta_text, cta_url, category, submitted_by, amount_sol, tx_signature)
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+      RETURNING id, project_name
+    `, [project_name, tagline || null, logo_url || null, cta_text || 'Learn More', cta_url, category || 'other', req.user.wallet, totalSol, tx_signature])
+
+    console.log(`[Ads] New submission: ${project_name} by ${req.user.wallet} — pending approval`)
+    res.json({ ok: true, ad: result.rows[0], message: 'Ad submitted for review. You will be notified once approved.' })
+  } catch (err) {
+    console.error('[Ads] Submit error:', err.message)
+    res.status(500).json({ error: err.message })
+  }
+})
+
+// PATCH /api/ads/:id/approve — treasury wallet approves ad and sets it live (JWT required)
+app.patch('/api/ads/:id/approve', requireAuth, async (req, res) => {
+  if (req.user.wallet !== TREASURY_WALLET) return res.status(403).json({ error: 'Admin only' })
+  try {
+    await expireAds()
+    const activeCount = await db.query(`SELECT COUNT(*) FROM ads WHERE is_active = TRUE AND approved = TRUE`)
+    if (parseInt(activeCount.rows[0].count) >= AD_MAX_SLOTS) {
+      return res.status(409).json({ error: `All ${AD_MAX_SLOTS} ad slots are full. Expire an existing ad first.` })
+    }
+    const adRes = await db.query(`SELECT * FROM ads WHERE id = $1`, [req.params.id])
+    if (!adRes.rows.length) return res.status(404).json({ error: 'Ad not found' })
+    const ad        = adRes.rows[0]
+    const days      = Math.round((ad.amount_sol || AD_PRICE_SOL) / AD_PRICE_SOL)
+    const startsAt  = new Date()
+    const expiresAt = new Date(Date.now() + days * AD_DURATION_MS)
+
+    await db.query(`
+      UPDATE ads SET approved = TRUE, approved_by = $1, is_active = TRUE, starts_at = $2, expires_at = $3
+      WHERE id = $4
+    `, [req.user.wallet, startsAt, expiresAt, req.params.id])
+
+    console.log(`[Ads] Approved: ${ad.project_name} — live until ${expiresAt.toISOString()}`)
+    res.json({ ok: true, expiresAt })
+  } catch (err) {
+    res.status(500).json({ error: err.message })
+  }
+})
+
+// DELETE /api/ads/:id — treasury wallet removes ad (JWT required)
+app.delete('/api/ads/:id', requireAuth, async (req, res) => {
+  if (req.user.wallet !== TREASURY_WALLET) return res.status(403).json({ error: 'Admin only' })
+  try {
+    await db.query(`UPDATE ads SET is_active = FALSE WHERE id = $1`, [req.params.id])
+    res.json({ ok: true })
+  } catch (err) {
+    res.status(500).json({ error: err.message })
+  }
+})
+
+// GET /api/ads/pending — treasury wallet views pending submissions (JWT required)
+app.get('/api/ads/pending', requireAuth, async (req, res) => {
+  if (req.user.wallet !== TREASURY_WALLET) return res.status(403).json({ error: 'Admin only' })
+  try {
+    const result = await db.query(`
+      SELECT id, project_name, tagline, logo_url, cta_text, cta_url, category, submitted_by, amount_sol, created_at
+      FROM ads WHERE approved = FALSE ORDER BY created_at ASC
+    `)
+    res.json({ pending: result.rows })
+  } catch (err) {
+    res.status(500).json({ error: err.message })
+  }
+})
+
+// ─── End Display Ads ──────────────────────────────────────────────────────────
+
 // ─── End Folios ───────────────────────────────────────────────────────────────
 
 

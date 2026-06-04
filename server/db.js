@@ -261,6 +261,31 @@ const MIGRATIONS = [
   `CREATE INDEX IF NOT EXISTS idx_listings_active ON listings(is_active, expires_at)`,
   `CREATE INDEX IF NOT EXISTS idx_listings_alpha  ON listings(target_alpha_address)`,
   `CREATE INDEX IF NOT EXISTS idx_listings_token  ON listings(token_address)`,
+
+  // Session 32 — Display Ads
+  // Crypto-adjacent project ads (wallets, tools, launchpads, DEX aggregators).
+  // No token projects — tokens use BOOSTED/LISTED.
+  // Injected after beta row 3. Random rotation per beta panel load.
+  // Max 5 active ads. 0.5 SOL/day flat fee. Manual approval by treasury wallet.
+  `CREATE TABLE IF NOT EXISTS ads (
+    id             UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    project_name   TEXT NOT NULL,
+    tagline        TEXT,
+    logo_url       TEXT,
+    cta_text       TEXT NOT NULL DEFAULT 'Learn More',
+    cta_url        TEXT NOT NULL,
+    category       TEXT CHECK (category IN ('wallet','tool','launchpad','dex','other')),
+    submitted_by   TEXT,
+    approved        BOOLEAN DEFAULT FALSE,
+    approved_by    TEXT,
+    amount_sol     NUMERIC(10,4),
+    tx_signature   TEXT UNIQUE,
+    starts_at      TIMESTAMPTZ,
+    expires_at     TIMESTAMPTZ,
+    is_active      BOOLEAN DEFAULT FALSE,
+    created_at     TIMESTAMPTZ DEFAULT NOW()
+  )`,
+  `CREATE INDEX IF NOT EXISTS idx_ads_active ON ads(is_active, expires_at)`,
 ]
 
 async function init () {
