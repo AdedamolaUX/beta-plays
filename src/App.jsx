@@ -5419,35 +5419,60 @@ const TokenDrawer = ({ token, alpha, onClose, onSwap }) => {
           <NominateButton address={token.address} symbol={token.symbol} name={token.name} compact />
         </div>
 
-        {/* Swap button — only show if token has enough liquidity for Jupiter to route */}
-        {onSwap && (
-          <button
-            onClick={() => onSwap(token)}
-            style={{
-              width: '100%',
-              background: 'linear-gradient(135deg, rgba(0,212,255,0.18), rgba(0,255,136,0.12))',
-              border: '1px solid rgba(0,212,255,0.45)',
-              borderRadius: 10, padding: '12px 16px',
-              cursor: 'pointer',
-              fontFamily: 'var(--font-display)', fontSize: 13, fontWeight: 800,
-              color: 'var(--cyan)', letterSpacing: '0.06em',
-              transition: 'all 0.15s ease',
-              display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8,
-            }}
-            onMouseEnter={e => {
-              e.currentTarget.style.background = 'linear-gradient(135deg, rgba(0,212,255,0.28), rgba(0,255,136,0.2))'
-              e.currentTarget.style.borderColor = 'rgba(0,212,255,0.7)'
-              e.currentTarget.style.boxShadow = '0 0 20px rgba(0,212,255,0.2)'
-            }}
-            onMouseLeave={e => {
-              e.currentTarget.style.background = 'linear-gradient(135deg, rgba(0,212,255,0.18), rgba(0,255,136,0.12))'
-              e.currentTarget.style.borderColor = 'rgba(0,212,255,0.45)'
-              e.currentTarget.style.boxShadow = 'none'
-            }}
-          >
-            ⚡ SWAP ${token.symbol} <span style={{ fontSize: 9, opacity: 0.7, fontWeight: 400 }}>via Jupiter</span>
-          </button>
-        )}
+        {/* Swap button — with liquidity warning for low-liq tokens */}
+        {onSwap && (() => {
+          const liq = token.liquidity || 0
+          const veryLow = liq > 0 && liq < 2000
+          const low     = liq >= 2000 && liq < 10000
+          const warning = veryLow
+            ? '⚠️ Very low liquidity — expect high slippage. Swap small amounts only.'
+            : low
+            ? '⚠️ Low liquidity — swap small amounts to avoid slippage.'
+            : null
+          return (
+            <div>
+              <button
+                onClick={() => onSwap(token)}
+                style={{
+                  width: '100%',
+                  background: veryLow
+                    ? 'linear-gradient(135deg, rgba(255,150,0,0.15), rgba(255,100,0,0.1))'
+                    : low
+                    ? 'linear-gradient(135deg, rgba(255,200,0,0.15), rgba(255,150,0,0.1))'
+                    : 'linear-gradient(135deg, rgba(0,212,255,0.18), rgba(0,255,136,0.12))',
+                  border: `1px solid ${veryLow ? 'rgba(255,120,0,0.5)' : low ? 'rgba(255,200,0,0.45)' : 'rgba(0,212,255,0.45)'}`,
+                  borderRadius: warning ? '10px 10px 0 0' : 10,
+                  padding: '12px 16px', cursor: 'pointer',
+                  fontFamily: 'var(--font-display)', fontSize: 13, fontWeight: 800,
+                  color: veryLow ? 'rgb(255,140,0)' : low ? 'rgb(255,200,0)' : 'var(--cyan)',
+                  letterSpacing: '0.06em',
+                  transition: 'all 0.15s ease',
+                  display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8,
+                }}
+                onMouseEnter={e => {
+                  e.currentTarget.style.opacity = '0.85'
+                  e.currentTarget.style.boxShadow = `0 0 20px ${veryLow ? 'rgba(255,120,0,0.2)' : low ? 'rgba(255,200,0,0.2)' : 'rgba(0,212,255,0.2)'}`
+                }}
+                onMouseLeave={e => {
+                  e.currentTarget.style.opacity = '1'
+                  e.currentTarget.style.boxShadow = 'none'
+                }}
+              >
+                ⚡ SWAP ${token.symbol} <span style={{ fontSize: 9, opacity: 0.7, fontWeight: 400 }}>via Jupiter</span>
+              </button>
+              {warning && (
+                <div style={{
+                  padding: '5px 10px', fontSize: 9, fontFamily: 'var(--font-mono)',
+                  color: veryLow ? 'rgb(255,140,0)' : 'rgb(255,200,0)',
+                  background: veryLow ? 'rgba(255,120,0,0.08)' : 'rgba(255,200,0,0.06)',
+                  border: `1px solid ${veryLow ? 'rgba(255,120,0,0.3)' : 'rgba(255,200,0,0.25)'}`,
+                  borderTop: 'none', borderRadius: '0 0 10px 10px',
+                  lineHeight: 1.5,
+                }}>{warning}</div>
+              )}
+            </div>
+          )
+        })()}
 
         {/* Quick links */}
         <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
