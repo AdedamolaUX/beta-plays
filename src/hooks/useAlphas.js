@@ -1575,12 +1575,8 @@ const useAlphas = () => {
       const freshStored    = await loadNeonHistory()
       const prevLive       = liveAlphasRef.current || []
 
-      // ── Revival Debug Logs (remove before final production deploy) ──
       const pendingRevalidation = prevLive.filter(a => a.isRevival && !freshAddresses.has(a.address))
-      console.log(`[Revival Debug] Poll cycle — ${pendingRevalidation.length} revival token(s) to revalidate:`, pendingRevalidation.map(a => a.symbol))
-      console.log(`[Revival Debug] Supabase freshStored — ${Object.keys(freshStored).length} token(s) returned`)
       if (Object.keys(freshStored).length === 0) {
-        console.warn('[Revival Debug] ⚠️  freshStored is empty — Supabase call may have failed or alpha_runs table has no recent rows')
       }
 
       const survivingRevivals = []
@@ -1603,7 +1599,6 @@ const useAlphas = () => {
               isDumped:    false,
             })
           } else {
-            console.log(`[Revival] ⬇️  $${a.symbol} — reversal over, moving to cooling`)
             revivedDemotions.push({
               ...refreshed,
               isRevival:    false,
@@ -1628,7 +1623,6 @@ const useAlphas = () => {
       setLiveAlphas(mergedLive)
 
       if (revivedDemotions.length > 0) {
-        console.log(`[Revival] Demoting ${revivedDemotions.length} token(s) to cooling`)
         setCoolingAlphas(prev => {
           const existingAddrs = new Set(prev.map(a => a.address))
           const newDemotions  = revivedDemotions.filter(a => !existingAddrs.has(a.address))
