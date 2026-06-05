@@ -2064,68 +2064,61 @@ body {
    APP — MOBILE RESPONSIVENESS
    ============================================ */
 
+/* Desktop: back button hidden, wrapper transparent */
+.mobile-back-btn { display: none; }
+.mobile-beta-wrapper { display: contents; }
+
 @media (max-width: 768px) {
 
-  /* ── App wrapper: allow scroll instead of fixed viewport ── */
-  .app-wrapper {
-    height: 100dvh;
+  /* ── Navbar: single row, hide overflow ── */
+  .navbar {
+    padding: 0 10px;
+    height: 48px;
+    min-height: 48px;
     overflow: hidden;
   }
-
-  /* ── Navbar ── */
-  .navbar {
-    padding: 0 12px;
-    height: 52px;
-    min-height: 52px;
-  }
-
-  .navbar-status,
-  .navbar-actions .source-badges,
-  .navbar-actions .theme-toggle,
-  .navbar-actions .settings-btn {
+  /* Hide middle status section entirely */
+  .navbar > div:nth-child(2) {
     display: none;
   }
+  .brand-name { font-size: 14px; }
+  .navbar-brand img { height: 32px !important; width: 32px !important; }
+  /* Actions: keep wallet + list beta, hide settings + advertise */
+  .navbar-actions { gap: 6px; }
+  .navbar-actions button:last-child { display: none; } /* Advertise */
+  .navbar-actions button:nth-last-child(2) { display: none; } /* Settings ⚙️ */
 
-  .brand-name {
-    font-size: 15px;
-  }
+  /* ── Narrative ticker — slimmer ── */
+  .narrative-ticker-wrap { padding: 3px 0; }
+  .narrative-ticker-item { font-size: 10px; }
 
-  /* Keep wallet + list-beta btn visible */
-  .navbar-actions {
-    gap: 8px;
-  }
-
-  /* ── Narrative ticker — shrink font ── */
-  .narrative-ticker-wrap {
-    font-size: 11px;
-    padding: 4px 0;
-  }
-
-  /* ── Main layout: show only one panel at a time ── */
+  /* ── Main layout: full-width single column ── */
   .main-layout {
-    display: grid;
-    grid-template-columns: 1fr;
-    overflow: hidden;
-    height: 100%;
-  }
-
-  /* Alpha board (left panel) — full width by default */
-  .main-layout > *:first-child {
     display: flex;
     flex-direction: column;
+    overflow: hidden;
+    height: 100%;
+    grid-template-columns: unset;
+  }
+
+  /* Alpha board: full height, scrollable */
+  .main-layout > *:first-child {
+    flex: 1;
+    min-height: 0;
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+  }
+
+  /* Beta wrapper: hidden by default, shown when runner selected */
+  .mobile-beta-wrapper {
+    display: none;
+    flex-direction: column;
+    flex: 1;
     min-height: 0;
     overflow: hidden;
   }
 
-  /* Beta wrapper — hidden by default on mobile */
-  .mobile-beta-wrapper {
-    display: none;
-    flex-direction: column;
-    height: 100%;
-    overflow: hidden;
-  }
-
-  /* When runner selected: hide alpha board, show beta panel */
   .main-layout.mobile-show-betas > *:first-child {
     display: none;
   }
@@ -2158,101 +2151,47 @@ body {
     flex: 1;
     min-height: 0;
     overflow-y: auto;
-    height: 100%;
   }
 
-  /* ── Beta panel title: smaller on mobile ── */
-  .beta-panel-title {
-    font-size: 16px;
-    line-height: 1.2;
-  }
+  /* ── Beta panel header ── */
+  .beta-panel-title { font-size: 15px; }
+  .beta-panel-header { flex-direction: column; gap: 6px; align-items: flex-start; }
 
-  .beta-panel-header {
-    flex-direction: column;
-    gap: 8px;
-    align-items: flex-start;
-  }
-
-  /* ── Beta table: drop less important columns ── */
-  /* Keep: TOKEN (2fr), MCAP (1fr), 24H% (1fr), SIGNAL (auto) */
-  /* Drop: 24H VOL, LIQUIDITY, AGE */
+  /* ── Beta table: keep TOKEN/MCAP/24H%/SIGNAL, drop VOL/LIQ/AGE ── */
   .beta-table-header {
-    grid-template-columns: 2fr 1fr 1fr 120px;
+    grid-template-columns: 2fr 1fr 1fr 100px;
     font-size: 8px;
     padding: 6px 10px;
   }
-
   .beta-row {
-    grid-template-columns: 2fr 1fr 1fr 120px;
-    padding: 10px 10px;
+    grid-template-columns: 2fr 1fr 1fr 100px;
+    padding: 10px;
     gap: 6px;
   }
-
-  /* Hide VOL, LIQUIDITY, AGE columns (cols 3,4,5 in 7-col grid → now hidden) */
   .beta-table-header span:nth-child(3),
   .beta-table-header span:nth-child(4),
   .beta-table-header span:nth-child(5),
   .beta-row > *:nth-child(3),
   .beta-row > *:nth-child(4),
-  .beta-row > *:nth-child(5) {
-    display: none;
-  }
+  .beta-row > *:nth-child(5) { display: none; }
 
-  /* ── Alpha card: compact ── */
-  .alpha-card-metrics {
-    grid-template-columns: repeat(2, 1fr);
-  }
+  /* ── Alpha card metrics: 2-col ── */
+  .alpha-card-metrics { grid-template-columns: repeat(2, 1fr); }
 
-  /* ── Filter tabs: horizontal scroll ── */
-  .tab-row,
-  .filter-tabs,
-  .alpha-tabs {
+  /* ── Scrollable tabs & filter rows ── */
+  .tab-row, .filter-tabs, .alpha-tabs, .source-filter-row {
     overflow-x: auto;
     flex-wrap: nowrap;
     -webkit-overflow-scrolling: touch;
     scrollbar-width: none;
+    padding-bottom: 2px;
   }
   .tab-row::-webkit-scrollbar,
   .filter-tabs::-webkit-scrollbar,
-  .alpha-tabs::-webkit-scrollbar {
-    display: none;
-  }
+  .alpha-tabs::-webkit-scrollbar,
+  .source-filter-row::-webkit-scrollbar { display: none; }
 
-  /* ── Source filter badges: scrollable ── */
-  .source-filter-row {
-    overflow-x: auto;
-    flex-wrap: nowrap;
-    -webkit-overflow-scrolling: touch;
-    scrollbar-width: none;
-    padding-bottom: 4px;
-  }
-
-  /* ── Alpha board padding ── */
-  .alpha-board {
-    padding: 10px 10px 10px;
-  }
-
-  /* ── Search bar full width ── */
-  .search-bar,
-  .alpha-search {
-    width: 100%;
-  }
-
-  /* ── Beta panel actions row: wrap ── */
-  .beta-panel-actions {
-    flex-wrap: wrap;
-    gap: 6px;
-  }
-
-  /* ── On desktop, back button is hidden ── */
-}
-
-/* Desktop: hide mobile-only elements */
-@media (min-width: 769px) {
-  .mobile-back-btn {
-    display: none;
-  }
-  .mobile-beta-wrapper {
-    display: contents;
-  }
+  /* ── Misc ── */
+  .alpha-board { padding: 10px; }
+  .beta-panel-actions { flex-wrap: wrap; gap: 6px; }
 }
