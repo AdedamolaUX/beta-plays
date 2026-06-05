@@ -1780,3 +1780,189 @@ body {
   color: var(--lp-text-dim);
   letter-spacing: 1px;
 }
+/* ============================================
+   LANDING PAGE — MOBILE RESPONSIVENESS
+   Breakpoints: 768px (tablet), 480px (phone)
+   ============================================ */
+
+@media (max-width: 768px) {
+
+  /* NAV — hide links, keep logo + CTA */
+  .lp-nav {
+    padding: 0 1.25rem;
+    height: 56px;
+  }
+  .lp-nav-links {
+    display: none;
+  }
+  .lp-nav-logo-text {
+    font-size: 1rem;
+  }
+
+  /* HERO — single column */
+  .lp-hero {
+    flex-direction: column;
+    padding: 3rem 1.5rem 2rem;
+    min-height: unset;
+    gap: 2rem;
+  }
+  .lp-hero-left {
+    max-width: 100%;
+    text-align: center;
+  }
+  .lp-h1 {
+    font-size: clamp(3rem, 14vw, 5rem);
+  }
+  .lp-h1-divider {
+    margin: 1rem auto;
+  }
+  .lp-hero-desc {
+    max-width: 100%;
+  }
+  .lp-cta-row {
+    justify-content: center;
+    flex-wrap: wrap;
+    gap: 0.75rem;
+  }
+  .lp-hero-right {
+    display: none;
+  }
+
+  /* SIGNALS STRIP */
+  .lp-signals-strip {
+    padding: 2rem 1.25rem;
+  }
+  .lp-signals-row {
+    gap: 0.5rem;
+  }
+  .lp-signal-pill {
+    flex: 1 1 calc(50% - 0.5rem);
+    justify-content: center;
+    border-right: 1px solid var(--lp-border) !important;
+    border-radius: 4px;
+    font-size: 0.6rem;
+    padding: 0.6rem 0.75rem;
+  }
+
+  /* SECTIONS — reduce padding */
+  .lp-section {
+    padding: 3.5rem 1.5rem;
+  }
+  .lp-stats-band {
+    padding: 3rem 1.5rem;
+  }
+  .lp-cta-section {
+    padding: 3rem 1.5rem;
+  }
+  .lp-footer {
+    padding: 2.5rem 1.5rem;
+  }
+
+  /* PROBLEM GRID — 2-col → 1-col */
+  .lp-problem-grid {
+    grid-template-columns: 1fr;
+    gap: 2.5rem;
+  }
+
+  /* STEPS — 3-col → 1-col */
+  .lp-steps-grid {
+    grid-template-columns: 1fr;
+    margin-top: 2rem;
+  }
+
+  /* VECTORS — 4-col → 2-col */
+  .lp-vec-grid {
+    grid-template-columns: repeat(2, 1fr);
+    margin-top: 1.5rem;
+  }
+
+  /* STATS — 4-col → 2-col */
+  .lp-stats-grid {
+    grid-template-columns: repeat(2, 1fr);
+    margin-top: 2rem;
+  }
+
+  /* PROJECTS */
+  .lp-projects-intro {
+    grid-template-columns: 1fr;
+    gap: 1.5rem;
+    margin-bottom: 1.5rem;
+  }
+  .lp-projects-grid {
+    grid-template-columns: 1fr;
+  }
+
+  /* CTA INNER — row → column, center */
+  .lp-cta-inner {
+    flex-direction: column;
+    text-align: center;
+    padding: 3rem 1.5rem;
+    gap: 2rem;
+  }
+  .lp-cta-text h2 {
+    font-size: clamp(1.75rem, 8vw, 2.5rem);
+  }
+
+  /* FOOTER — 4-col → 2-col */
+  .lp-footer-top {
+    grid-template-columns: 1fr 1fr;
+    gap: 2rem;
+  }
+  .lp-footer-bottom {
+    flex-direction: column;
+    gap: 0.75rem;
+    text-align: center;
+  }
+
+  /* SECTION TITLE sizing */
+  .lp-section-title {
+    font-size: clamp(1.75rem, 7vw, 2.5rem);
+    letter-spacing: -1px;
+  }
+}
+
+@media (max-width: 480px) {
+
+  /* NAV */
+  .lp-nav {
+    padding: 0 1rem;
+  }
+
+  /* VECTORS — 2-col → 1-col on very small screens */
+  .lp-vec-grid {
+    grid-template-columns: 1fr;
+  }
+
+  /* STATS — 2-col → 2-col still fine, just tighten */
+  .lp-stat-box {
+    padding: 1.75rem 1rem;
+  }
+
+  /* FOOTER — collapse to 1-col */
+  .lp-footer-top {
+    grid-template-columns: 1fr;
+    gap: 1.75rem;
+  }
+
+  /* SIGNALS — all pills full width */
+  .lp-signal-pill {
+    flex: 1 1 100%;
+  }
+
+  /* PROJ CARD */
+  .lp-proj-card {
+    padding: 1.75rem;
+  }
+
+  /* STEP */
+  .lp-step {
+    padding: 1.5rem;
+  }
+
+  /* CTA */
+  .lp-btn-large {
+    padding: 1rem 2rem;
+    width: 100%;
+    text-align: center;
+  }
+}
