@@ -1770,6 +1770,9 @@ body {
 .lp-footer-cols-row {
   display: contents;
 }
+.lp-footer-tagline {
+  max-width: 100%;
+}
 
 .lp-footer-bottom {
   display: flex;
@@ -1881,19 +1884,25 @@ body {
     min-width: 0;
     overflow: hidden;
   }
+  .lp-hero-right .lp-fcard-top {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 0.35rem;
+  }
   .lp-hero-right .lp-fcard-sym {
-    font-size: 0.85rem;
+    font-size: 0.82rem;
   }
   .lp-hero-right .lp-fcard-badge {
-    font-size: 0.55rem;
-    padding: 3px 7px;
-    letter-spacing: 1px;
+    font-size: 0.52rem;
+    padding: 2px 6px;
+    letter-spacing: 0.5px;
+    white-space: nowrap;
   }
   .lp-hero-right .lp-fcard-pct {
-    font-size: 1.2rem;
+    font-size: 1.1rem;
   }
   .lp-hero-right .lp-fcard-meta {
-    font-size: 0.52rem;
+    font-size: 0.5rem;
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
