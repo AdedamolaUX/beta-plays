@@ -1766,6 +1766,11 @@ body {
 }
 .lp-footer-col a:hover,
 .lp-footer-col button:hover { color: var(--lp-purple-light); }
+/* Footer cols wrapper — transparent on desktop, grid on mobile */
+.lp-footer-cols-row {
+  display: contents;
+}
+
 .lp-footer-bottom {
   display: flex;
   justify-content: space-between;
@@ -1820,7 +1825,7 @@ body {
   }
   .lp-hero-left {
     max-width: 100%;
-    text-align: center;
+    text-align: left;
     overflow: visible;
   }
   /* Fix gradient text clipping on mobile */
@@ -1846,7 +1851,7 @@ body {
     max-width: 100%;
   }
   .lp-h1-divider {
-    margin: 1rem auto;
+    margin: 1rem 0;
   }
   .lp-h1-sub {
     font-size: clamp(1rem, 5.5vw, 1.4rem);
@@ -1856,12 +1861,19 @@ body {
     font-size: 0.88rem;
   }
   .lp-cta-row {
-    justify-content: center;
+    justify-content: flex-start;
     flex-wrap: wrap;
     gap: 0.75rem;
   }
   .lp-hero-right {
-    display: none;
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 0.65rem;
+    animation: none;
+  }
+  /* Disable float animation on mobile — just static cards */
+  .lp-hero-right .lp-fcard {
+    animation: none;
   }
 
   /* SIGNALS STRIP */
@@ -1939,10 +1951,23 @@ body {
     font-size: clamp(1.75rem, 8vw, 2.5rem);
   }
 
-  /* FOOTER — 4-col → 2-col */
+  /* FOOTER — brand full width, then 3 link cols side by side */
+  .lp-footer {
+    padding: 2.5rem 1.25rem;
+  }
   .lp-footer-top {
-    grid-template-columns: 1fr 1fr;
-    gap: 2rem;
+    grid-template-columns: 1fr;
+    gap: 0;
+  }
+  .lp-footer-top > *:first-child {
+    margin-bottom: 1.75rem;
+    padding-bottom: 1.5rem;
+    border-bottom: 1px solid var(--lp-border);
+  }
+  .lp-footer-cols-row {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 1rem;
   }
   .lp-footer-bottom {
     flex-direction: column;
@@ -1974,10 +1999,10 @@ body {
     padding: 1.75rem 1rem;
   }
 
-  /* FOOTER — collapse to 1-col */
+  /* FOOTER — keep link cols in 3-col row */
   .lp-footer-top {
     grid-template-columns: 1fr;
-    gap: 1.75rem;
+    gap: 0;
   }
 
   /* SIGNALS — all pills full width */

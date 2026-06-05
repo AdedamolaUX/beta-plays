@@ -312,25 +312,27 @@ const LandingPage = () => {
               Miss runners, bet on derivatives, ride the wave.
             </p>
           </div>
-          <div className="lp-footer-col">
-            <h4>PRODUCT</h4>
-            <button onClick={() => navigate('/app')}>Launch App</button>
-            <a href="#how">How It Works</a>
-            <a href="#vectors">Detection Signals</a>
-            <a href="#projects">For Projects</a>
-          </div>
-          <div className="lp-footer-col">
-            <h4>COMMUNITY</h4>
-            <a href="https://twitter.com/betaplaysai" target="_blank" rel="noreferrer">Twitter / X</a>
-            <a href="https://t.me/betaplays" target="_blank" rel="noreferrer">Telegram</a>
-            <a href="https://github.com/AdedamolaUX/beta-plays" target="_blank" rel="noreferrer">GitHub</a>
-          </div>
-          <div className="lp-footer-col">
-            <h4>ECOSYSTEM</h4>
-            <a href="https://solana.com" target="_blank" rel="noreferrer">Solana</a>
-            <a href="https://jup.ag" target="_blank" rel="noreferrer">Jupiter Swap</a>
-            <a href="https://dexscreener.com" target="_blank" rel="noreferrer">DEXScreener</a>
-            <a href="https://birdeye.so" target="_blank" rel="noreferrer">Birdeye</a>
+          <div className="lp-footer-cols-row">
+            <div className="lp-footer-col">
+              <h4>PRODUCT</h4>
+              <button onClick={() => navigate('/app')}>Launch App</button>
+              <a href="#how">How It Works</a>
+              <a href="#vectors">Detection Signals</a>
+              <a href="#projects">For Projects</a>
+            </div>
+            <div className="lp-footer-col">
+              <h4>COMMUNITY</h4>
+              <a href="https://twitter.com/betaplaysai" target="_blank" rel="noreferrer">Twitter / X</a>
+              <a href="https://t.me/betaplays" target="_blank" rel="noreferrer">Telegram</a>
+              <a href="https://github.com/AdedamolaUX/beta-plays" target="_blank" rel="noreferrer">GitHub</a>
+            </div>
+            <div className="lp-footer-col">
+              <h4>ECOSYSTEM</h4>
+              <a href="https://solana.com" target="_blank" rel="noreferrer">Solana</a>
+              <a href="https://jup.ag" target="_blank" rel="noreferrer">Jupiter Swap</a>
+              <a href="https://dexscreener.com" target="_blank" rel="noreferrer">DEXScreener</a>
+              <a href="https://birdeye.so" target="_blank" rel="noreferrer">Birdeye</a>
+            </div>
           </div>
         </div>
         <div className="lp-footer-bottom">
