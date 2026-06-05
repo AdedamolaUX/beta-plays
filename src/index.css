@@ -1913,10 +1913,11 @@ body {
     padding: 2rem 1.25rem;
   }
   .lp-signals-row {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
     gap: 0.5rem;
   }
   .lp-signal-pill {
-    flex: 1 1 calc(50% - 0.5rem);
     justify-content: center;
     border-right: 1px solid var(--lp-border) !important;
     border-radius: 4px;
@@ -2037,9 +2038,9 @@ body {
     gap: 0;
   }
 
-  /* SIGNALS — all pills full width */
-  .lp-signal-pill {
-    flex: 1 1 100%;
+  /* SIGNALS — keep 2-col at 480px too */
+  .lp-signals-row {
+    grid-template-columns: 1fr 1fr;
   }
 
   /* PROJ CARD */
