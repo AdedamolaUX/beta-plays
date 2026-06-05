@@ -2076,23 +2076,25 @@ body {
 
 @media (max-width: 768px) {
 
-  /* ── Navbar: single row, hide overflow ── */
+  /* ── Navbar: single row, compact ── */
   .navbar {
     padding: 0 10px;
     height: 48px;
     min-height: 48px;
     overflow: hidden;
+    gap: 8px;
   }
-  /* Hide middle status section entirely */
-  .navbar > div:nth-child(2) {
-    display: none;
-  }
-  .brand-name { font-size: 14px; }
-  .navbar-brand img { height: 32px !important; width: 32px !important; }
-  /* Actions: keep wallet + list beta, hide settings + advertise */
+  /* Hide LIVE·SOLANA status */
+  .navbar-status { display: none; }
+  /* Hide DataSourceStatus + LatencyDot wrapper */
+  .navbar > div:nth-child(2) { display: none; }
+  .brand-name { font-size: 13px; }
+  .navbar-brand { gap: 6px; }
+  .navbar-brand img { height: 28px !important; width: 28px !important; }
+  /* Actions: hide settings + advertise buttons */
   .navbar-actions { gap: 6px; }
-  .navbar-actions button:last-child { display: none; } /* Advertise */
-  .navbar-actions button:nth-last-child(2) { display: none; } /* Settings ⚙️ */
+  .navbar-actions button[title="Settings"],
+  .navbar-actions button[onClick*="Advertise"] { display: none; }
 
   /* ── Narrative ticker — slimmer ── */
   .narrative-ticker-wrap { padding: 3px 0; }
@@ -2163,23 +2165,28 @@ body {
   .beta-panel-title { font-size: 15px; }
   .beta-panel-header { flex-direction: column; gap: 6px; align-items: flex-start; }
 
-  /* ── Beta table: keep TOKEN/MCAP/24H%/SIGNAL, drop VOL/LIQ/AGE ── */
+  /* ── Beta table: TOKEN(2fr) MCAP(1fr) 24H%(0.8fr) SIGNAL(110px) ── */
+  /* Desktop cols: TOKEN=1, MCAP=2, VOL=3, LIQ=4, 24H%=5, AGE=6, SIGNAL=7 */
+  /* Mobile: show 1,2,5,7 — hide 3,4,6 */
   .beta-table-header {
-    grid-template-columns: 2fr 1fr 1fr 100px;
+    grid-template-columns: 2fr 1fr 0.8fr 110px;
     font-size: 8px;
     padding: 6px 10px;
+    gap: 6px;
+    white-space: nowrap;
   }
   .beta-row {
-    grid-template-columns: 2fr 1fr 1fr 100px;
+    grid-template-columns: 2fr 1fr 0.8fr 110px;
     padding: 10px;
     gap: 6px;
   }
+  /* Hide VOL (3), LIQ (4), AGE (6) */
   .beta-table-header span:nth-child(3),
   .beta-table-header span:nth-child(4),
-  .beta-table-header span:nth-child(5),
+  .beta-table-header span:nth-child(6),
   .beta-row > *:nth-child(3),
   .beta-row > *:nth-child(4),
-  .beta-row > *:nth-child(5) { display: none; }
+  .beta-row > *:nth-child(6) { display: none; }
 
   /* ── Alpha card metrics: 2-col ── */
   .alpha-card-metrics { grid-template-columns: repeat(2, 1fr); }

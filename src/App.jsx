@@ -146,9 +146,8 @@ const Tooltip = ({ text, children }) => {
   const show = () => {
     if (ref.current) {
       const r = ref.current.getBoundingClientRect()
-      // Clamp so tooltip never overflows viewport edges
       const rawLeft = r.left + r.width / 2
-      const TOOLTIP_HALF = 130 // ~half of maxWidth:260
+      const TOOLTIP_HALF = 130
       const clamped = Math.min(
         Math.max(rawLeft, TOOLTIP_HALF + 8),
         window.innerWidth - TOOLTIP_HALF - 8
@@ -157,6 +156,7 @@ const Tooltip = ({ text, children }) => {
     }
   }
   const hide = () => setPos(null)
+  const toggle = (e) => { e.stopPropagation(); pos ? hide() : show() }
 
   return (
     <span
@@ -164,10 +164,14 @@ const Tooltip = ({ text, children }) => {
       style={{ display: 'inline-flex', alignItems: 'center' }}
       onMouseEnter={show}
       onMouseLeave={hide}
+      onTouchStart={toggle}
     >
       {children}
       {pos && createPortal(
-        <span style={{ ...TOOLTIP_STYLE, left: pos.left, top: pos.top }}>{text}</span>,
+        <span
+          style={{ ...TOOLTIP_STYLE, left: pos.left, top: pos.top }}
+          onTouchStart={e => { e.stopPropagation(); hide() }}
+        >{text}</span>,
         document.body
       )}
     </span>
