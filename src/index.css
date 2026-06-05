@@ -2060,3 +2060,200 @@ body {
     text-align: center;
   }
 }
+/* ============================================
+   APP — MOBILE RESPONSIVENESS
+   ============================================ */
+
+@media (max-width: 768px) {
+
+  /* ── App wrapper: allow scroll instead of fixed viewport ── */
+  .app-wrapper {
+    height: 100dvh;
+    overflow: hidden;
+  }
+
+  /* ── Navbar ── */
+  .navbar {
+    padding: 0 12px;
+    height: 52px;
+    min-height: 52px;
+  }
+  --navbar-height: 52px;
+
+  .navbar-status,
+  .navbar-actions .source-badges,
+  .navbar-actions .theme-toggle,
+  .navbar-actions .settings-btn {
+    display: none;
+  }
+
+  .brand-name {
+    font-size: 15px;
+  }
+
+  /* Keep wallet + list-beta btn visible */
+  .navbar-actions {
+    gap: 8px;
+  }
+
+  /* ── Narrative ticker — shrink font ── */
+  .narrative-ticker-wrap {
+    font-size: 11px;
+    padding: 4px 0;
+  }
+
+  /* ── Main layout: show only one panel at a time ── */
+  .main-layout {
+    display: grid;
+    grid-template-columns: 1fr;
+    overflow: hidden;
+    height: 100%;
+  }
+
+  /* Alpha board (left panel) — full width by default */
+  .main-layout > *:first-child {
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+    overflow: hidden;
+  }
+
+  /* Beta wrapper — hidden by default on mobile */
+  .mobile-beta-wrapper {
+    display: none;
+    flex-direction: column;
+    height: 100%;
+    overflow: hidden;
+  }
+
+  /* When runner selected: hide alpha board, show beta panel */
+  .main-layout.mobile-show-betas > *:first-child {
+    display: none;
+  }
+  .main-layout.mobile-show-betas .mobile-beta-wrapper {
+    display: flex;
+  }
+
+  /* ── Back button ── */
+  .mobile-back-btn {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    background: var(--surface-2);
+    border: none;
+    border-bottom: 1px solid var(--border);
+    color: var(--neon-green);
+    font-family: var(--font-mono);
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 1px;
+    padding: 10px 16px;
+    cursor: pointer;
+    flex-shrink: 0;
+    width: 100%;
+    text-align: left;
+  }
+
+  /* ── Beta panel inside wrapper ── */
+  .mobile-beta-wrapper .beta-panel {
+    flex: 1;
+    min-height: 0;
+    overflow-y: auto;
+    height: 100%;
+  }
+
+  /* ── Beta panel title: smaller on mobile ── */
+  .beta-panel-title {
+    font-size: 16px;
+    line-height: 1.2;
+  }
+
+  .beta-panel-header {
+    flex-direction: column;
+    gap: 8px;
+    align-items: flex-start;
+  }
+
+  /* ── Beta table: drop less important columns ── */
+  /* Keep: TOKEN (2fr), MCAP (1fr), 24H% (1fr), SIGNAL (auto) */
+  /* Drop: 24H VOL, LIQUIDITY, AGE */
+  .beta-table-header {
+    grid-template-columns: 2fr 1fr 1fr 120px;
+    font-size: 8px;
+    padding: 6px 10px;
+  }
+
+  .beta-row {
+    grid-template-columns: 2fr 1fr 1fr 120px;
+    padding: 10px 10px;
+    gap: 6px;
+  }
+
+  /* Hide VOL, LIQUIDITY, AGE columns (cols 3,4,5 in 7-col grid → now hidden) */
+  .beta-table-header span:nth-child(3),
+  .beta-table-header span:nth-child(4),
+  .beta-table-header span:nth-child(5),
+  .beta-row > *:nth-child(3),
+  .beta-row > *:nth-child(4),
+  .beta-row > *:nth-child(5) {
+    display: none;
+  }
+
+  /* ── Alpha card: compact ── */
+  .alpha-card-metrics {
+    grid-template-columns: repeat(2, 1fr);
+  }
+
+  /* ── Filter tabs: horizontal scroll ── */
+  .tab-row,
+  .filter-tabs,
+  .alpha-tabs {
+    overflow-x: auto;
+    flex-wrap: nowrap;
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: none;
+  }
+  .tab-row::-webkit-scrollbar,
+  .filter-tabs::-webkit-scrollbar,
+  .alpha-tabs::-webkit-scrollbar {
+    display: none;
+  }
+
+  /* ── Source filter badges: scrollable ── */
+  .source-filter-row {
+    overflow-x: auto;
+    flex-wrap: nowrap;
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: none;
+    padding-bottom: 4px;
+  }
+
+  /* ── Alpha board padding ── */
+  .alpha-board {
+    padding: 10px 10px 10px;
+  }
+
+  /* ── Search bar full width ── */
+  .search-bar,
+  .alpha-search {
+    width: 100%;
+  }
+
+  /* ── Beta panel actions row: wrap ── */
+  .beta-panel-actions {
+    flex-wrap: wrap;
+    gap: 6px;
+  }
+
+  /* ── On desktop, back button is hidden ── */
+}
+
+/* Desktop: hide mobile-only elements */
+@media (min-width: 769px) {
+  .mobile-back-btn {
+    display: none;
+  }
+  .mobile-beta-wrapper {
+    display: contents;
+  }
+}
