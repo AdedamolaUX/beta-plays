@@ -2084,10 +2084,8 @@ body {
     overflow: hidden;
     gap: 8px;
   }
-  /* Hide LIVE·SOLANA status */
-  .navbar-status { display: none; }
-  /* Hide DataSourceStatus + LatencyDot wrapper */
-  .navbar > div:nth-child(2) { display: none; }
+  /* Hide entire middle navbar section (LIVE·SOLANA + badges + latency) */
+  .navbar-center { display: none !important; }
   .brand-name { font-size: 13px; }
   .navbar-brand { gap: 6px; }
   .navbar-brand img { height: 28px !important; width: 28px !important; }
@@ -2188,8 +2186,28 @@ body {
   .beta-row > *:nth-child(4),
   .beta-row > *:nth-child(6) { display: none; }
 
-  /* ── Alpha card metrics: 2-col ── */
-  .alpha-card-metrics { grid-template-columns: repeat(2, 1fr); }
+  /* ── Alpha card: compact, keep 4-col metrics like desktop ── */
+  .alpha-card {
+    gap: 6px;
+    padding: 10px 12px;
+    border-radius: 10px;
+    border: 1px solid var(--border);
+    background: var(--surface-1);
+    margin-bottom: 6px;
+  }
+  .alpha-card-metrics {
+    grid-template-columns: repeat(4, 1fr);
+    gap: 4px 0;
+  }
+  .metric-label { font-size: 8px; }
+  .metric-value { font-size: 11px; }
+  .token-icon { width: 32px; height: 32px; font-size: 10px; }
+  .token-name { font-size: 13px; }
+  .token-change { font-size: 12px; }
+  /* Action buttons row — tighter */
+  .alpha-card-top { gap: 6px; }
+  /* Badge row wrapping */
+  .alpha-card .token-info { flex-wrap: nowrap; overflow: hidden; }
 
   /* ── Scrollable tabs & filter rows ── */
   .tab-row, .filter-tabs, .alpha-tabs, .source-filter-row {

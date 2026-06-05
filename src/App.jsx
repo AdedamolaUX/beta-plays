@@ -693,7 +693,7 @@ const Navbar = ({ onListBeta, onAdvertise, newRunners, liveAlphas, coolingAlphas
     />
     <span className="brand-name">Beta<span>Plays</span></span>
   </div>
-    <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+    <div className="navbar-center" style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
       <div className={`navbar-status${newRunners ? ' navbar-status--flash' : ''}`}>
         <span className={`status-dot${newRunners ? ' status-dot--flash' : ''}`}></span>
         <span style={{ fontFamily: 'var(--font-number)', fontSize: 11, fontWeight: 700, letterSpacing: '0.08em' }}>
