@@ -63,10 +63,10 @@ const LandingPage = () => {
 
         <div className="lp-hero-right">
           {[
-            { sym: '$MYRO',   badge: '📡 TELEGRAM', cls: 'b-tg',   pct: '+892%', meta: 'BETA TO $WIF · DOG LORE · CT SIGNAL',        soon: false },
-            { sym: '$POPDOG', badge: '🤖 AI MATCH',  cls: 'b-ai',   pct: '+567%', meta: 'BETA TO $POPCAT · TWIN · LP PAIR',            soon: false },
-            { sym: '$DAWG',   badge: '𝕏 TWITTER',   cls: 'b-x',    pct: '+467%', meta: 'BETA TO $WIF · MORPHOLOGY · X SIGNAL',        soon: true  },
-            { sym: '$MAYA',   badge: '📰 NEWS',      cls: 'b-news', pct: '+234%', meta: 'BETA TO $BONK · VOTER DOG NEWS · CT',         soon: true  },
+            { sym: '$MYRO',   badge: '📡 TELEGRAM', cls: 'b-tg',   pct: '+892%', meta: 'BETA TO $WIF · DOG LORE',    soon: false },
+            { sym: '$POPDOG', badge: '🤖 AI MATCH',  cls: 'b-ai',   pct: '+567%', meta: 'BETA TO $POPCAT · TWIN',      soon: false },
+            { sym: '$DAWG',   badge: '𝕏 TWITTER',   cls: 'b-x',    pct: '+467%', meta: 'BETA TO $WIF · MORPHOLOGY',   soon: true  },
+            { sym: '$MAYA',   badge: '📰 NEWS',      cls: 'b-news', pct: '+234%', meta: 'BETA TO $BONK · NEWS',        soon: true  },
           ].map((c, i) => (
             <div className="lp-fcard" key={i}>
               <div className="lp-fcard-top">
