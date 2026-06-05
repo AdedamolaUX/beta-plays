@@ -2078,7 +2078,6 @@ body {
     height: 52px;
     min-height: 52px;
   }
-  --navbar-height: 52px;
 
   .navbar-status,
   .navbar-actions .source-badges,
