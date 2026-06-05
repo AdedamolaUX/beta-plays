@@ -2064,9 +2064,15 @@ body {
    APP — MOBILE RESPONSIVENESS
    ============================================ */
 
-/* Desktop: back button hidden, wrapper transparent */
+/* Desktop: back button hidden, wrapper is a proper grid child */
 .mobile-back-btn { display: none; }
-.mobile-beta-wrapper { display: contents; }
+.mobile-beta-wrapper {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  overflow: hidden;
+  height: 100%;
+}
 
 @media (max-width: 768px) {
 
@@ -2110,9 +2116,9 @@ body {
     flex-direction: column;
   }
 
-  /* Beta wrapper: hidden by default, shown when runner selected */
+  /* Beta wrapper: hidden by default on mobile, shown when runner selected */
   .mobile-beta-wrapper {
-    display: none;
+    display: none !important;
     flex-direction: column;
     flex: 1;
     min-height: 0;
@@ -2120,10 +2126,10 @@ body {
   }
 
   .main-layout.mobile-show-betas > *:first-child {
-    display: none;
+    display: none !important;
   }
   .main-layout.mobile-show-betas .mobile-beta-wrapper {
-    display: flex;
+    display: flex !important;
   }
 
   /* ── Back button ── */
