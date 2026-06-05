@@ -1746,7 +1746,7 @@ body {
 .lp-footer-brand-logo img { width: 44px; height: 44px; object-fit: contain; }
 .lp-footer-brand-logo span { font-size: 1.15rem; font-weight: 800; letter-spacing: 1px; color: var(--lp-text); }
 .lp-footer-brand-logo span em { color: var(--lp-purple); font-style: normal; }
-.lp-footer-tagline { font-size: 0.75rem; color: var(--lp-text-muted); line-height: 1.7; max-width: 240px; font-family: 'Space Mono', monospace; }
+.lp-footer-tagline { font-size: 0.82rem; color: var(--lp-text-muted); line-height: 1.6; max-width: 280px; font-family: var(--font-body); }
 .lp-footer-col h4 { font-family: 'Space Mono', monospace; font-size: 0.62rem; letter-spacing: 3px; color: var(--lp-text-dim); margin-bottom: 1rem; }
 .lp-footer-col a,
 .lp-footer-col button {
@@ -1819,9 +1819,9 @@ body {
   /* HERO — single column */
   .lp-hero {
     grid-template-columns: 1fr;
-    padding: 5rem 1.5rem 4rem;
+    padding: 6rem 1.5rem 3rem;
     min-height: unset;
-    gap: 2rem;
+    gap: 0;
   }
   .lp-hero-left {
     max-width: 100%;
@@ -1864,16 +1864,39 @@ body {
     justify-content: flex-start;
     flex-wrap: wrap;
     gap: 0.75rem;
+    margin-bottom: 0;
   }
   .lp-hero-right {
     display: grid;
     grid-template-columns: 1fr 1fr;
     gap: 0.65rem;
     animation: none;
+    margin-top: 2rem;
+    width: 100%;
+    overflow: hidden;
   }
   /* Disable float animation on mobile — just static cards */
   .lp-hero-right .lp-fcard {
     animation: none;
+    min-width: 0;
+    overflow: hidden;
+  }
+  .lp-hero-right .lp-fcard-sym {
+    font-size: 0.85rem;
+  }
+  .lp-hero-right .lp-fcard-badge {
+    font-size: 0.55rem;
+    padding: 3px 7px;
+    letter-spacing: 1px;
+  }
+  .lp-hero-right .lp-fcard-pct {
+    font-size: 1.2rem;
+  }
+  .lp-hero-right .lp-fcard-meta {
+    font-size: 0.52rem;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
   }
 
   /* SIGNALS STRIP */
