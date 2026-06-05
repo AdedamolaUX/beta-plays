@@ -37,10 +37,7 @@ const LandingPage = () => {
         <div className="lp-orb lp-orb-2" />
 
         <div className="lp-hero-left">
-          <div className="lp-eyebrow">
-            <div className="lp-pulse-dot" />
-            LIVE · SOLANA · BETA DISCOVERY
-          </div>
+
           <h1 className="lp-h1">
             <span className="lp-h1-solid">ALPHA</span>
             <span className="lp-h1-outline">ALREADY</span>

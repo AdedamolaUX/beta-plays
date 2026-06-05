@@ -1825,13 +1825,20 @@ body {
   }
   /* Fix gradient text clipping on mobile */
   .lp-h1 {
-    font-size: clamp(2.6rem, 13vw, 4.5rem);
+    font-size: clamp(2.6rem, 12vw, 4.5rem);
     letter-spacing: -1.5px;
     overflow: visible;
     width: 100%;
   }
   .lp-h1-gradient {
-    padding-right: 4px; /* prevent clip on right edge */
+    display: inline;
+    padding-right: 8px;
+  }
+  .lp-h1-outline {
+    display: inline;
+  }
+  .lp-h1-solid {
+    display: block;
   }
   .lp-h1-divider {
     margin: 1rem auto;
