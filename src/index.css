@@ -2259,20 +2259,39 @@ body {
   .beta-row > div:not(.beta-row-metrics):not(.beta-card-top),
   .beta-row > span { display: none !important; }
 
-  /* Szn rows — override beta-row hiding, show as simple flex card */
+  /* Szn rows — full override, show like desktop */
   .beta-row.szn-row {
     display: flex !important;
     flex-direction: row !important;
     align-items: center !important;
-    gap: 8px !important;
+    gap: 10px !important;
     padding: 10px 12px !important;
   }
-  .beta-row.szn-row > * { display: unset !important; }
-  .beta-row.szn-row .token-info { display: flex !important; flex: 1 !important; }
-  .beta-row.szn-row > span { display: inline !important; }
-  /* Hide beta-card-top and beta-row-metrics inside szn rows */
+  /* Restore ALL children */
+  .beta-row.szn-row > div,
+  .beta-row.szn-row > span { display: flex !important; }
+  .beta-row.szn-row > span { display: inline-block !important; }
+  .beta-row.szn-row .token-info {
+    display: flex !important;
+    flex: 1 !important;
+    align-items: center !important;
+    gap: 8px !important;
+    min-width: 0 !important;
+  }
+  .beta-row.szn-row .token-icon {
+    display: flex !important;
+    width: 28px !important;
+    height: 28px !important;
+    flex-shrink: 0 !important;
+  }
+  /* Hide mobile-only blocks in szn rows */
   .beta-row.szn-row .beta-card-top,
   .beta-row.szn-row .beta-row-metrics { display: none !important; }
+  /* Data spans: space them out */
+  .beta-row.szn-row > span:not(.badge) {
+    font-size: 11px !important;
+    white-space: nowrap !important;
+  }
 
   /* Show mobile card blocks */
   .beta-row > .beta-row-metrics { display: flex !important; }
@@ -2326,36 +2345,32 @@ body {
     flex-shrink: 0 !important;
   }
 
-  /* Metrics row — 5 equal cols filling full width */
+  /* Metrics row — 5 equal cols, full width */
   .beta-row-metrics {
     display: grid !important;
     grid-template-columns: repeat(5, 1fr) !important;
-    gap: 0 4px !important;
     width: 100% !important;
     border-top: 1px solid var(--border) !important;
     padding-top: 8px !important;
-    margin-top: 2px !important;
+    margin-top: 4px !important;
   }
   .beta-row-metric {
-    min-width: 0 !important;
     display: flex !important;
     flex-direction: column !important;
-    gap: 2px !important;
+    gap: 3px !important;
+    padding-right: 4px !important;
   }
   .beta-row-metric-label {
     font-family: var(--font-mono) !important;
     font-size: 7px !important;
     color: var(--text-muted) !important;
     text-transform: uppercase !important;
-    letter-spacing: 0.6px !important;
-    display: block !important;
+    letter-spacing: 0.5px !important;
   }
   .beta-row-metric-value {
-    font-family: var(--font-number, var(--font-mono)) !important;
     font-size: 11px !important;
     font-weight: 700 !important;
     color: var(--text-primary) !important;
-    display: block !important;
     white-space: nowrap !important;
   }
   .beta-row-metric {
