@@ -2263,10 +2263,10 @@ body {
   .beta-row > .beta-row-metrics { display: flex !important; }
   .beta-row > .beta-card-top { display: flex !important; }
 
-  /* Card top row: [logo + name/badges] left — [signal] right */
+  /* Card top row: [logo + name+copy+badges] left — [signal] right */
   .beta-card-top {
     display: flex !important;
-    align-items: flex-start !important;
+    align-items: center !important;
     justify-content: space-between !important;
     gap: 8px !important;
     width: 100% !important;
@@ -2274,23 +2274,41 @@ body {
   .beta-card-left {
     display: flex !important;
     align-items: center !important;
-    gap: 10px !important;
+    gap: 8px !important;
     min-width: 0 !important;
     flex: 1 !important;
-    text-align: left !important;
+    overflow: hidden !important;
   }
+  /* Inner text col: name row + badge row */
   .beta-card-left > div {
     display: flex !important;
     flex-direction: column !important;
     align-items: flex-start !important;
     min-width: 0 !important;
+    gap: 3px !important;
+  }
+  /* Name row: ticker + copy button + wave — all inline */
+  .beta-card-left > div > div:first-child {
+    display: flex !important;
+    align-items: center !important;
+    gap: 5px !important;
+    flex-wrap: nowrap !important;
+    overflow: hidden !important;
+  }
+  /* Badge row: TRENCH and other badges inline */
+  .beta-card-left > div > div:nth-child(2) {
+    display: flex !important;
+    align-items: center !important;
+    gap: 3px !important;
+    flex-wrap: wrap !important;
   }
   .beta-card-name {
     font-family: var(--font-display) !important;
-    font-size: 15px !important;
+    font-size: 14px !important;
     font-weight: 800 !important;
     color: var(--text-primary) !important;
     white-space: nowrap !important;
+    flex-shrink: 0 !important;
   }
 
   /* Metrics row */
@@ -2354,21 +2372,29 @@ body {
   .alpha-card-top { gap: 6px; align-items: flex-start; }
   .alpha-card .token-info { flex-wrap: nowrap; overflow: hidden; gap: 8px; }
 
-  /* Move CopyAddress inline with token name on mobile */
+  /* Alpha card token info: column layout */
   .alpha-card .token-info > div {
     display: flex;
-    flex-direction: row;
-    flex-wrap: wrap;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 2px;
+    min-width: 0;
+  }
+  /* Name row: ticker + badges inline */
+  .alpha-card .token-info > div > div:first-child {
+    display: flex;
     align-items: center;
     gap: 4px;
+    flex-wrap: nowrap;
+    overflow: hidden;
   }
-  /* Second line (CopyAddress row) — merge into first line */
+  /* Second row: CopyAddress + other meta — inline */
   .alpha-card .token-info > div > div:nth-child(2) {
     display: flex;
     flex-direction: row;
     align-items: center;
     gap: 4px;
-    margin-top: 0;
+    flex-wrap: nowrap;
   }
 
   /* ── Scrollable tabs & filter rows ── */
