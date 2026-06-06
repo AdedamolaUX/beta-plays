@@ -13,7 +13,7 @@ import './index.css'
 
 const BACKEND_URL = import.meta.env.VITE_BACKEND_URL || 'http://localhost:3001'
 
-// ΓöÇΓöÇΓöÇ Helpers ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ
+// ─── Helpers ────────────────────────────────────────────────────
 
 const formatNum = (num) => {
   if (!num || num === 0) return '—'
@@ -30,7 +30,7 @@ const formatPrice = (price) => {
   if (n >= 1)      return `$${n.toFixed(2)}`
   if (n >= 0.01)   return `$${n.toFixed(2)}`   // $0.02, $0.57
   // For small prices: find first significant digit, show just that one digit
-  // e.g. 0.000260 ΓåÆ $0.0002,  0.000705 ΓåÆ $0.0007,  0.00314 ΓåÆ $0.003
+  // e.g. 0.000260 → $0.0002,  0.000705 → $0.0007,  0.00314 → $0.003
   const str = n.toFixed(20)
   const match = str.match(/^0\.(0*)([1-9])/)
   if (match) return `$0.${match[1]}${match[2]}`
@@ -40,7 +40,7 @@ const formatPrice = (price) => {
 const shortAddress = (addr) =>
   addr ? `${addr.slice(0, 4)}...${addr.slice(-4)}` : ''
 
-// ΓöÇΓöÇΓöÇ Copy CA Button ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ
+// ─── Copy CA Button ───────────────────────────────────────────────
 const CopyAddress = ({ address, style = {} }) => {
   const [copied, setCopied] = useState(false)
   const [pos, setPos] = useState(null)
@@ -96,7 +96,7 @@ const CopyAddress = ({ address, style = {} }) => {
           letterSpacing: '0.03em',
         }}
       >
-        {copied ? '✔' : 'ΓÄÿ'}
+        {copied ? '✓' : '⎘'}
       </span>
       {pos && !copied && createPortal(
         <span style={{
@@ -111,7 +111,7 @@ const CopyAddress = ({ address, style = {} }) => {
           boxShadow: '0 0 12px rgba(0,212,255,0.15), 0 4px 16px rgba(0,0,0,0.7)',
           pointerEvents: 'none', textAlign: 'center',
         }}>
-          {shortAddress(address)} ┬╖ click to copy
+          {shortAddress(address)} · click to copy
         </span>,
         document.body
       )}
@@ -120,10 +120,10 @@ const CopyAddress = ({ address, style = {} }) => {
 }
 
 
-// ΓöÇΓöÇΓöÇ Shared Styled Tooltip ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ
+// ─── Shared Styled Tooltip ────────────────────────────────────────
 // Wraps any element. On hover shows a styled popup matching the app
 // font/theme. Replaces all native browser title= attributes.
-// Usage: <Tooltip text="Open on DEXScreener"><span>DEX Γåù</span></Tooltip>
+// Usage: <Tooltip text="Open on DEXScreener"><span>DEX ↗</span></Tooltip>
 const TOOLTIP_STYLE = {
   position: 'fixed',
   background: '#0d1117',
@@ -176,7 +176,7 @@ const Tooltip = ({ text, children }) => {
   )
 }
 
-// ΓöÇΓöÇΓöÇ X / Twitter Search Button ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ
+// ─── X / Twitter Search Button ───────────────────────────────────
 // Opens a Twitter/X search for the token symbol in a new tab.
 // Placed next to the DEX button on alpha cards, beta rows, and drawer.
 const XSearchButton = ({ symbol, onClick, style = {} }) => {
@@ -197,12 +197,12 @@ const XSearchButton = ({ symbol, onClick, style = {} }) => {
         }}
         onMouseEnter={e => { e.currentTarget.style.color = '#1d9bf0'; e.currentTarget.style.borderColor = 'rgba(29,155,240,0.4)' }}
         onMouseLeave={e => { e.currentTarget.style.color = 'var(--text-muted)'; e.currentTarget.style.borderColor = 'rgba(255,255,255,0.08)' }}
-      >≡¥òÅ</span>
+      >𝕏</span>
     </Tooltip>
   )
 }
 
-// ΓöÇΓöÇΓöÇ Derivative Detection ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ
+// ─── Derivative Detection ────────────────────────────────────────
 
 const KNOWN_PREFIXES = [
   'BABY', 'MINI', 'MICRO', 'GIGA', 'MEGA', 'SUPER', 'BASED',
@@ -220,7 +220,7 @@ const isDerivative = (symbol) => {
   return hasPrefix || hasSuffix
 }
 
-// ΓöÇΓöÇΓöÇ Check if parent is in Cooling (localStorage) ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ
+// ─── Check if parent is in Cooling (localStorage) ───────────────
 const isParentCooling = (parentAddress) => {
   try {
     const stored = JSON.parse(localStorage.getItem('betaplays_seen_alphas') || '{}')
@@ -233,7 +233,7 @@ const isParentCooling = (parentAddress) => {
   }
 }
 
-// ΓöÇΓöÇΓöÇ Search filter ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ
+// ─── Search filter ───────────────────────────────────────────────
 const matchesSearch = (alpha, query) => {
   if (!query) return true
   const q = query.toLowerCase()
@@ -244,7 +244,7 @@ const matchesSearch = (alpha, query) => {
   )
 }
 
-// ΓöÇΓöÇΓöÇ Data Source Status ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ
+// ─── Data Source Status ──────────────────────────────────────────
 const DataSourceStatus = ({ liveAlphas = [], coolingAlphas = [] }) => {
   const [hovered, setHovered] = useState(null) // { source, pos }
   const all = [...liveAlphas, ...coolingAlphas]
@@ -318,7 +318,7 @@ const DataSourceStatus = ({ liveAlphas = [], coolingAlphas = [] }) => {
               color: activeSources.has(hovered.source.key) ? 'var(--neon-green)' : 'var(--red)',
               border: `1px solid ${activeSources.has(hovered.source.key) ? 'rgba(0,255,136,0.3)' : 'rgba(255,68,102,0.3)'}`,
             }}>
-              {activeSources.has(hovered.source.key) ? 'ΓùÅ LIVE' : 'ΓùÅ OFFLINE'}
+              {activeSources.has(hovered.source.key) ? '● LIVE' : '● OFFLINE'}
             </span>
           </div>
           <p style={{ fontFamily: 'var(--font-mono)', fontSize: 10, color: 'var(--text-muted)', lineHeight: 1.6, margin: 0 }}>
@@ -331,7 +331,7 @@ const DataSourceStatus = ({ liveAlphas = [], coolingAlphas = [] }) => {
   )
 }
 
-// ΓöÇΓöÇΓöÇ Latency Indicator ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ
+// ─── Latency Indicator ───────────────────────────────────────────
 const BACKEND_URL_LATENCY = import.meta.env.VITE_BACKEND_URL || 'http://localhost:3001'
 
 const LatencyDot = () => {
@@ -371,14 +371,14 @@ const LatencyDot = () => {
           display: 'inline-block',
         }} />
         <span style={{ fontFamily: 'var(--font-number)', fontSize: 9, color, letterSpacing: 0 }}>
-          {ms !== null ? `${ms}ms` : '┬╖┬╖┬╖'}
+          {ms !== null ? `${ms}ms` : '···'}
         </span>
       </div>
     </Tooltip>
   )
 }
 
-// ΓöÇΓöÇΓöÇ Narrative + Runner Ticker ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ
+// ─── Narrative + Runner Ticker ────────────────────────────────────
 // Scrolling marquee strip showing live runners and active narratives.
 // Runners: symbol + 24h% change. Narratives: emoji + label + total vol.
 // Auto-scrolls, pauses on hover.
@@ -404,7 +404,7 @@ const NarrativeTicker = ({ liveAlphas = [], sznCards = [] }) => {
 
   const narrativeItems = sznCards.slice(0, 8).map(szn => (
     <span key={`n-${szn.key}`} style={{ display: 'inline-flex', alignItems: 'center', gap: 5, marginRight: 32 }}>
-      <span style={{ fontSize: 11 }}>{szn.heat?.emoji || '≡ƒôê'}</span>
+      <span style={{ fontSize: 11 }}>{szn.heat?.emoji || '📈'}</span>
       <span style={{ fontSize: 11, fontWeight: 800, letterSpacing: '0.03em', color: 'var(--cyan)' }}>
         {szn.label}
       </span>
@@ -416,7 +416,7 @@ const NarrativeTicker = ({ liveAlphas = [], sznCards = [] }) => {
 
   // Separator between runners and narratives sections
   const separator = (
-    <span style={{ marginRight: 32, color: 'rgba(0,212,255,0.25)', fontSize: 10, letterSpacing: 4 }}>┬╖┬╖┬╖</span>
+    <span style={{ marginRight: 32, color: 'rgba(0,212,255,0.25)', fontSize: 10, letterSpacing: 4 }}>···</span>
   )
 
   const items = [...runnerItems, separator, ...narrativeItems]
@@ -458,7 +458,7 @@ const NarrativeTicker = ({ liveAlphas = [], sznCards = [] }) => {
   )
 }
 
-// ΓöÇΓöÇΓöÇ Settings ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ
+// ─── Settings ────────────────────────────────────────────────────
 
 const SETTINGS_KEY = 'betaplays_settings_v1'
 
@@ -569,9 +569,9 @@ const SettingsPanel = ({ settings, onUpdate, onReset, onClose }) => {
         {/* Header */}
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
           <div style={{ fontFamily: 'var(--font-display)', fontSize: 16, fontWeight: 800, color: 'var(--neon-green)' }}>
-            ΓÜÖ∩╕Å Settings
+            ⚙️ Settings
           </div>
-          <button onClick={onClose} style={{ background: 'none', border: 'none', color: 'var(--text-muted)', cursor: 'pointer', fontSize: 18, lineHeight: 1 }}>Γ£ò</button>
+          <button onClick={onClose} style={{ background: 'none', border: 'none', color: 'var(--text-muted)', cursor: 'pointer', fontSize: 18, lineHeight: 1 }}>✕</button>
         </div>
 
         {/* Beta display */}
@@ -620,8 +620,8 @@ const SettingsPanel = ({ settings, onUpdate, onReset, onClose }) => {
               </div>
               <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>
                 {[
-                  { key: 'dark', label: '≡ƒîÖ Dark' },
-                  { key: 'dim',  label: '≡ƒîå Dim'  },
+                  { key: 'dark', label: '🌙 Dark' },
+                  { key: 'dim',  label: '🌆 Dim'  },
                 ].map(({ key, label }) => (
                   <button
                     key={key}
@@ -679,7 +679,7 @@ const SettingsPanel = ({ settings, onUpdate, onReset, onClose }) => {
   )
 }
 
-// ΓöÇΓöÇΓöÇ Navbar ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ
+// ─── Navbar ─────────────────────────────────────────────────────
 
 const Navbar = ({ onListBeta, onAdvertise, newRunners, liveAlphas, coolingAlphas, onSettings, onWalletConnect, onWalletSignIn, onWalletSignOut, isAuthed, isConnected, walletAddress }) => (
   <nav className="navbar">
@@ -695,7 +695,7 @@ const Navbar = ({ onListBeta, onAdvertise, newRunners, liveAlphas, coolingAlphas
       <div className={`navbar-status${newRunners ? ' navbar-status--flash' : ''}`}>
         <span className={`status-dot${newRunners ? ' status-dot--flash' : ''}`}></span>
         <span style={{ fontFamily: 'var(--font-number)', fontSize: 11, fontWeight: 700, letterSpacing: '0.08em' }}>
-          LIVE ┬╖ SOLANA
+          LIVE · SOLANA
         </span>
       </div>
       <DataSourceStatus liveAlphas={liveAlphas} coolingAlphas={coolingAlphas} />
@@ -715,7 +715,7 @@ const Navbar = ({ onListBeta, onAdvertise, newRunners, liveAlphas, coolingAlphas
             letterSpacing: '0.05em', transition: 'all 0.15s ease', minWidth: 80,
           }}
         >
-          {walletAddress?.slice(0, 4)}ΓÇª{walletAddress?.slice(-4)}
+          {walletAddress?.slice(0, 4)}…{walletAddress?.slice(-4)}
         </button>
       ) : isConnected ? (
         <button
@@ -727,7 +727,7 @@ const Navbar = ({ onListBeta, onAdvertise, newRunners, liveAlphas, coolingAlphas
             letterSpacing: '0.05em', transition: 'all 0.15s ease', animation: 'pulse 2s infinite',
           }}
         >
-          Γ£ì∩╕Å SIGN IN
+          ✍️ SIGN IN
         </button>
       ) : (
         <button
@@ -741,7 +741,7 @@ const Navbar = ({ onListBeta, onAdvertise, newRunners, liveAlphas, coolingAlphas
           onMouseEnter={e => { e.currentTarget.style.borderColor = 'rgba(0,212,255,0.6)'; e.currentTarget.style.color = 'var(--cyan)' }}
           onMouseLeave={e => { e.currentTarget.style.borderColor = 'rgba(0,212,255,0.25)'; e.currentTarget.style.color = 'var(--text-secondary)' }}
         >
-          ≡ƒöù CONNECT
+          🔗 CONNECT
         </button>
       )}
       <button
@@ -753,9 +753,9 @@ const Navbar = ({ onListBeta, onAdvertise, newRunners, liveAlphas, coolingAlphas
           transition: 'all 0.15s ease',
         }}
         title="Settings"
-      >ΓÜÖ∩╕Å</button>
+      >⚙️</button>
       <button className="btn btn-amber btn-sm" onClick={onListBeta}>
-        ΓÜí List Your Beta
+        ⚡ List Your Beta
       </button>
       <button
         onClick={onAdvertise}
@@ -768,16 +768,16 @@ const Navbar = ({ onListBeta, onAdvertise, newRunners, liveAlphas, coolingAlphas
         onMouseEnter={e => { e.currentTarget.style.background = 'rgba(100,180,255,0.15)'; e.currentTarget.style.borderColor = 'rgba(100,180,255,0.6)' }}
         onMouseLeave={e => { e.currentTarget.style.background = 'rgba(100,180,255,0.08)'; e.currentTarget.style.borderColor = 'rgba(100,180,255,0.3)' }}
         title="Advertise on BetaPlays"
-      >≡ƒôó Advertise</button>
+      >📢 Advertise</button>
     </div>
   </nav>
 )
 
-// ΓöÇΓöÇΓöÇ Narrative Szn Card ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ
+// ─── Narrative Szn Card ──────────────────────────────────────────
 
 const SznCard = ({ szn, isSelected, onClick }) => {
   const isPositive  = szn.avgChange >= 0
-  const heat        = szn.heat || { label: 'MILD', color: '#888888', emoji: '≡ƒÿ┤' }
+  const heat        = szn.heat || { label: 'MILD', color: '#888888', emoji: '😴' }
   const sznScore    = szn.sznScore || 0
   const momentum    = szn.momentum || 0
   const leader      = szn.leader
@@ -788,7 +788,7 @@ const SznCard = ({ szn, isSelected, onClick }) => {
   // but guard against any future label without one.
   const labelParts  = szn.label.split(' ')
   const hasEmoji    = labelParts[0] && /\p{Emoji}/u.test(labelParts[0])
-  const cardEmoji   = hasEmoji ? labelParts[0] : (heat.emoji || '≡ƒöÑ')
+  const cardEmoji   = hasEmoji ? labelParts[0] : (heat.emoji || '🔥')
   const cardTitle   = hasEmoji
     ? labelParts.slice(1).join(' ')
     : szn.label  // no emoji — use full label as title
@@ -814,19 +814,19 @@ const SznCard = ({ szn, isSelected, onClick }) => {
               </div>
               {szn.source === 'ai' && (
                 <Tooltip text="AI-grouped — this entire narrative was identified and categorised by AI.">
-                  <span className="badge badge-verified" style={{ fontSize: 7, padding: '1px 4px', cursor: 'default', gap: 3 }}>≡ƒñû AI</span>
+                  <span className="badge badge-verified" style={{ fontSize: 7, padding: '1px 4px', cursor: 'default', gap: 3 }}>🤖 AI</span>
                 </Tooltip>
               )}
               {szn.source === 'mixed' && (
                 <Tooltip text={`AI-enriched — ${szn.aiEnriched} token${szn.aiEnriched !== 1 ? 's' : ''} in this narrative were added by AI classification, on top of keyword matches.`}>
                   <span className="badge badge-verified" style={{ fontSize: 7, padding: '1px 6px', cursor: 'default', display: 'inline-flex', alignItems: 'center', gap: 4 }}>
-                    <span>≡ƒñû</span><span>+{szn.aiEnriched}</span>
+                    <span>🤖</span><span>+{szn.aiEnriched}</span>
                   </span>
                 </Tooltip>
               )}
             </div>
             <div style={{ fontFamily: 'var(--font-number)', fontSize: 8, color: 'var(--text-muted)', marginTop: 4 }}>
-              {szn.tokenCount} tokens ┬╖ {formatNum(szn.totalVolume)} vol
+              {szn.tokenCount} tokens · {formatNum(szn.totalVolume)} vol
             </div>
           </div>
         </div>
@@ -836,7 +836,7 @@ const SznCard = ({ szn, isSelected, onClick }) => {
             fontFamily: 'var(--font-display)', fontSize: 8, fontWeight: 700,
             color: heat.color, letterSpacing: 0.3,
           }}>{heat.emoji} {heat.label}</span>
-          <Tooltip text="Narrative score (0ΓÇô100): combines total volume, number of tokens, avg price change, and momentum. Higher = more active narrative right now.">
+          <Tooltip text="Narrative score (0–100): combines total volume, number of tokens, avg price change, and momentum. Higher = more active narrative right now.">
             <span style={{ fontFamily: 'var(--font-mono)', fontSize: 8, color: 'var(--text-muted)', cursor: 'default', borderBottom: '1px dotted rgba(255,255,255,0.2)' }}>
               score {sznScore}/100
             </span>
@@ -912,13 +912,13 @@ const SznCard = ({ szn, isSelected, onClick }) => {
           alignItems: 'flex-start',
           gap: 5,
         }}>
-          <span style={{ fontSize: 9, flexShrink: 0, marginTop: 1 }}>≡ƒô░</span>
+          <span style={{ fontSize: 9, flexShrink: 0, marginTop: 1 }}>📰</span>
           <div style={{ minWidth: 0 }}>
             <div style={{
               fontFamily: 'var(--font-display)', fontSize: 7, fontWeight: 700,
               color: 'var(--sky)', letterSpacing: 0.4, marginBottom: 2,
             }}>
-              REAL-WORLD CATALYST ┬╖ {Math.round(szn.newsEvent.confidence * 100)}% signal
+              REAL-WORLD CATALYST · {Math.round(szn.newsEvent.confidence * 100)}% signal
             </div>
             <div style={{
               fontFamily: 'var(--font-body)', fontSize: 8, color: 'var(--text-muted)',
@@ -934,9 +934,9 @@ const SznCard = ({ szn, isSelected, onClick }) => {
   )
 }
 
-// ΓöÇΓöÇΓöÇ Alpha Token Card ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ
+// ─── Alpha Token Card ────────────────────────────────────────────
 
-// ΓöÇΓöÇΓöÇ Positioning Card ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ
+// ─── Positioning Card ─────────────────────────────────────────────
 // Specialised card for the Positioning Plays tab.
 // Shows peak, current drawdown, opportunity score prominently —
 // the signal a degen needs to decide if it's worth the entry.
@@ -993,7 +993,7 @@ const PositioningCard = ({ alpha, isSelected, onClick, isWatched, onToggleWatch 
             }}
             onMouseEnter={e => { e.currentTarget.style.background = 'rgba(255,184,0,0.15)'; e.currentTarget.style.borderColor = 'rgba(255,184,0,0.5)' }}
             onMouseLeave={e => { e.currentTarget.style.background = isWatched ? 'rgba(255,184,0,0.12)' : 'rgba(255,255,255,0.06)'; e.currentTarget.style.borderColor = isWatched ? 'rgba(255,184,0,0.4)' : 'rgba(255,255,255,0.12)' }}
-          >{isWatched ? 'Γ¡É' : 'Γÿå'}</button>
+          >{isWatched ? '⭐' : '☆'}</button>
           </Tooltip>
           <Tooltip text="Open on DEXScreener">
           <span
@@ -1001,7 +1001,7 @@ const PositioningCard = ({ alpha, isSelected, onClick, isWatched, onToggleWatch 
             style={{ fontFamily: 'var(--font-mono)', fontSize: 8, color: 'var(--text-muted)', cursor: 'pointer', padding: '1px 4px', borderRadius: 3, border: '1px solid rgba(255,255,255,0.08)' }}
             onMouseEnter={e => e.currentTarget.style.color = 'var(--cyan)'}
             onMouseLeave={e => e.currentTarget.style.color = 'var(--text-muted)'}
-          >DEX Γåù</span>
+          >DEX ↗</span>
           </Tooltip>
           <XSearchButton symbol={alpha.symbol} onClick={e => e.stopPropagation()} />
         </div>
@@ -1120,7 +1120,7 @@ const AlphaCard = ({ alpha, isSelected, onClick, isWatched, onToggleWatch, isCal
                   fontFamily: 'var(--font-mono)', fontSize: 9, color: 'var(--text-secondary)',
                   lineHeight: 1.4,
                 }}
-              >Γ£ò</button>
+              >✕</button>
             </div>
             <NominateButton address={alpha.address} symbol={alpha.symbol} name={alpha.name} compact />
           </div>
@@ -1140,42 +1140,42 @@ const AlphaCard = ({ alpha, isSelected, onClick, isWatched, onToggleWatch, isCal
               <CopyAddress address={alpha.address} />
               {derivative && (
                 <Tooltip text={parentSymbol ? `Derivative of $${parentSymbol}` : 'Derivative token — shares narrative with a parent alpha'}>
-                  <span className="badge badge-new" style={{ fontSize: 11, padding: '1px 3px', cursor: 'default' }}>≡ƒº¼</span>
+                  <span className="badge badge-new" style={{ fontSize: 11, padding: '1px 3px', cursor: 'default' }}>🧬</span>
                 </Tooltip>
               )}
               {alpha.isLegend && (
                 <Tooltip text="Legend — OG token with verified history">
-                  <span className="badge badge-verified" style={{ fontSize: 11, padding: '1px 3px', cursor: 'default' }}>≡ƒÅå</span>
+                  <span className="badge badge-verified" style={{ fontSize: 11, padding: '1px 3px', cursor: 'default' }}>🏆</span>
                 </Tooltip>
               )}
               {alpha.isCooling && !alpha.isDumped && (
                 <Tooltip text="Cooling — price action slowing down">
-                  <span className="badge badge-weak" style={{ fontSize: 11, padding: '1px 3px', cursor: 'default' }}>Γ¥ä∩╕Å</span>
+                  <span className="badge badge-weak" style={{ fontSize: 11, padding: '1px 3px', cursor: 'default' }}>❄️</span>
                 </Tooltip>
               )}
               {alpha.isDumped && (
                 <Tooltip text="Dumped — price collapsed 75%+ from peak. Treat as dead unless volume returns.">
-                  <span className="badge badge-weak" style={{ fontSize: 11, padding: '1px 3px', background: 'rgba(255,68,102,0.15)', borderColor: 'rgba(255,68,102,0.4)', color: 'var(--red)', cursor: 'default' }}>≡ƒÆÇ</span>
+                  <span className="badge badge-weak" style={{ fontSize: 11, padding: '1px 3px', background: 'rgba(255,68,102,0.15)', borderColor: 'rgba(255,68,102,0.4)', color: 'var(--red)', cursor: 'default' }}>💀</span>
                 </Tooltip>
               )}
               {alpha.source === 'pumpfun_bonded' && (
                 <Tooltip text="Graduated from PumpFun — bonded token">
-                  <span className="badge badge-new" style={{ fontSize: 11, padding: '1px 3px', cursor: 'default' }}>≡ƒÄô</span>
+                  <span className="badge badge-new" style={{ fontSize: 11, padding: '1px 3px', cursor: 'default' }}>🎓</span>
                 </Tooltip>
               )}
               {alpha.source === 'pumpfun_pre' && (
                 <span className="badge badge-verified" style={{ fontSize: 7, padding: '1px 5px', background: 'rgba(255,184,0,0.12)', borderColor: 'rgba(255,184,0,0.3)', color: 'var(--amber)' }}>
-                  ≡ƒöÑ {alpha.bondingProgress}% bonding
+                  🔥 {alpha.bondingProgress}% bonding
                 </span>
               )}
               {(alpha.source === 'birdeye_trending' || alpha.source === 'dex_gainers') && (
                 <Tooltip text="Organic runner — found via momentum, not paid promotion">
-                  <span className="badge badge-organic" style={{ fontSize: 11, padding: '1px 3px', cursor: 'default' }}>≡ƒªà</span>
+                  <span className="badge badge-organic" style={{ fontSize: 11, padding: '1px 3px', cursor: 'default' }}>🦅</span>
                 </Tooltip>
               )}
               {alpha.source === 'dex_new' && (
                 <Tooltip text="New pair — recently launched token">
-                  <span className="badge badge-new-pair" style={{ fontSize: 11, padding: '1px 3px', cursor: 'default' }}>Γ£¿</span>
+                  <span className="badge badge-new-pair" style={{ fontSize: 11, padding: '1px 3px', cursor: 'default' }}>✨</span>
                 </Tooltip>
               )}
               {/* Revival badge — token returned from cooling/dumped state */}
@@ -1190,13 +1190,13 @@ const AlphaCard = ({ alpha, isSelected, onClick, isWatched, onToggleWatch, isCal
                     cursor: 'default', lineHeight: 1,
                     animation: 'pulse 2s infinite',
                     display: 'inline-block', flexShrink: 0,
-                  }}>≡ƒöä</span>
+                  }}>🔄</span>
                 </Tooltip>
               )}
 
               {/* Re-entry strength badge — how many times token has appeared on the runner feed */}
               {(alpha.runCount || 0) >= 3 && (
-                <Tooltip text={`On runner feed ${alpha.runCount}├ù — signals strength`}>
+                <Tooltip text={`On runner feed ${alpha.runCount}× — signals strength`}>
                   <span style={{
                     fontFamily:  'var(--font-mono)', fontSize: 9,
                     padding:     '1px 4px', borderRadius: 3, cursor: 'default',
@@ -1217,7 +1217,7 @@ const AlphaCard = ({ alpha, isSelected, onClick, isWatched, onToggleWatch, isCal
                       : 'var(--text-muted)',
                     fontWeight: 700,
                   }}>
-                    ≡ƒöä {alpha.runCount}├ù
+                    🔄 {alpha.runCount}×
                   </span>
                 </Tooltip>
               )}
@@ -1241,7 +1241,7 @@ const AlphaCard = ({ alpha, isSelected, onClick, isWatched, onToggleWatch, isCal
               )}
               {alpha.volumeRising && (
                 <span style={{ fontFamily: 'var(--font-number)', fontSize: 8, color: 'rgb(0,255,150)' }}>
-                  ≡ƒôê volΓåæ
+                  📈 vol↑
                 </span>
               )}
               {alpha.peakDistance != null && !alpha.isDumped && (
@@ -1275,10 +1275,10 @@ const AlphaCard = ({ alpha, isSelected, onClick, isWatched, onToggleWatch, isCal
               }}
               onMouseEnter={e => { e.currentTarget.style.background = 'rgba(255,184,0,0.15)'; e.currentTarget.style.borderColor = 'rgba(255,184,0,0.5)' }}
               onMouseLeave={e => { e.currentTarget.style.background = isWatched ? 'rgba(255,184,0,0.12)' : 'rgba(255,255,255,0.06)'; e.currentTarget.style.borderColor = isWatched ? 'rgba(255,184,0,0.4)' : 'rgba(255,255,255,0.12)' }}
-            >{isWatched ? 'Γ¡É' : 'Γÿå'}</button>
+            >{isWatched ? '⭐' : '☆'}</button>
             </Tooltip>
             {onFolioCall && (
-              <Tooltip text={isCalled ? 'Remove from folio' : '≡ƒÄ» Call it — add to public folio'}>
+              <Tooltip text={isCalled ? 'Remove from folio' : '🎯 Call it — add to public folio'}>
               <button
                 onClick={e => { e.stopPropagation(); onFolioCall?.(alpha) }}
                 style={{
@@ -1290,7 +1290,7 @@ const AlphaCard = ({ alpha, isSelected, onClick, isWatched, onToggleWatch, isCal
                 }}
                 onMouseEnter={e => { e.currentTarget.style.background = 'rgba(57,255,20,0.15)'; e.currentTarget.style.borderColor = 'rgba(57,255,20,0.5)' }}
                 onMouseLeave={e => { e.currentTarget.style.background = isCalled ? 'rgba(57,255,20,0.12)' : 'rgba(255,255,255,0.06)'; e.currentTarget.style.borderColor = isCalled ? 'rgba(57,255,20,0.4)' : 'rgba(255,255,255,0.12)' }}
-              >{isCalled ? '≡ƒÄ»' : 'ΓùÄ'}</button>
+              >{isCalled ? '🎯' : '◎'}</button>
               </Tooltip>
             )}
             <Tooltip text="Open on DEXScreener">
@@ -1310,7 +1310,7 @@ const AlphaCard = ({ alpha, isSelected, onClick, isWatched, onToggleWatch, isCal
               onMouseEnter={e => e.currentTarget.style.color = 'var(--cyan)'}
               onMouseLeave={e => e.currentTarget.style.color = 'var(--text-muted)'}
             >
-              DEX Γåù
+              DEX ↗
             </span>
             </Tooltip>
             <XSearchButton symbol={alpha.symbol} onClick={e => e.stopPropagation()} />
@@ -1339,9 +1339,9 @@ const AlphaCard = ({ alpha, isSelected, onClick, isWatched, onToggleWatch, isCal
   )
 }
 
-// ΓöÇΓöÇΓöÇ Alpha Board ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ
+// ─── Alpha Board ─────────────────────────────────────────────────
 
-// ΓöÇΓöÇΓöÇ Admin Nomination Panel ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ
+// ─── Admin Nomination Panel ───────────────────────────────────────
 // Hidden. Access via Ctrl+Shift+A — only you know this exists.
 // Shows pending nominations with stats for approve/reject decisions.
 const ADMIN_PASSWORD = 'betaplays_og_2025'
@@ -1446,7 +1446,7 @@ const AdminNominationPanel = ({ onClose }) => {
           {nom.dexUrl && (
             <a href={nom.dexUrl} target="_blank" rel="noreferrer"
               style={{ fontFamily: 'var(--font-mono)', fontSize: 8, color: 'var(--cyan)', textDecoration: 'none' }}>
-              DEX Γåù
+              DEX ↗
             </a>
           )}
           {nom.status === 'pending' && (
@@ -1455,12 +1455,12 @@ const AdminNominationPanel = ({ onClose }) => {
                 background: 'rgba(0,255,136,0.1)', border: '1px solid rgba(0,255,136,0.3)',
                 borderRadius: 4, padding: '2px 10px', cursor: 'pointer',
                 fontFamily: 'var(--font-mono)', fontSize: 8, color: 'var(--neon-green)',
-              }}>✔ Approve</button>
+              }}>✓ Approve</button>
               <button onClick={() => updateStatus(nom.address, 'rejected')} style={{
                 background: 'rgba(255,68,102,0.1)', border: '1px solid rgba(255,68,102,0.3)',
                 borderRadius: 4, padding: '2px 10px', cursor: 'pointer',
                 fontFamily: 'var(--font-mono)', fontSize: 8, color: 'var(--red)',
-              }}>Γ£ò Reject</button>
+              }}>✕ Reject</button>
             </>
           )}
           {nom.status !== 'pending' && (
@@ -1468,7 +1468,7 @@ const AdminNominationPanel = ({ onClose }) => {
               background: 'transparent', border: '1px solid var(--border)',
               borderRadius: 4, padding: '2px 8px', cursor: 'pointer',
               fontFamily: 'var(--font-mono)', fontSize: 8, color: 'var(--text-muted)',
-            }}>Γå⌐ Reopen</button>
+            }}>↩ Reopen</button>
           )}
         </div>
       </div>
@@ -1488,11 +1488,11 @@ const AdminNominationPanel = ({ onClose }) => {
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
           <div>
             <div style={{ fontFamily: 'var(--font-number)', fontSize: 14, color: 'var(--amber)', fontWeight: 600, letterSpacing: '-0.3px' }}>
-              Γ¡É OG NOMINATION REVIEW
+              ⭐ OG NOMINATION REVIEW
             </div>
             {authed && (
               <div style={{ fontFamily: 'var(--font-mono)', fontSize: 9, color: 'var(--text-muted)', marginTop: 2 }}>
-                {pending.length} pending ┬╖ {approved.length} approved ┬╖ {rejected.length} rejected
+                {pending.length} pending · {approved.length} approved · {rejected.length} rejected
               </div>
             )}
           </div>
@@ -1501,7 +1501,7 @@ const AdminNominationPanel = ({ onClose }) => {
             borderRadius: 4, padding: '2px 8px',
             color: 'var(--text-secondary)', cursor: 'pointer', fontSize: 13,
             fontFamily: 'var(--font-mono)',
-          }}>Γ£ò</button>
+          }}>✕</button>
         </div>
 
         {/* Password gate */}
@@ -1556,7 +1556,7 @@ const AdminNominationPanel = ({ onClose }) => {
   )
 }
 
-// ΓöÇΓöÇΓöÇ FolioCard ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ
+// ─── FolioCard ───────────────────────────────────────────────────
 // Self-contained folio card. Loads its own calls when expanded.
 // Collapsed: name, bio, call count, public badge.
 // Expanded: edit fields + token list + CA search.
@@ -1598,7 +1598,7 @@ const FolioCard = ({ folio, authWallet, authToken, folioSearch, folioSearchRes, 
       })
       if (res.ok) {
         onUpdate({ name: nameEdit.trim(), bio: bioEdit.trim(), public: pubEdit })
-        setSaveMsg('✔ Saved')
+        setSaveMsg('✓ Saved')
         setTimeout(() => { setSaveMsg(''); setExpanded(false) }, 1000)
       } else { setSaveMsg('Error saving') }
     } catch { setSaveMsg('Error saving') }
@@ -1635,11 +1635,11 @@ const FolioCard = ({ folio, authWallet, authToken, folioSearch, folioSearchRes, 
           <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 2, flexShrink: 0 }}>
             <div style={{ fontFamily: 'var(--font-mono)', fontSize: 12, fontWeight: 700, color: 'var(--cyan)' }}>{folio.call_count || 0}</div>
             <div style={{ fontFamily: 'var(--font-mono)', fontSize: 8, color: 'var(--text-muted)' }}>calls</div>
-            <span style={{ fontFamily: 'var(--font-mono)', fontSize: 8, color: 'var(--text-muted)', marginTop: 2 }}>{expanded ? 'Γû▓' : 'Γû╝'}</span>
+            <span style={{ fontFamily: 'var(--font-mono)', fontSize: 8, color: 'var(--text-muted)', marginTop: 2 }}>{expanded ? '▲' : '▼'}</span>
           </div>
         </div>
         <div style={{ marginTop: 6, display: 'flex', gap: 6, alignItems: 'center' }}>
-          <span style={{ fontFamily: 'var(--font-mono)', fontSize: 8, fontWeight: 700, padding: '2px 6px', borderRadius: 3, background: pubEdit ? 'rgba(57,255,20,0.07)' : 'rgba(255,255,255,0.05)', border: pubEdit ? '1px solid rgba(57,255,20,0.3)' : '1px solid var(--border)', color: pubEdit ? 'var(--neon-green)' : 'var(--text-muted)' }}>{pubEdit ? '≡ƒîÉ PUBLIC' : '≡ƒöÆ PRIVATE'}</span>
+          <span style={{ fontFamily: 'var(--font-mono)', fontSize: 8, fontWeight: 700, padding: '2px 6px', borderRadius: 3, background: pubEdit ? 'rgba(57,255,20,0.07)' : 'rgba(255,255,255,0.05)', border: pubEdit ? '1px solid rgba(57,255,20,0.3)' : '1px solid var(--border)', color: pubEdit ? 'var(--neon-green)' : 'var(--text-muted)' }}>{pubEdit ? '🌐 PUBLIC' : '🔒 PRIVATE'}</span>
         </div>
       </div>
 
@@ -1652,11 +1652,11 @@ const FolioCard = ({ folio, authWallet, authToken, folioSearch, folioSearchRes, 
           <input value={bioEdit} onChange={e => setBioEdit(e.target.value.slice(0, 80))} placeholder="Short bio (80 chars)..."
             style={{ width: '100%', background: 'var(--surface-2)', border: '1px solid var(--border)', borderRadius: 6, padding: '6px 8px', color: 'var(--text-primary)', fontFamily: 'var(--font-mono)', fontSize: 10, outline: 'none', boxSizing: 'border-box' }} />
           <div style={{ display: 'flex', gap: 6 }}>
-            <button onClick={() => setPubEdit(p => !p)} style={{ padding: '5px 8px', borderRadius: 6, fontSize: 9, fontFamily: 'var(--font-mono)', fontWeight: 700, cursor: 'pointer', background: pubEdit ? 'rgba(57,255,20,0.1)' : 'rgba(255,255,255,0.05)', border: pubEdit ? '1px solid rgba(57,255,20,0.4)' : '1px solid var(--border)', color: pubEdit ? 'var(--neon-green)' : 'var(--text-muted)' }}>{pubEdit ? '≡ƒîÉ' : '≡ƒöÆ'}</button>
+            <button onClick={() => setPubEdit(p => !p)} style={{ padding: '5px 8px', borderRadius: 6, fontSize: 9, fontFamily: 'var(--font-mono)', fontWeight: 700, cursor: 'pointer', background: pubEdit ? 'rgba(57,255,20,0.1)' : 'rgba(255,255,255,0.05)', border: pubEdit ? '1px solid rgba(57,255,20,0.4)' : '1px solid var(--border)', color: pubEdit ? 'var(--neon-green)' : 'var(--text-muted)' }}>{pubEdit ? '🌐' : '🔒'}</button>
             <button onClick={handleSave} disabled={saving} style={{ flex: 1, padding: '5px 10px', borderRadius: 6, fontSize: 10, fontFamily: 'var(--font-mono)', fontWeight: 700, cursor: 'pointer', background: 'rgba(0,212,255,0.1)', border: '1px solid rgba(0,212,255,0.3)', color: 'var(--cyan)', opacity: saving ? 0.5 : 1 }}>{saving ? 'SAVING...' : 'SAVE & CLOSE'}</button>
-            <button onClick={handleDelete} style={{ padding: '5px 8px', borderRadius: 6, fontSize: 9, fontFamily: 'var(--font-mono)', cursor: 'pointer', background: 'rgba(255,80,80,0.08)', border: '1px solid rgba(255,80,80,0.25)', color: '#ff5050' }}>≡ƒùæ</button>
+            <button onClick={handleDelete} style={{ padding: '5px 8px', borderRadius: 6, fontSize: 9, fontFamily: 'var(--font-mono)', cursor: 'pointer', background: 'rgba(255,80,80,0.08)', border: '1px solid rgba(255,80,80,0.25)', color: '#ff5050' }}>🗑</button>
           </div>
-          {saveMsg && <p style={{ fontFamily: 'var(--font-mono)', fontSize: 10, color: saveMsg.startsWith('✔') ? 'var(--neon-green)' : '#ff5050', margin: 0 }}>{saveMsg}</p>}
+          {saveMsg && <p style={{ fontFamily: 'var(--font-mono)', fontSize: 10, color: saveMsg.startsWith('✓') ? 'var(--neon-green)' : '#ff5050', margin: 0 }}>{saveMsg}</p>}
 
           {/* Add by CA/ticker */}
           <input value={folioSearch} onChange={e => onFolioSearch(e.target.value)} placeholder="Add by CA or ticker..."
@@ -1667,7 +1667,7 @@ const FolioCard = ({ folio, authWallet, authToken, folioSearch, folioSearchRes, 
               <span style={{ fontFamily: 'var(--font-mono)', fontSize: 11, fontWeight: 700, color: 'var(--text-primary)' }}>${t.symbol} <span style={{ fontSize: 9, color: 'var(--text-muted)', fontWeight: 400 }}>{t.name}</span></span>
               <button onClick={() => { onFolioCall({ ...t, _targetFolioId: folio.id }); onFolioSearch('') }}
                 style={{ padding: '3px 8px', borderRadius: 4, fontSize: 9, fontFamily: 'var(--font-mono)', fontWeight: 700, cursor: 'pointer', background: folioCallAddrs?.has(t.address) ? 'rgba(57,255,20,0.1)' : 'rgba(0,212,255,0.08)', border: folioCallAddrs?.has(t.address) ? '1px solid rgba(57,255,20,0.3)' : '1px solid rgba(0,212,255,0.25)', color: folioCallAddrs?.has(t.address) ? 'var(--neon-green)' : 'var(--cyan)' }}>
-                {folioCallAddrs?.has(t.address) ? '≡ƒÄ» CALLED' : '≡ƒÄ» CALL IT'}
+                {folioCallAddrs?.has(t.address) ? '🎯 CALLED' : '🎯 CALL IT'}
               </button>
             </div>
           ))}
@@ -1675,7 +1675,7 @@ const FolioCard = ({ folio, authWallet, authToken, folioSearch, folioSearchRes, 
           {/* Calls list */}
           {loadingC ? <p style={{ fontFamily: 'var(--font-mono)', fontSize: 9, color: 'var(--text-muted)' }}>Loading calls...</p> : (
             <>
-              <p style={{ fontFamily: 'var(--font-mono)', fontSize: 9, color: 'var(--text-muted)', margin: 0 }}>{calls.length} call{calls.length !== 1 ? 's' : ''} ┬╖ Hit ΓùÄ on any runner to add</p>
+              <p style={{ fontFamily: 'var(--font-mono)', fontSize: 9, color: 'var(--text-muted)', margin: 0 }}>{calls.length} call{calls.length !== 1 ? 's' : ''} · Hit ◎ on any runner to add</p>
               {calls.length === 0 && <p style={{ fontFamily: 'var(--font-mono)', fontSize: 10, color: 'var(--text-muted)', borderLeft: '2px solid var(--border)', paddingLeft: 8 }}>No calls yet.</p>}
               {calls.map(c => {
                 const isTagging = folioTagging === c.token_address
@@ -1683,13 +1683,13 @@ const FolioCard = ({ folio, authWallet, authToken, folioSearch, folioSearchRes, 
                   <div key={c.token_address} style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: 'var(--surface-2)', border: '1px solid rgba(57,255,20,0.2)', borderRadius: 8, padding: '8px 10px' }}>
                       <div style={{ display: 'flex', alignItems: 'center', gap: 6, minWidth: 0 }}>
-                        <span style={{ fontFamily: 'var(--font-mono)', fontSize: 11, fontWeight: 700, color: 'var(--neon-green)', flexShrink: 0 }}>≡ƒÄ» ${c.symbol}</span>
+                        <span style={{ fontFamily: 'var(--font-mono)', fontSize: 11, fontWeight: 700, color: 'var(--neon-green)', flexShrink: 0 }}>🎯 ${c.symbol}</span>
                         {c.narrative_tag && <span style={{ fontFamily: 'var(--font-mono)', fontSize: 8, fontWeight: 700, background: 'rgba(57,255,20,0.07)', border: '1px solid rgba(57,255,20,0.25)', borderRadius: 3, padding: '1px 5px', color: 'var(--neon-green)', textTransform: 'uppercase' }}>{c.narrative_tag}</span>}
                         {c.price_at_call && <span style={{ fontFamily: 'var(--font-number)', fontSize: 9, color: 'var(--text-muted)' }}>@ ${Number(c.price_at_call).toFixed(6)}</span>}
                       </div>
                       <div style={{ display: 'flex', gap: 4 }}>
                         <button onClick={() => setFolioTagging(isTagging ? null : c.token_address)} style={{ padding: '2px 6px', borderRadius: 4, fontSize: 8, fontFamily: 'var(--font-mono)', cursor: 'pointer', background: 'transparent', border: '1px solid var(--border)', color: 'var(--text-muted)' }}>{isTagging ? 'CANCEL' : c.narrative_tag ? 'RETAG' : '+ TAG'}</button>
-                        <button onClick={() => handleRemoveCall(c.token_address)} style={{ padding: '2px 6px', borderRadius: 4, fontSize: 8, fontFamily: 'var(--font-mono)', cursor: 'pointer', background: 'rgba(255,80,80,0.08)', border: '1px solid rgba(255,80,80,0.25)', color: '#ff5050' }}>Γ£ò</button>
+                        <button onClick={() => handleRemoveCall(c.token_address)} style={{ padding: '2px 6px', borderRadius: 4, fontSize: 8, fontFamily: 'var(--font-mono)', cursor: 'pointer', background: 'rgba(255,80,80,0.08)', border: '1px solid rgba(255,80,80,0.25)', color: '#ff5050' }}>✕</button>
                       </div>
                     </div>
                     {isTagging && (
@@ -1718,12 +1718,12 @@ const AlphaBoard = ({ selectedAlpha, onSelect, onNewRunners, onLiveAlphas, onSzn
     if (onRegisterClearSearch) onRegisterClearSearch(() => setSearchQuery(''))
   }, [])
   const [showAdminPanel,   setShowAdminPanel]   = useState(false)
-  // ΓöÇΓöÇ Folio state ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ
+  // ── Folio state ───────────────────────────────────────────────
   const [coolingTimeframe, setCoolingTimeframe] = useState('24h')
   const [volumeRising,     setVolumeRising]     = useState(false)
   const [watchlist,        setWatchlist]        = useState(() => getWatchlistRaw())
 
-  // ΓöÇΓöÇ Watchlist price refresh ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ
+  // ── Watchlist price refresh ───────────────────────────────────
   // Prices are stale the moment a token is added. Refresh every 90s
   // by hitting DEX directly — batched in groups of 30 (DEX limit).
   useEffect(() => {
@@ -1780,7 +1780,7 @@ const AlphaBoard = ({ selectedAlpha, onSelect, onNewRunners, onLiveAlphas, onSzn
   const { liveAlphas, coolingAlphas: localCoolingAlphas, positioningAlphas: localPositioningAlphas, legends, loading, isRefreshing, error, lastUpdated, refresh } = useAlphas()
   const sznCards = useNarrativeSzn(liveAlphas)
 
-  // ΓöÇΓöÇ Cooling/Positioning: Neon DB cutover ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ
+  // ── Cooling/Positioning: Neon DB cutover ──────────────────────
   // Local (useAlphas) data shows instantly from localStorage.
   // When either tab becomes active, we fetch /api/history/full from Neon
   // which has richer data (peakMarketCap, firstSeen, cross-device history).
@@ -1874,7 +1874,7 @@ const AlphaBoard = ({ selectedAlpha, onSelect, onNewRunners, onLiveAlphas, onSzn
       .sort((a, b) => b.opportunityScore - a.opportunityScore)
   }, [neonHistoryTokens, localPositioningAlphas, liveAddresses])
 
-  // ΓöÇΓöÇ Watchlist helpers ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ
+  // ── Watchlist helpers ──────────────────────────────────────────
   const watchedAddresses = useMemo(() => new Set(watchlist.map(a => a.address)), [watchlist])
 
   const handleToggleWatch = useCallback((alpha) => {
@@ -1910,7 +1910,7 @@ const AlphaBoard = ({ selectedAlpha, onSelect, onNewRunners, onLiveAlphas, onSzn
     })
   }, [isAuthed, authToken])
 
-  // ΓöÇΓöÇ Cooling timeframe filter ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ
+  // ── Cooling timeframe filter ───────────────────────────────────
   const TIMEFRAME_MS = { '24h': 86400000, '3d': 3 * 86400000, '7d': 7 * 86400000 }
   const filteredCooling = useMemo(() => {
     const now = Date.now()
@@ -1926,7 +1926,7 @@ const AlphaBoard = ({ selectedAlpha, onSelect, onNewRunners, onLiveAlphas, onSzn
   const prevAddrsRef      = useRef(null)   // addresses from last render — detects new runners
   const userIsScrolling   = useRef(false)  // true while user is actively browsing the list
   const scrollIdleTimer   = useRef(null)   // resets userIsScrolling after idle period
-  // Ctrl+Shift+A ΓåÆ open admin nomination review panel
+  // Ctrl+Shift+A → open admin nomination review panel
   useEffect(() => {
     const handler = (e) => {
       if (e.ctrlKey && e.shiftKey && e.key === 'A') {
@@ -1938,7 +1938,7 @@ const AlphaBoard = ({ selectedAlpha, onSelect, onNewRunners, onLiveAlphas, onSzn
     return () => window.removeEventListener('keydown', handler)
   }, [])
 
-  // ΓöÇΓöÇ Scroll intent detection ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ
+  // ── Scroll intent detection ───────────────────────────────────
   // When user scrolls the runner list, mark them as actively browsing.
   // After 3s of no scrolling, reset — next refresh will snap back
   // to their selected alpha. This prevents interrupting mid-browse
@@ -1977,7 +1977,7 @@ const AlphaBoard = ({ selectedAlpha, onSelect, onNewRunners, onLiveAlphas, onSzn
     }
   }, [liveAlphas])
 
-  // ΓöÇΓöÇ Post-refresh: keep selected alpha in view ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ
+  // ── Post-refresh: keep selected alpha in view ───────────────────
   // After every refresh cycle, if the user has a selected alpha,
   // scroll its card back into view. This is the primary fix for the
   // "selected token disappears after refresh" problem. We don't try
@@ -2010,7 +2010,7 @@ const AlphaBoard = ({ selectedAlpha, onSelect, onNewRunners, onLiveAlphas, onSzn
     }
   }, [liveAlphas, isRefreshing, selectedAlpha])
 
-  // ΓöÇΓöÇ Report alphas to backend for Telegram Vector 10 ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ
+  // ── Report alphas to backend for Telegram Vector 10 ─────────────
   // Every time liveAlphas updates, tell the backend what alphas are
   // on screen so telegramService knows what to match against during
   // its 15-min poll cycle. Also includes:
@@ -2087,7 +2087,7 @@ const AlphaBoard = ({ selectedAlpha, onSelect, onNewRunners, onLiveAlphas, onSzn
 
 
 
-  // ΓöÇΓöÇ Alpha filter + sort state (live tab only) ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ
+  // ── Alpha filter + sort state (live tab only) ─────────────────────
   const [alphaFilter, setAlphaFilter] = useState('all')  // all | organic | revival | boosted | deriv | new
   const [alphaSort,   setAlphaSort]   = useState('momentum')  // momentum | change | volume | mcap | age
 
@@ -2125,7 +2125,7 @@ const AlphaBoard = ({ selectedAlpha, onSelect, onNewRunners, onLiveAlphas, onSzn
   // Final list shown in the alpha panel — uses filter/sort on live tab
   const finalDisplayList = activeTab === 'live' && !searchQuery ? filteredSortedLive : displayList
 
-  // ΓöÇΓöÇ Boosted tokens injection into alpha feed ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ
+  // ── Boosted tokens injection into alpha feed ──────────────────
   // Fetch active boosts and prepend them to the live feed as alpha cards
   const [boostedAlphas, setBoostedAlphas] = useState([])
   useEffect(() => {
@@ -2237,7 +2237,7 @@ const AlphaBoard = ({ selectedAlpha, onSelect, onNewRunners, onLiveAlphas, onSzn
     fetchHistory()
   }, [liveAlphas])
 
-  // ΓöÇΓöÇ Past Runners tab — historical alpha runners with beta performance ΓöÇΓöÇ
+  // ── Past Runners tab — historical alpha runners with beta performance ──
   const [pastRunners,        setPastRunners]        = useState([])
   const [pastRunnersLoading, setPastRunnersLoading] = useState(false)
   const [pastRunnersDays,    setPastRunnersDays]    = useState(30)
@@ -2256,21 +2256,21 @@ const AlphaBoard = ({ selectedAlpha, onSelect, onNewRunners, onLiveAlphas, onSzn
   }, [activeTab, pastRunnersDays])
 
   const tabs = [
-    { key: 'live',        label: '≡ƒöÑ Live',           count: liveAlphas.length        },
-    { key: 'narratives',  label: '≡ƒîè ACTIVE NARRATIVES', count: sznCards.length        },
-    { key: 'cooling',     label: 'Γ¥ä∩╕Å COOLING PLAYS',  count: null                     },
-    { key: 'positioning', label: '≡ƒÄ» Position',       count: null                     },
-    { key: 'watch',       label: 'Γ¡É Watchlist',       count: watchlist.length         },
-    { key: 'folio',       label: '≡ƒôè Folios',          count: null                     },
-    { key: 'runners',     label: '≡ƒÅü Past Runners',   count: null                     },
-    { key: 'legends',     label: '≡ƒÅå OGs',            count: legends.length           },
+    { key: 'live',        label: '🔥 Live',           count: liveAlphas.length        },
+    { key: 'narratives',  label: '🌊 ACTIVE NARRATIVES', count: sznCards.length        },
+    { key: 'cooling',     label: '❄️ COOLING PLAYS',  count: null                     },
+    { key: 'positioning', label: '🎯 Position',       count: null                     },
+    { key: 'watch',       label: '⭐ Watchlist',       count: watchlist.length         },
+    { key: 'folio',       label: '📊 Folios',          count: null                     },
+    { key: 'runners',     label: '🏁 Past Runners',   count: null                     },
+    { key: 'legends',     label: '🏆 OGs',            count: legends.length           },
   ]
 
   return (
     <aside className="alpha-board">
       {showAdminPanel && <AdminNominationPanel onClose={() => setShowAdminPanel(false)} />}
       <div className="alpha-board-header">
-        <span className="alpha-board-title">≡ƒÄ» Runners</span>
+        <span className="alpha-board-title">🎯 Runners</span>
       </div>
 
       {/* Search box */}
@@ -2282,7 +2282,7 @@ const AlphaBoard = ({ selectedAlpha, onSelect, onNewRunners, onLiveAlphas, onSzn
           transition: 'border-color 0.15s',
         }}>
           <span style={{ fontSize: 11, color: customAlphaLoading ? 'var(--cyan)' : 'var(--text-muted)' }}>
-            {customAlphaLoading ? 'Γƒ│' : '≡ƒöì'}
+            {customAlphaLoading ? '⟳' : '🔍'}
           </span>
           <input
             type="text"
@@ -2321,7 +2321,7 @@ const AlphaBoard = ({ selectedAlpha, onSelect, onNewRunners, onLiveAlphas, onSzn
                 fontFamily: 'var(--font-mono)', fontSize: 8, padding: '2px 6px',
                 whiteSpace: 'nowrap', lineHeight: 1.4,
               }}
-            >DEX Γåù</button>
+            >DEX ↗</button>
           )}
           {/* Watchlist match count — shown instead of DEX button */}
           {searchQuery && activeTab === 'watch' && watchlist.length > 0 && (
@@ -2339,7 +2339,7 @@ const AlphaBoard = ({ selectedAlpha, onSelect, onNewRunners, onLiveAlphas, onSzn
                 background: 'none', border: 'none', cursor: 'pointer',
                 color: 'var(--text-muted)', fontSize: 12, padding: 0, lineHeight: 1,
               }}
-            >Γ£ò</button>
+            >✕</button>
           )}
         </div>
       </div>
@@ -2413,7 +2413,7 @@ const AlphaBoard = ({ selectedAlpha, onSelect, onNewRunners, onLiveAlphas, onSzn
               whiteSpace: 'nowrap',
             }}
           >
-            ≡ƒôê Vol Rising
+            📈 Vol Rising
           </button>
         </div>
       )}
@@ -2431,11 +2431,11 @@ const AlphaBoard = ({ selectedAlpha, onSelect, onNewRunners, onLiveAlphas, onSzn
                 <div style={{ display: 'flex', gap: 4, alignItems: 'center' }}>
                   {[
                     { key: 'all',     label: 'All', title: 'All runners' },
-                    { key: 'organic', label: '≡ƒªà',  title: 'Organic runners' },
-                    { key: 'revival', label: '≡ƒöä',  title: 'Revived tokens' },
-                    { key: 'boosted', label: 'ΓÜí',  title: 'Boosted tokens' },
-                    { key: 'deriv',   label: '≡ƒº¼',  title: 'Derivative tokens' },
-                    { key: 'new',     label: 'Γ£¿',  title: 'New pairs' },
+                    { key: 'organic', label: '🦅',  title: 'Organic runners' },
+                    { key: 'revival', label: '🔄',  title: 'Revived tokens' },
+                    { key: 'boosted', label: '⚡',  title: 'Boosted tokens' },
+                    { key: 'deriv',   label: '🧬',  title: 'Derivative tokens' },
+                    { key: 'new',     label: '✨',  title: 'New pairs' },
                   ].map(f => (
                     <button key={f.key} onClick={() => setAlphaFilter(f.key)} title={f.title} style={{
                       fontFamily: 'var(--font-display)', fontSize: 8, fontWeight: 700,
@@ -2454,11 +2454,11 @@ const AlphaBoard = ({ selectedAlpha, onSelect, onNewRunners, onLiveAlphas, onSzn
                   border: '1px solid rgba(255,255,255,0.1)', borderRadius: 4,
                   padding: '2px 5px', cursor: 'pointer', outline: 'none',
                 }}>
-                  <option value="momentum">≡ƒöÑ Momentum</option>
-                  <option value="change">≡ƒôê 24h %</option>
-                  <option value="volume">≡ƒÆº Volume</option>
-                  <option value="mcap">≡ƒÆ░ Cap</option>
-                  <option value="age">≡ƒåò Newest</option>
+                  <option value="momentum">🔥 Momentum</option>
+                  <option value="change">📈 24h %</option>
+                  <option value="volume">💧 Volume</option>
+                  <option value="mcap">💰 Cap</option>
+                  <option value="age">🆕 Newest</option>
                 </select>
               </div>
             </div>
@@ -2466,25 +2466,25 @@ const AlphaBoard = ({ selectedAlpha, onSelect, onNewRunners, onLiveAlphas, onSzn
           {activeTab === 'cooling' && (
             <p style={{ fontFamily: 'var(--font-mono)', fontSize: 10, color: 'var(--text-muted)', lineHeight: 1.6, margin: 0, borderLeft: '2px solid var(--cyan)', paddingLeft: 8 }}>
               {volumeRising
-                ? `≡ƒôê ${filteredCooling.length} tokens with rising volume despite negative price — accumulation signal. Gold in the rough.`
+                ? `📈 ${filteredCooling.length} tokens with rising volume despite negative price — accumulation signal. Gold in the rough.`
                 : `Tokens retracing or consolidating — ${filteredCooling.length} in the last ${coolingTimeframe}. Sorted by recency. Gold in the rough.`
               }
-              {neonHistoryLoading && <span style={{ opacity: 0.6 }}> ┬╖ loading from DB...</span>}
-              {!neonHistoryLoading && neonHistoryTokens && <span style={{ opacity: 0.5 }}> ┬╖ shared</span>}
+              {neonHistoryLoading && <span style={{ opacity: 0.6 }}> · loading from DB...</span>}
+              {!neonHistoryLoading && neonHistoryTokens && <span style={{ opacity: 0.5 }}> · shared</span>}
             </p>
           )}
           {activeTab === 'positioning' && (
             <p style={{ fontFamily: 'var(--font-mono)', fontSize: 10, color: 'var(--text-muted)', lineHeight: 1.6, margin: 0, borderLeft: '2px solid var(--amber)', paddingLeft: 8 }}>
               Big peak. Big drawdown. Volume still alive. These are the second-leg setups degens hunt.
               {positioningAlphas.length === 0 && !neonHistoryLoading && ' Populates as tokens peak and retrace — check back after the next wave.'}
-              {neonHistoryLoading && <span style={{ opacity: 0.6 }}> ┬╖ loading from DB...</span>}
-              {!neonHistoryLoading && neonHistoryTokens && <span style={{ opacity: 0.5 }}> ┬╖ shared</span>}
+              {neonHistoryLoading && <span style={{ opacity: 0.6 }}> · loading from DB...</span>}
+              {!neonHistoryLoading && neonHistoryTokens && <span style={{ opacity: 0.5 }}> · shared</span>}
             </p>
           )}
 
           {activeTab === 'watch' && (
             <p style={{ fontFamily: 'var(--font-mono)', fontSize: 10, color: 'var(--text-muted)', lineHeight: 1.6, margin: 0, borderLeft: '2px solid var(--amber)', paddingLeft: 8 }}>
-              Your starred tokens. Γÿå star any runner, cooling token, or positioning play to save it here.
+              Your starred tokens. ☆ star any runner, cooling token, or positioning play to save it here.
             </p>
           )}
           {activeTab === 'folio' && (
@@ -2500,7 +2500,7 @@ const AlphaBoard = ({ selectedAlpha, onSelect, onNewRunners, onLiveAlphas, onSzn
                     color: folioView === v ? 'var(--cyan)' : 'var(--text-muted)',
                     transition: 'all 0.15s ease',
                   }}>
-                    {v === 'leaderboard' ? '≡ƒôè LEADERBOARD' : '≡ƒÄ» MY FOLIOS'}
+                    {v === 'leaderboard' ? '📊 LEADERBOARD' : '🎯 MY FOLIOS'}
                   </button>
                 ))}
               </div>
@@ -2511,7 +2511,7 @@ const AlphaBoard = ({ selectedAlpha, onSelect, onNewRunners, onLiveAlphas, onSzn
                   {folioLoading && <p style={{ fontFamily: 'var(--font-mono)', fontSize: 10, color: 'var(--text-muted)' }}>Loading...</p>}
                   {!folioLoading && folioLeaderboard.length === 0 && (
                     <p style={{ fontFamily: 'var(--font-mono)', fontSize: 10, color: 'var(--text-muted)', lineHeight: 1.6, borderLeft: '2px solid var(--border)', paddingLeft: 8 }}>
-                      No public folios yet. Connect wallet and hit ΓùÄ on any runner to make your first call.
+                      No public folios yet. Connect wallet and hit ◎ on any runner to make your first call.
                     </p>
                   )}
                   {folioLeaderboard.map((wallet, i) => {
@@ -2525,8 +2525,8 @@ const AlphaBoard = ({ selectedAlpha, onSelect, onNewRunners, onLiveAlphas, onSzn
                           <span style={{ fontFamily: 'var(--font-mono)', fontSize: 14, fontWeight: 900, color: i < 3 ? rankColors[i] : 'var(--text-muted)', minWidth: 24 }}>#{i + 1}</span>
                           <div style={{ flex: 1, minWidth: 0 }}>
                             <div style={{ fontFamily: 'var(--font-mono)', fontSize: 10, color: 'var(--text-muted)' }}>
-                              {wallet.wallet_address?.slice(0,6)}ΓÇª{wallet.wallet_address?.slice(-4)}
-                              {memberDays !== null && ' ┬╖ ' + memberDays + 'd member'}
+                              {wallet.wallet_address?.slice(0,6)}…{wallet.wallet_address?.slice(-4)}
+                              {memberDays !== null && ' · ' + memberDays + 'd member'}
                             </div>
                           </div>
                           <div style={{ textAlign: 'right', flexShrink: 0 }}>
@@ -2556,7 +2556,7 @@ const AlphaBoard = ({ selectedAlpha, onSelect, onNewRunners, onLiveAlphas, onSzn
                                 </div>
                                 <div style={{ textAlign: 'right' }}>
                                   {folio.avg_pnl !== null && <div style={{ fontFamily: 'var(--font-mono)', fontSize: 10, fontWeight: 700, color: folPnlColor }}>{folio.avg_pnl >= 0 ? '+' : ''}{folio.avg_pnl.toFixed(1)}%</div>}
-                                  {folio.best_call && <div style={{ fontFamily: 'var(--font-mono)', fontSize: 8, color: 'var(--neon-green)' }}>≡ƒÅå ${folio.best_call.symbol} +{folio.best_call.pnl_pct?.toFixed(0)}%</div>}
+                                  {folio.best_call && <div style={{ fontFamily: 'var(--font-mono)', fontSize: 8, color: 'var(--neon-green)' }}>🏆 ${folio.best_call.symbol} +{folio.best_call.pnl_pct?.toFixed(0)}%</div>}
                                 </div>
                               </div>
                               {narratives.length > 0 && (
@@ -2646,14 +2646,14 @@ const AlphaBoard = ({ selectedAlpha, onSelect, onNewRunners, onLiveAlphas, onSzn
           <div style={{ display: 'flex', alignItems: 'center', gap: 5, flexWrap: 'nowrap', overflow: 'hidden' }}>
             <span className="mono text-muted" style={{ fontSize: 9, flexShrink: 0 }}>
               {isRefreshing
-                ? <span style={{ color: 'var(--cyan)', animation: 'pulse 1.2s ease-in-out infinite' }}>Γå╗ Updating...</span>
+                ? <span style={{ color: 'var(--cyan)', animation: 'pulse 1.2s ease-in-out infinite' }}>↻ Updating...</span>
                 : `Updated ${lastUpdated.toLocaleTimeString()}`
               }
             </span>
 
           </div>
           <button className="btn btn-ghost btn-sm" onClick={refresh} style={{ padding: '2px 8px', fontSize: 9, flexShrink: 0 }}>
-            Γå║ Refresh
+            ↺ Refresh
           </button>
         </div>
       )}
@@ -2675,8 +2675,8 @@ const AlphaBoard = ({ selectedAlpha, onSelect, onNewRunners, onLiveAlphas, onSzn
               letterSpacing: 1, padding: '3px 4px', opacity: 0.8,
               display: 'flex', justifyContent: 'space-between', alignItems: 'center',
             }}>
-              <span>≡ƒöì {searchResults.length} DEX RESULTS — PICK ONE</span>
-              <span onClick={() => onSelectSearchResult(null)} style={{ cursor: 'pointer', opacity: 0.6 }}>Γ£ò clear</span>
+              <span>🔍 {searchResults.length} DEX RESULTS — PICK ONE</span>
+              <span onClick={() => onSelectSearchResult(null)} style={{ cursor: 'pointer', opacity: 0.6 }}>✕ clear</span>
             </div>
             {searchResults.map(token => (
               <AlphaCard
@@ -2702,8 +2702,8 @@ const AlphaBoard = ({ selectedAlpha, onSelect, onNewRunners, onLiveAlphas, onSzn
               letterSpacing: 1, padding: '3px 4px', opacity: 0.8,
               display: 'flex', justifyContent: 'space-between',
             }}>
-              <span>≡ƒöì FROM DEX SEARCH</span>
-              <span onClick={() => onSelect(null)} style={{ cursor: 'pointer', opacity: 0.6 }}>Γ£ò clear</span>
+              <span>🔍 FROM DEX SEARCH</span>
+              <span onClick={() => onSelect(null)} style={{ cursor: 'pointer', opacity: 0.6 }}>✕ clear</span>
             </div>
             <AlphaCard
               alpha={selectedAlpha}
@@ -2728,7 +2728,7 @@ const AlphaBoard = ({ selectedAlpha, onSelect, onNewRunners, onLiveAlphas, onSzn
         {/* Empty states */}
         {!loading && isEmpty && !searchQuery && activeTab === 'live' && (
           <div className="empty-state">
-            <div className="empty-state-icon">≡ƒôí</div>
+            <div className="empty-state-icon">📡</div>
             <div className="empty-state-title">No runners right now.</div>
             <div className="empty-state-sub">Trenches might be cooked.</div>
             <button className="btn btn-ghost btn-sm" onClick={() => setActiveTab('cooling')} style={{ marginTop: 12 }}>
@@ -2739,7 +2739,7 @@ const AlphaBoard = ({ selectedAlpha, onSelect, onNewRunners, onLiveAlphas, onSzn
 
         {!loading && isEmpty && !searchQuery && activeTab === 'cooling' && (
           <div className="empty-state">
-            <div className="empty-state-icon">Γ¥ä∩╕Å</div>
+            <div className="empty-state-icon">❄️</div>
             <div className="empty-state-title">Nothing cooling in the last {coolingTimeframe}.</div>
             <div className="empty-state-sub">
               {coolingTimeframe !== '7d'
@@ -2757,20 +2757,20 @@ const AlphaBoard = ({ selectedAlpha, onSelect, onNewRunners, onLiveAlphas, onSzn
 
         {!loading && isEmpty && !searchQuery && activeTab === 'watch' && (
           <div className="empty-state">
-            <div className="empty-state-icon">Γ¡É</div>
+            <div className="empty-state-icon">⭐</div>
             <div className="empty-state-title">No tokens starred yet.</div>
-            <div className="empty-state-sub">Tap Γÿå on any runner, cooling token, or positioning play to add it here.</div>
+            <div className="empty-state-sub">Tap ☆ on any runner, cooling token, or positioning play to add it here.</div>
           </div>
         )}
 
 
         {!loading && isEmpty && searchQuery && (
           <div className="empty-state">
-            <div className="empty-state-icon">≡ƒöì</div>
+            <div className="empty-state-icon">🔍</div>
             <div className="empty-state-title">"{searchQuery}" not in feed</div>
             <div className="empty-state-sub">
               {customAlphaLoading
-                ? 'Γƒ│ Searching DEX for this token...'
+                ? '⟳ Searching DEX for this token...'
                 : <>Press <strong>Enter</strong> to search all Solana tokens on DEX.</>}
             </div>
             {!customAlphaLoading && (
@@ -2779,7 +2779,7 @@ const AlphaBoard = ({ selectedAlpha, onSelect, onNewRunners, onLiveAlphas, onSzn
                 onClick={() => onCustomSearch?.(searchQuery)}
                 style={{ marginTop: 10 }}
               >
-                Search DEX Γåù
+                Search DEX ↗
               </button>
             )}
             <button className="btn btn-ghost btn-sm" onClick={() => setSearchQuery('')} style={{ marginTop: 6, opacity: 0.6 }}>
@@ -2793,7 +2793,7 @@ const AlphaBoard = ({ selectedAlpha, onSelect, onNewRunners, onLiveAlphas, onSzn
           <div style={{ overflowY: 'auto', flex: 1 }}>
             {filteredSzn.length === 0 ? (
               <div className="empty-state">
-                <div className="empty-state-icon">≡ƒîè</div>
+                <div className="empty-state-icon">🌊</div>
                 <div className="empty-state-title">No active narratives yet.</div>
                 <div className="empty-state-sub">Narratives form when 2+ runners share a theme. Refresh the feed.</div>
               </div>
@@ -2835,7 +2835,7 @@ const AlphaBoard = ({ selectedAlpha, onSelect, onNewRunners, onLiveAlphas, onSzn
                   color: 'rgb(255,200,0)', background: 'rgba(255,200,0,0.12)',
                   border: '1px solid rgba(255,200,0,0.4)', borderRadius: 3,
                   padding: '1px 5px', pointerEvents: 'none',
-                }}>ΓÜí BOOSTED</div>
+                }}>⚡ BOOSTED</div>
               )}
               <AlphaCard
                 alpha={alpha}
@@ -2863,7 +2863,7 @@ const AlphaBoard = ({ selectedAlpha, onSelect, onNewRunners, onLiveAlphas, onSzn
                 borderRadius: 8, padding: '6px 10px', marginBottom: 8,
                 transition: 'border-color 0.15s',
               }}>
-                <span style={{ fontSize: 10, color: 'var(--text-muted)', flexShrink: 0 }}>≡ƒöì</span>
+                <span style={{ fontSize: 10, color: 'var(--text-muted)', flexShrink: 0 }}>🔍</span>
                 <input
                   type="text"
                   placeholder="Search past runners by symbol or name..."
@@ -2879,7 +2879,7 @@ const AlphaBoard = ({ selectedAlpha, onSelect, onNewRunners, onLiveAlphas, onSzn
                   <button
                     onClick={() => setPastRunnersQuery('')}
                     style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-muted)', fontSize: 12, padding: 0, lineHeight: 1, flexShrink: 0 }}
-                  >Γ£ò</button>
+                  >✕</button>
                 )}
               </div>
               {/* Day filter + count row */}
@@ -2925,7 +2925,7 @@ const AlphaBoard = ({ selectedAlpha, onSelect, onNewRunners, onLiveAlphas, onSzn
                 (r.name   || '').toLowerCase().includes(pastRunnersQuery.toLowerCase())
               ).length === 0 && (
               <div style={{ textAlign: 'center', padding: 32 }}>
-                <div style={{ fontSize: 24, marginBottom: 8 }}>≡ƒöì</div>
+                <div style={{ fontSize: 24, marginBottom: 8 }}>🔍</div>
                 <div style={{ fontFamily: 'var(--font-display)', fontSize: 13, color: 'var(--text-primary)', marginBottom: 4 }}>
                   No runners match "{pastRunnersQuery}"
                 </div>
@@ -2937,10 +2937,10 @@ const AlphaBoard = ({ selectedAlpha, onSelect, onNewRunners, onLiveAlphas, onSzn
 
             {!pastRunnersLoading && pastRunners.length === 0 && (
               <div style={{ textAlign: 'center', padding: 32 }}>
-                <div style={{ fontSize: 28, marginBottom: 8 }}>≡ƒÅü</div>
+                <div style={{ fontSize: 28, marginBottom: 8 }}>🏁</div>
                 <div style={{ fontFamily: 'var(--font-display)', fontSize: 13, color: 'var(--text-primary)', marginBottom: 4 }}>No past runners yet</div>
                 <div style={{ fontFamily: 'var(--font-mono)', fontSize: 10, color: 'var(--text-muted)' }}>
-                  Data accumulates as alphas hit the feed. Check back after 24ΓÇô48h.
+                  Data accumulates as alphas hit the feed. Check back after 24–48h.
                 </div>
               </div>
             )}
@@ -3016,7 +3016,7 @@ const AlphaBoard = ({ selectedAlpha, onSelect, onNewRunners, onLiveAlphas, onSzn
                         <span style={{ fontFamily: 'var(--font-display)', fontSize: 13, fontWeight: 800, color: 'var(--text-primary)', letterSpacing: '0.01em' }}>${runner.symbol}</span>
                         {runner.runCount > 1 && (
                           <span style={{ fontFamily: 'var(--font-mono)', fontSize: 7, color: 'var(--amber)', background: 'rgba(255,170,0,0.1)', border: '1px solid rgba(255,170,0,0.25)', borderRadius: 3, padding: '1px 5px', fontWeight: 700 }}>
-                            ≡ƒöä {runner.runCount}├ù
+                            🔄 {runner.runCount}×
                           </span>
                         )}
                         {runner.category && (
@@ -3026,7 +3026,7 @@ const AlphaBoard = ({ selectedAlpha, onSelect, onNewRunners, onLiveAlphas, onSzn
                         )}
                       </div>
                       <div style={{ fontFamily: 'var(--font-body)', fontSize: 9, color: 'var(--text-muted)', marginTop: 2 }}>
-                        {runner.name} ┬╖ {lastSeenLabel}
+                        {runner.name} · {lastSeenLabel}
                       </div>
                     </div>
                     <div style={{ textAlign: 'right', flexShrink: 0 }}>
@@ -3072,7 +3072,7 @@ const AlphaBoard = ({ selectedAlpha, onSelect, onNewRunners, onLiveAlphas, onSzn
                               }
                               <span style={{ fontFamily: 'var(--font-display)', fontSize: 11, color: 'var(--text-primary)', flex: 1 }}>${beta.symbol}</span>
                               {beta.confirmedCount > 1 && (
-                                <span style={{ fontFamily: 'var(--font-mono)', fontSize: 8, color: 'var(--text-muted)' }}>├ù{beta.confirmedCount}</span>
+                                <span style={{ fontFamily: 'var(--font-mono)', fontSize: 8, color: 'var(--text-muted)' }}>×{beta.confirmedCount}</span>
                               )}
                               {beta.relationshipType && (
                                 <span style={{ fontFamily: 'var(--font-mono)', fontSize: 7, color: 'var(--cyan)', background: 'rgba(0,212,255,0.08)', borderRadius: 3, padding: '1px 4px' }}>{beta.relationshipType}</span>
@@ -3100,20 +3100,20 @@ const AlphaBoard = ({ selectedAlpha, onSelect, onNewRunners, onLiveAlphas, onSzn
   )
 }
 
-// ΓöÇΓöÇΓöÇ Signal Badge ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ
+// ─── Signal Badge ────────────────────────────────────────────────
 
-// ΓöÇΓöÇΓöÇ Relationship type badge config ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ
+// ─── Relationship type badge config ──────────────────────────────
 const RELATIONSHIP_CONFIG = {
-  TWIN:      { emoji: '≡ƒ¬₧', label: 'TWIN',      color: 'var(--cyan)',       bg: 'rgba(0,212,255,0.12)',   border: 'rgba(0,212,255,0.35)'  },
-  COUNTER:   { emoji: 'ΓÜí', label: 'COUNTER',   color: 'var(--amber)',      bg: 'rgba(255,184,0,0.12)',   border: 'rgba(255,184,0,0.35)'  },
-  ECHO:      { emoji: '≡ƒîè', label: 'ECHO',      color: '#b48eff',           bg: 'rgba(180,142,255,0.12)', border: 'rgba(180,142,255,0.35)' },
-  UNIVERSE:  { emoji: '≡ƒîî', label: 'UNIVERSE',  color: '#5cf0b0',           bg: 'rgba(92,240,176,0.10)',  border: 'rgba(92,240,176,0.3)'  },
-  SECTOR:    { emoji: '≡ƒÅ¡', label: 'SECTOR',    color: 'var(--neon-green)', bg: 'rgba(0,255,136,0.08)',   border: 'rgba(0,255,136,0.3)'   },
-  EVIL_TWIN: { emoji: '≡ƒÿê', label: 'EVIL TWIN', color: 'var(--red)',        bg: 'rgba(255,68,102,0.12)',  border: 'rgba(255,68,102,0.35)' },
-  SPIN:      { emoji: '≡ƒîÇ', label: 'SPIN',      color: 'var(--text-muted)', bg: 'rgba(255,255,255,0.05)', border: 'rgba(255,255,255,0.12)' },
+  TWIN:      { emoji: '🪞', label: 'TWIN',      color: 'var(--cyan)',       bg: 'rgba(0,212,255,0.12)',   border: 'rgba(0,212,255,0.35)'  },
+  COUNTER:   { emoji: '⚡', label: 'COUNTER',   color: 'var(--amber)',      bg: 'rgba(255,184,0,0.12)',   border: 'rgba(255,184,0,0.35)'  },
+  ECHO:      { emoji: '🌊', label: 'ECHO',      color: '#b48eff',           bg: 'rgba(180,142,255,0.12)', border: 'rgba(180,142,255,0.35)' },
+  UNIVERSE:  { emoji: '🌌', label: 'UNIVERSE',  color: '#5cf0b0',           bg: 'rgba(92,240,176,0.10)',  border: 'rgba(92,240,176,0.3)'  },
+  SECTOR:    { emoji: '🏭', label: 'SECTOR',    color: 'var(--neon-green)', bg: 'rgba(0,255,136,0.08)',   border: 'rgba(0,255,136,0.3)'   },
+  EVIL_TWIN: { emoji: '😈', label: 'EVIL TWIN', color: 'var(--red)',        bg: 'rgba(255,68,102,0.12)',  border: 'rgba(255,68,102,0.35)' },
+  SPIN:      { emoji: '🌀', label: 'SPIN',      color: 'var(--text-muted)', bg: 'rgba(255,255,255,0.05)', border: 'rgba(255,255,255,0.12)' },
 }
 
-// ΓöÇΓöÇΓöÇ Badge chip with click-to-reveal tooltip ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ
+// ─── Badge chip with click-to-reveal tooltip ─────────────────────
 const BadgeChip = ({ emoji, label, className, style: extraStyle = {} }) => {
   const ref = useRef(null)
   const [pos, setPos] = useState(null)
@@ -3171,9 +3171,9 @@ const SignalBadge = ({ beta }) => {
 
   // Emoji-only in badge, full description in tooltip
   const signalEmoji = {
-    CABAL:    'ΓÜí', MULTI:    'ΓÜí', TRENDING: '≡ƒöÑ', LP_PAIR:  '≡ƒöù',
-    AI:       '≡ƒñû', KEYWORD:  '≡ƒöì', VISUAL:   '≡ƒæü', TELEGRAM: '≡ƒôí',
-    TWITTER:  '≡ƒÉª', STRONG:   '≡ƒÆ¬', OG:       '≡ƒææ', WEAK:     'πÇ░∩╕Å',
+    CABAL:    '⚡', MULTI:    '⚡', TRENDING: '🔥', LP_PAIR:  '🔗',
+    AI:       '🤖', KEYWORD:  '🔍', VISUAL:   '👁', TELEGRAM: '📡',
+    TWITTER:  '🐦', STRONG:   '💪', OG:       '👑', WEAK:     '〰️',
   }
   const signalLabel = {
     CABAL:    'Multi-Signal — found by 2 or more detection methods simultaneously. Highest confidence.',
@@ -3195,8 +3195,8 @@ const SignalBadge = ({ beta }) => {
       {beta.tokenClass && (
         <BadgeChip
           emoji={
-            beta.tokenClass === 'OG'    ? '≡ƒææ' :
-            beta.tokenClass === 'RIVAL' ? 'ΓÜö∩╕Å' : '≡ƒîÇ'
+            beta.tokenClass === 'OG'    ? '👑' :
+            beta.tokenClass === 'RIVAL' ? '⚔️' : '🌀'
           }
           label={
             beta.tokenClass === 'OG'    ? 'OG — this token started the narrative. The original of its concept.' :
@@ -3234,13 +3234,13 @@ const SignalBadge = ({ beta }) => {
   )
 }
 
-// ΓöÇΓöÇΓöÇ Wave Badge ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ
+// ─── Wave Badge ──────────────────────────────────────────────────
 // Emoji-only in the row; full label shown on hover via Tooltip.
 const WAVE_PHASE_META = {
-  WAVE:    { emoji: '≡ƒîè', tip: 'Wave — entered less than 6h ago. Fresh and still moving.' },
-  '2ND LEG': { emoji: '≡ƒôê', tip: '2nd Leg — entered 6ΓÇô24h ago. May be building for a second push.' },
-  LATE:    { emoji: '≡ƒòÉ', tip: 'Late — entered 1ΓÇô7 days ago. Narrative is maturing.' },
-  COLD:    { emoji: '≡ƒºè', tip: 'Cold — entered 7+ days ago. Narrative has cooled.' },
+  WAVE:    { emoji: '🌊', tip: 'Wave — entered less than 6h ago. Fresh and still moving.' },
+  '2ND LEG': { emoji: '📈', tip: '2nd Leg — entered 6–24h ago. May be building for a second push.' },
+  LATE:    { emoji: '🕐', tip: 'Late — entered 1–7 days ago. Narrative is maturing.' },
+  COLD:    { emoji: '🧊', tip: 'Cold — entered 7+ days ago. Narrative has cooled.' },
 }
 
 const WaveBadge = ({ phase }) => {
@@ -3260,7 +3260,7 @@ const WaveBadge = ({ phase }) => {
   )
 }
 
-// ΓöÇΓöÇΓöÇ MCAP Ratio Badge ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ
+// ─── MCAP Ratio Badge ────────────────────────────────────────────
 
 const McapRatioBadge = ({ ratio }) => {
   if (!ratio || ratio < 2) return null
@@ -3272,7 +3272,7 @@ const McapRatioBadge = ({ ratio }) => {
   )
 }
 
-// ΓöÇΓöÇΓöÇ Nominate for Legend button ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ
+// ─── Nominate for Legend button ──────────────────────────────────
 const NominateButton = ({ address, symbol, name, compact = false }) => {
   const [submitted, setSubmitted]   = useState(false)
   const [count, setCount]           = useState(() => getNominations()[address]?.nominationCount || 0)
@@ -3311,7 +3311,7 @@ const NominateButton = ({ address, symbol, name, compact = false }) => {
     // Compact — one click submits immediately, no note required
     return submitted ? (
       <div style={{ fontFamily: 'var(--font-mono)', fontSize: 9, color: 'var(--amber)', padding: '3px 0' }}>
-        Γ¡É Nominated! Under review.
+        ⭐ Nominated! Under review.
       </div>
     ) : (
       <button
@@ -3327,7 +3327,7 @@ const NominateButton = ({ address, symbol, name, compact = false }) => {
           width: '100%', textAlign: 'left',
         }}
       >
-        Γ¡É Nominate for OG {count > 0 && <span style={{ color: 'var(--text-muted)', fontSize: 8 }}>({count})</span>}
+        ⭐ Nominate for OG {count > 0 && <span style={{ color: 'var(--text-muted)', fontSize: 8 }}>({count})</span>}
       </button>
     )
   }
@@ -3341,7 +3341,7 @@ const NominateButton = ({ address, symbol, name, compact = false }) => {
           borderRadius: 6, padding: '10px 14px',
           fontFamily: 'var(--font-mono)', fontSize: 10, color: 'var(--amber)',
         }}>
-          Γ¡É Nominated! {count > 1 && `${count} nominations so far`}<br/>
+          ⭐ Nominated! {count > 1 && `${count} nominations so far`}<br/>
           <span style={{ color: 'var(--text-muted)', fontSize: 9 }}>
             Under review. You'll see it here if approved.
           </span>
@@ -3378,14 +3378,14 @@ const NominateButton = ({ address, symbol, name, compact = false }) => {
           fontFamily: 'var(--font-mono)', fontSize: 10, color: 'var(--amber)',
           display: 'flex', alignItems: 'center', gap: 6,
         }}>
-          Γ¡É Nominate as OG {count > 0 && <span style={{ color: 'var(--text-muted)' }}>({count})</span>}
+          ⭐ Nominate as OG {count > 0 && <span style={{ color: 'var(--text-muted)' }}>({count})</span>}
         </button>
       )}
     </div>
   )
 }
 
-// ΓöÇΓöÇΓöÇ NominateSearchBar ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ
+// ─── NominateSearchBar ───────────────────────────────────────────
 // Lives in OGs tab — search any token by symbol/address and nominate it
 const NominateSearchBar = () => {
   const [query,   setQuery]   = useState('')
@@ -3429,7 +3429,7 @@ const NominateSearchBar = () => {
   return (
     <div style={{ marginTop: 8 }}>
       <div style={{ fontFamily: 'var(--font-mono)', fontSize: 8, color: 'var(--text-muted)', marginBottom: 6, letterSpacing: 1 }}>
-        Γ¡É NOMINATE A TOKEN FOR OG STATUS
+        ⭐ NOMINATE A TOKEN FOR OG STATUS
       </div>
       <div style={{ display: 'flex', gap: 6 }}>
         <input
@@ -3476,7 +3476,7 @@ const NominateSearchBar = () => {
                   ${result.symbol}
                 </span>
                 {result.isAlreadyOG && (
-                  <span className="badge badge-verified" style={{ fontSize: 7, padding: '1px 5px' }}>≡ƒÅå OG</span>
+                  <span className="badge badge-verified" style={{ fontSize: 7, padding: '1px 5px' }}>🏆 OG</span>
                 )}
               </div>
               <div style={{ fontFamily: 'var(--font-mono)', fontSize: 9, color: 'var(--text-muted)' }}>{result.name}</div>
@@ -3494,7 +3494,7 @@ const NominateSearchBar = () => {
           </div>
           {result.isAlreadyOG ? (
             <div style={{ fontFamily: 'var(--font-mono)', fontSize: 9, color: 'var(--amber)' }}>
-              ✔ Already an OG — this token is on the confirmed legends list.
+              ✓ Already an OG — this token is on the confirmed legends list.
             </div>
           ) : (
             <NominateButton
@@ -3509,7 +3509,7 @@ const NominateSearchBar = () => {
   )
 }
 
-// ΓöÇΓöÇΓöÇ Jupiter Swap Helper ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ
+// ─── Jupiter Swap Helper ─────────────────────────────────────────
 // Jupiter Plugin v4 — Ultra mode, RPC-less.
 // No referralAccount for now — causes init error until properly registered
 // under the Plugin project. Re-add once confirmed working end-to-end.
@@ -3570,7 +3570,7 @@ const openJupiterSwap = (token) => {
     },
   })
 }
-// ΓöÇΓöÇΓöÇ Beta Row ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ
+// ─── Beta Row ────────────────────────────────────────────────────
 
 const BetaRow = ({ beta, alpha, isPinned, isBoosted, isListed, trenchOnly, onOpenDrawer, onSwap, onBoost, onList, isAuthed, boostSlotsAvail, listSlotsAvail }) => {
   const change     = parseFloat(beta.priceChange24h) || 0
@@ -3607,26 +3607,26 @@ const BetaRow = ({ beta, alpha, isPinned, isBoosted, isListed, trenchOnly, onOpe
             <span style={{ fontFamily: 'var(--font-display)', fontWeight: 700, fontSize: 13, color: 'var(--text-primary)' }}>
               ${beta.symbol}
             </span>
-            {isBoosted      && <Tooltip text="Boosted — project paid to promote this beta"><span className="badge" style={{ fontSize: 10, padding: '1px 4px', background: 'rgba(255,200,0,0.15)', borderColor: 'rgba(255,200,0,0.5)', color: 'rgb(255,200,0)', cursor: 'default', fontWeight: 700 }}>ΓÜí BOOSTED</span></Tooltip>}
-            {isListed       && <Tooltip text="Listed — project paid to place this token as a beta here"><span className="badge" style={{ fontSize: 10, padding: '1px 4px', background: 'rgba(100,180,255,0.15)', borderColor: 'rgba(100,180,255,0.5)', color: 'rgb(100,180,255)', cursor: 'default', fontWeight: 700 }}>≡ƒôï LISTED</span></Tooltip>}
-            {isLPPair       && <Tooltip text="LP pair — direct on-chain liquidity link"><span className="badge badge-cabal" style={{ fontSize: 11, padding: '1px 3px', cursor: 'default' }}>≡ƒöù</span></Tooltip>}
-            {isTelegramSig  && <Tooltip text="Telegram signal — spotted in CT alpha channels"><span className="badge" style={{ fontSize: 11, padding: '1px 3px', background: 'rgba(0,212,180,0.15)', borderColor: 'rgba(0,212,180,0.4)', color: 'rgb(0,212,180)', animation: 'pulse 2s infinite', cursor: 'default' }}>≡ƒôí</span></Tooltip>}
-            {isTwitterSig   && <Tooltip text="Twitter signal — spotted on CT"><span className="badge" style={{ fontSize: 11, padding: '1px 3px', background: 'rgba(29,161,242,0.15)', borderColor: 'rgba(29,161,242,0.4)', color: 'rgb(29,161,242)', animation: 'pulse 2s infinite', cursor: 'default' }}>≡ƒÉª</span></Tooltip>}
-            {isTied         && <Tooltip text="Tied — two tokens with similar momentum for this concept"><span className="badge badge-strong" style={{ fontSize: 11, padding: '1px 3px', cursor: 'default' }}>ΓÜí</span></Tooltip>}
-            {isTrench       && <Tooltip text="Trenches — market cap under $30K. Very high risk, very high reward."><span className="badge badge-new" style={{ fontSize: 11, padding: '1px 3px', cursor: 'default' }}>Γ¢Å∩╕Å</span></Tooltip>}
+            {isBoosted      && <Tooltip text="Boosted — project paid to promote this beta"><span className="badge" style={{ fontSize: 10, padding: '1px 4px', background: 'rgba(255,200,0,0.15)', borderColor: 'rgba(255,200,0,0.5)', color: 'rgb(255,200,0)', cursor: 'default', fontWeight: 700 }}>⚡ BOOSTED</span></Tooltip>}
+            {isListed       && <Tooltip text="Listed — project paid to place this token as a beta here"><span className="badge" style={{ fontSize: 10, padding: '1px 4px', background: 'rgba(100,180,255,0.15)', borderColor: 'rgba(100,180,255,0.5)', color: 'rgb(100,180,255)', cursor: 'default', fontWeight: 700 }}>📋 LISTED</span></Tooltip>}
+            {isLPPair       && <Tooltip text="LP pair — direct on-chain liquidity link"><span className="badge badge-cabal" style={{ fontSize: 11, padding: '1px 3px', cursor: 'default' }}>🔗</span></Tooltip>}
+            {isTelegramSig  && <Tooltip text="Telegram signal — spotted in CT alpha channels"><span className="badge" style={{ fontSize: 11, padding: '1px 3px', background: 'rgba(0,212,180,0.15)', borderColor: 'rgba(0,212,180,0.4)', color: 'rgb(0,212,180)', animation: 'pulse 2s infinite', cursor: 'default' }}>📡</span></Tooltip>}
+            {isTwitterSig   && <Tooltip text="Twitter signal — spotted on CT"><span className="badge" style={{ fontSize: 11, padding: '1px 3px', background: 'rgba(29,161,242,0.15)', borderColor: 'rgba(29,161,242,0.4)', color: 'rgb(29,161,242)', animation: 'pulse 2s infinite', cursor: 'default' }}>🐦</span></Tooltip>}
+            {isTied         && <Tooltip text="Tied — two tokens with similar momentum for this concept"><span className="badge badge-strong" style={{ fontSize: 11, padding: '1px 3px', cursor: 'default' }}>⚡</span></Tooltip>}
+            {isTrench       && <Tooltip text="Trenches — market cap under $30K. Very high risk, very high reward."><span className="badge badge-new" style={{ fontSize: 11, padding: '1px 3px', cursor: 'default' }}>⛏️</span></Tooltip>}
             <FlagWarningBadge address={beta.address} />
             {beta.decayCount >= 2 && (
-              <Tooltip text={`ΓÜá∩╕Å ${beta.decayCount}/5 decay signals: ${(beta.decaySignals || []).join(', ')}`}>
+              <Tooltip text={`⚠️ ${beta.decayCount}/5 decay signals: ${(beta.decaySignals || []).join(', ')}`}>
                 <span style={{
                   fontSize: 7, padding: '1px 5px', cursor: 'default',
                   background: 'rgba(255,170,0,0.1)', border: '1px solid rgba(255,170,0,0.3)',
                   borderRadius: 3, color: 'var(--amber)', fontFamily: 'var(--font-mono)',
                   fontWeight: 700, letterSpacing: 0.3,
-                }}>ΓÜá∩╕Å {beta.decayCount}/5</span>
+                }}>⚠️ {beta.decayCount}/5</span>
               </Tooltip>
             )}
-            {isPinned       && <Tooltip text="Dev verified — project team verified"><span className="badge badge-verified" style={{ fontSize: 11, padding: '1px 3px', cursor: 'default' }}>✔</span></Tooltip>}
-            {beta.isSibling && <Tooltip text="Sibling — shares the same parent alpha"><span className="badge badge-cabal" style={{ fontSize: 11, padding: '1px 3px', opacity: 0.85, cursor: 'default' }}>≡ƒæÑ</span></Tooltip>}
+            {isPinned       && <Tooltip text="Dev verified — project team verified"><span className="badge badge-verified" style={{ fontSize: 11, padding: '1px 3px', cursor: 'default' }}>✓</span></Tooltip>}
+            {beta.isSibling && <Tooltip text="Sibling — shares the same parent alpha"><span className="badge badge-cabal" style={{ fontSize: 11, padding: '1px 3px', opacity: 0.85, cursor: 'default' }}>👥</span></Tooltip>}
             {isAuthed && !isBoosted && onBoost && (
               <Tooltip text={boostSlotsAvail > 0 ? `Boost this token — 1 SOL / 24hrs (${boostSlotsAvail} slot${boostSlotsAvail !== 1 ? 's' : ''} free)` : 'All boost slots full — check back soon'}>
                 <button
@@ -3639,19 +3639,19 @@ const BetaRow = ({ beta, alpha, isPinned, isBoosted, isListed, trenchOnly, onOpe
                     fontFamily: 'var(--font-mono)', fontWeight: 700, letterSpacing: 0.3,
                     opacity: boostSlotsAvail === 0 ? 0.4 : 1,
                   }}
-                >ΓÜí BOOST</button>
+                >⚡ BOOST</button>
               </Tooltip>
             )}
           </div>
           <div style={{ display: 'flex', gap: 6, alignItems: 'center', marginTop: 1 }}>
             <CopyAddress address={beta.address} />
-            {beta.isHistorical && <span style={{ fontFamily: 'var(--font-mono)', fontSize: 9, color: 'var(--text-muted)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: 3, padding: '1px 3px' }}>≡ƒôª</span>}
+            {beta.isHistorical && <span style={{ fontFamily: 'var(--font-mono)', fontSize: 9, color: 'var(--text-muted)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: 3, padding: '1px 3px' }}>📦</span>}
             <WaveBadge phase={wave} />
           </div>
         </div>
       </div>
 
-      {/* ΓöÇΓöÇ Mobile card layout — hidden on desktop ΓöÇΓöÇ */}
+      {/* ── Mobile card layout — hidden on desktop ── */}
       <div className="beta-card-top">
         <div className="beta-card-left">
           <div className="token-icon" style={{ width: 32, height: 32, fontSize: 9, flexShrink: 0, borderRadius: '50%', background: 'var(--surface-3)', border: '1px solid var(--border)', display: 'flex', alignItems: 'center', justifyContent: 'center', overflow: 'hidden' }}>
@@ -3666,14 +3666,14 @@ const BetaRow = ({ beta, alpha, isPinned, isBoosted, isListed, trenchOnly, onOpe
             </div>
             {/* Badge row: all badges on second line */}
             <div style={{ display: 'flex', gap: 3, flexWrap: 'wrap' }}>
-              {isBoosted     && <span className="badge" style={{ fontSize: 9, padding: '1px 4px', background: 'rgba(255,200,0,0.15)', borderColor: 'rgba(255,200,0,0.5)', color: 'rgb(255,200,0)', fontWeight: 700 }}>ΓÜí BOOSTED</span>}
-              {isListed      && <span className="badge" style={{ fontSize: 9, padding: '1px 4px', background: 'rgba(100,180,255,0.15)', borderColor: 'rgba(100,180,255,0.5)', color: 'rgb(100,180,255)', fontWeight: 700 }}>≡ƒôï LISTED</span>}
-              {isLPPair      && <span className="badge badge-cabal" style={{ fontSize: 9, padding: '1px 4px' }}>≡ƒöù LP</span>}
-              {isTelegramSig && <span className="badge" style={{ fontSize: 9, padding: '1px 4px', background: 'rgba(0,212,180,0.15)', borderColor: 'rgba(0,212,180,0.4)', color: 'rgb(0,212,180)' }}>≡ƒôí TG</span>}
-              {isTwitterSig  && <span className="badge" style={{ fontSize: 9, padding: '1px 4px', background: 'rgba(29,161,242,0.15)', borderColor: 'rgba(29,161,242,0.4)', color: 'rgb(29,161,242)' }}>≡ƒÉª X</span>}
-              {isTrench      && <span className="badge badge-new" style={{ fontSize: 9, padding: '1px 4px' }}>Γ¢Å∩╕Å TRENCH</span>}
-              {isTied        && <span className="badge badge-strong" style={{ fontSize: 9, padding: '1px 4px' }}>ΓÜí TIED</span>}
-              {beta.isSibling && <span className="badge badge-cabal" style={{ fontSize: 9, padding: '1px 4px' }}>≡ƒæÑ SIBLING</span>}
+              {isBoosted     && <span className="badge" style={{ fontSize: 9, padding: '1px 4px', background: 'rgba(255,200,0,0.15)', borderColor: 'rgba(255,200,0,0.5)', color: 'rgb(255,200,0)', fontWeight: 700 }}>⚡ BOOSTED</span>}
+              {isListed      && <span className="badge" style={{ fontSize: 9, padding: '1px 4px', background: 'rgba(100,180,255,0.15)', borderColor: 'rgba(100,180,255,0.5)', color: 'rgb(100,180,255)', fontWeight: 700 }}>📋 LISTED</span>}
+              {isLPPair      && <span className="badge badge-cabal" style={{ fontSize: 9, padding: '1px 4px' }}>🔗 LP</span>}
+              {isTelegramSig && <span className="badge" style={{ fontSize: 9, padding: '1px 4px', background: 'rgba(0,212,180,0.15)', borderColor: 'rgba(0,212,180,0.4)', color: 'rgb(0,212,180)' }}>📡 TG</span>}
+              {isTwitterSig  && <span className="badge" style={{ fontSize: 9, padding: '1px 4px', background: 'rgba(29,161,242,0.15)', borderColor: 'rgba(29,161,242,0.4)', color: 'rgb(29,161,242)' }}>🐦 X</span>}
+              {isTrench      && <span className="badge badge-new" style={{ fontSize: 9, padding: '1px 4px' }}>⛏️ TRENCH</span>}
+              {isTied        && <span className="badge badge-strong" style={{ fontSize: 9, padding: '1px 4px' }}>⚡ TIED</span>}
+              {beta.isSibling && <span className="badge badge-cabal" style={{ fontSize: 9, padding: '1px 4px' }}>👥 SIBLING</span>}
               <FlagWarningBadge address={beta.address} />
             </div>
           </div>
@@ -3708,7 +3708,7 @@ const BetaRow = ({ beta, alpha, isPinned, isBoosted, isListed, trenchOnly, onOpe
         <McapRatioBadge ratio={beta.mcapRatio} />
         {/* ATH — only shown when peak_mcap is known (token was previously an alpha) */}
         {(beta.peakMarketCap || 0) > 0 && (beta.peakMarketCap || 0) > (beta.marketCap || 0) && (
-          <Tooltip text={`ATH ${formatNum(beta.peakMarketCap)} ┬╖ now ${Math.round((beta.marketCap / beta.peakMarketCap) * 100)}% of peak`}>
+          <Tooltip text={`ATH ${formatNum(beta.peakMarketCap)} · now ${Math.round((beta.marketCap / beta.peakMarketCap) * 100)}% of peak`}>
             <span style={{
               fontFamily:   'var(--font-mono)', fontSize: 8,
               color:        'var(--text-muted)', cursor: 'default',
@@ -3740,7 +3740,7 @@ const BetaRow = ({ beta, alpha, isPinned, isBoosted, isListed, trenchOnly, onOpe
   )
 }
 
-// ΓöÇΓöÇΓöÇ Parent Alpha Card ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ
+// ─── Parent Alpha Card ───────────────────────────────────────────
 
 const ParentAlphaCard = ({ parent }) => {
   const change     = parseFloat(parent.priceChange24h) || 0
@@ -3763,10 +3763,10 @@ const ParentAlphaCard = ({ parent }) => {
         marginBottom: 8, display: 'flex', alignItems: 'center',
         justifyContent: 'space-between', flexWrap: 'wrap', gap: 4,
       }}>
-        <span>≡ƒº¼ Parent Alpha — Root of this narrative</span>
+        <span>🧬 Parent Alpha — Root of this narrative</span>
         {isCooling && (
           <span className="badge badge-weak" style={{ fontSize: 9, padding: '2px 6px', cursor: 'default', whiteSpace: 'nowrap' }}>
-            Γ¥ä∩╕Å COOLING — 2nd leg incoming
+            ❄️ COOLING — 2nd leg incoming
           </span>
         )}
       </div>
@@ -3785,7 +3785,7 @@ const ParentAlphaCard = ({ parent }) => {
               <span
                 onClick={e => { e.stopPropagation(); window.open(parent.dexUrl || `https://dexscreener.com/solana/${parent.address}`, '_blank') }}
                 style={{ fontFamily: 'var(--font-mono)', fontSize: 8, color: 'var(--text-muted)', cursor: 'pointer', padding: '1px 4px', borderRadius: 3, border: '1px solid rgba(255,255,255,0.08)' }}
-              >DEX Γåù</span>
+              >DEX ↗</span>
               <XSearchButton symbol={parent.symbol} onClick={e => e.stopPropagation()} />
             </div>
           </div>
@@ -3805,13 +3805,13 @@ const ParentAlphaCard = ({ parent }) => {
         </div>
       </div>
       <div style={{ marginTop: 10, fontFamily: 'var(--font-mono)', fontSize: 10, color: 'var(--text-muted)' }}>
-        ΓÜá∩╕Å If parent dumps, this runner likely follows. Watch both.
+        ⚠️ If parent dumps, this runner likely follows. Watch both.
       </div>
     </div>
   )
 }
 
-// ΓöÇΓöÇΓöÇ Szn Panel ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ
+// ─── Szn Panel ───────────────────────────────────────────────────
 
 const SznPanel = ({ szn, onListBeta, onOpenDrawer }) => {
   const [sortBy,     setSortBy]     = useState('change')
@@ -3836,13 +3836,13 @@ const SznPanel = ({ szn, onListBeta, onOpenDrawer }) => {
         <div className="beta-panel-title-group">
           <h1 className="beta-panel-title">{szn.label} Szn</h1>
           <p className="beta-panel-subtitle">
-            <span style={{ color: 'var(--cyan)' }}>{szn.tokenCount} tokens</span>{' '}running the narrative ┬╖ avg{' '}
+            <span style={{ color: 'var(--cyan)' }}>{szn.tokenCount} tokens</span>{' '}running the narrative · avg{' '}
             <span style={{ color: szn.avgChange >= 0 ? 'var(--neon-green)' : 'var(--red)' }}>
               {szn.avgChange >= 0 ? '+' : ''}{szn.avgChange.toFixed(1)}%
             </span>{' '}24h
           </p>
         </div>
-        <button className="btn btn-amber btn-sm" onClick={onListBeta}>ΓÜí List Beta</button>
+        <button className="btn btn-amber btn-sm" onClick={onListBeta}>⚡ List Beta</button>
       </div>
 
       <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center', flexShrink: 0 }}>
@@ -3864,7 +3864,7 @@ const SznPanel = ({ szn, onListBeta, onOpenDrawer }) => {
         </div>
         {displayed.length === 0 && (
           <div className="empty-state" style={{ marginTop: 24 }}>
-            <div className="empty-state-icon">≡ƒöì</div>
+            <div className="empty-state-icon">🔍</div>
             <div className="empty-state-title">No tokens match this filter.</div>
           </div>
         )}
@@ -3899,7 +3899,7 @@ const SznPanel = ({ szn, onListBeta, onOpenDrawer }) => {
                 <span style={{ fontFamily: 'var(--font-mono)', fontSize: 7, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.5px' }}>24H</span>
                 <span className={`token-change ${isPositive ? 'positive' : 'negative'}`} style={{ fontSize: 11, fontWeight: 700 }}>{isPositive ? '+' : ''}{change.toFixed(1)}%</span>
               </div>
-              <span className="badge badge-strong" style={{ fontSize: 8, padding: '2px 6px' }}>≡ƒîè SZN</span>
+              <span className="badge badge-strong" style={{ fontSize: 8, padding: '2px 6px' }}>🌊 SZN</span>
             </div>
           )
         })}
@@ -3908,11 +3908,11 @@ const SznPanel = ({ szn, onListBeta, onOpenDrawer }) => {
   )
 }
 
-// ΓöÇΓöÇΓöÇ List Your Beta Modal ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ
+// ─── List Your Beta Modal ─────────────────────────────────────────
 // Self-serve listing flow. Three steps:
-// 1. Enter token CA ΓåÆ fetch from DEXScreener
+// 1. Enter token CA → fetch from DEXScreener
 // 2. Search/select alpha to list under (pre-filled if opened from beta panel)
-// 3. Confirm details + pay 1 SOL ΓåÆ backend verifies on-chain ΓåÆ listed
+// 3. Confirm details + pay 1 SOL → backend verifies on-chain → listed
 
 const LISTING_PRICE_SOL = 1
 
@@ -4102,13 +4102,13 @@ const ListYourBetaModal = ({ prefilledAlpha, authToken, authWallet, isAuthed, li
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 20 }}>
           <div>
             <div style={{ fontSize: 17, fontWeight: 800, color: 'rgb(100,180,255)', fontFamily: 'var(--font-display)' }}>
-              ≡ƒôï List Your Beta
+              📋 List Your Beta
             </div>
             <div style={{ fontSize: 10, color: 'var(--text-muted)', marginTop: 3 }}>
-              Place your token as a beta under a specific alpha ┬╖ {LISTING_PRICE_SOL} SOL ┬╖ 24 hours
+              Place your token as a beta under a specific alpha · {LISTING_PRICE_SOL} SOL · 24 hours
             </div>
           </div>
-          <button onClick={onClose} style={{ ...btnGhost, padding: '4px 8px', fontSize: 10 }}>Γ£ò</button>
+          <button onClick={onClose} style={{ ...btnGhost, padding: '4px 8px', fontSize: 10 }}>✕</button>
         </div>
 
         {/* Step indicator */}
@@ -4124,12 +4124,12 @@ const ListYourBetaModal = ({ prefilledAlpha, authToken, authWallet, isAuthed, li
                 background: done ? 'rgba(100,180,255,0.2)' : active ? 'rgba(100,180,255,0.1)' : 'rgba(255,255,255,0.04)',
                 color: done || active ? 'rgb(100,180,255)' : 'var(--text-muted)',
                 border: `1px solid ${done || active ? 'rgba(100,180,255,0.3)' : 'var(--border)'}`,
-              }}>{done ? '✔ ' : ''}{label}</div>
+              }}>{done ? '✓ ' : ''}{label}</div>
             )
           })}
         </div>
 
-        {/* ΓöÇΓöÇ Step 1: Token CA ΓöÇΓöÇ */}
+        {/* ── Step 1: Token CA ── */}
         {step === 'token' && (
           <>
             <div style={{ fontSize: 10, color: 'var(--text-muted)', marginBottom: 8 }}>
@@ -4137,7 +4137,7 @@ const ListYourBetaModal = ({ prefilledAlpha, authToken, authWallet, isAuthed, li
             </div>
             <input
               style={inputStyle}
-              placeholder="Token CA (e.g. 7xKXΓÇª)"
+              placeholder="Token CA (e.g. 7xKX…)"
               value={tokenCA}
               onChange={e => setTokenCA(e.target.value)}
               onKeyDown={e => e.key === 'Enter' && fetchToken()}
@@ -4148,11 +4148,11 @@ const ListYourBetaModal = ({ prefilledAlpha, authToken, authWallet, isAuthed, li
               onClick={fetchToken}
               disabled={tokenLoading || !tokenCA.trim()}
               style={{ ...btnPrimary, marginTop: 12, opacity: tokenLoading || !tokenCA.trim() ? 0.5 : 1 }}
-            >{tokenLoading ? 'Fetching...' : 'Look Up Token ΓåÆ'}</button>
+            >{tokenLoading ? 'Fetching...' : 'Look Up Token →'}</button>
           </>
         )}
 
-        {/* ΓöÇΓöÇ Step 2: Select Alpha ΓöÇΓöÇ */}
+        {/* ── Step 2: Select Alpha ── */}
         {step === 'alpha' && tokenData && (
           <>
             {/* Token preview */}
@@ -4205,7 +4205,7 @@ const ListYourBetaModal = ({ prefilledAlpha, authToken, authWallet, isAuthed, li
                     onClick={() => handleAlphaSelect(alphaQuery)}
                     disabled={alphaFetching}
                     style={{ ...btnPrimary, marginTop: 8, opacity: alphaFetching ? 0.5 : 1 }}
-                  >{alphaFetching ? 'Fetching alpha...' : '≡ƒöì Look up this CA as alpha ΓåÆ'}</button>
+                  >{alphaFetching ? 'Fetching alpha...' : '🔍 Look up this CA as alpha →'}</button>
                 )}
                 <div style={{ marginTop: 6, maxHeight: 220, overflowY: 'auto', paddingRight: 2 }}>
                   {alphaResults.length === 0 && !looksLikeCA(alphaQuery) && (
@@ -4243,13 +4243,13 @@ const ListYourBetaModal = ({ prefilledAlpha, authToken, authWallet, isAuthed, li
 
             {prefilledAlpha && (
               <button onClick={() => checkSlots(prefilledAlpha)} style={{ ...btnPrimary, marginTop: 8 }}>
-                Continue ΓåÆ
+                Continue →
               </button>
             )}
           </>
         )}
 
-        {/* ΓöÇΓöÇ Step 3: Confirm + Pay ΓöÇΓöÇ */}
+        {/* ── Step 3: Confirm + Pay ── */}
         {(step === 'confirm' || step === 'sending' || step === 'verifying' || step === 'error') && tokenData && selectedAlpha && (
           <>
             <div style={{
@@ -4259,7 +4259,7 @@ const ListYourBetaModal = ({ prefilledAlpha, authToken, authWallet, isAuthed, li
               {[
                 ['Your token',    `$${tokenData.symbol} — ${tokenData.name}`],
                 ['Listed under',  `$${selectedAlpha.symbol}`],
-                ['Badge',         '≡ƒôï LISTED (clearly marked as paid)'],
+                ['Badge',         '📋 LISTED (clearly marked as paid)'],
                 ['Duration',      '24 hours'],
                 ['Slots available', alphaSlots !== null ? `${alphaSlots} of 2` : 'Checking...'],
               ].map(([k, v]) => (
@@ -4282,27 +4282,27 @@ const ListYourBetaModal = ({ prefilledAlpha, authToken, authWallet, isAuthed, li
 
             {!isAuthed && (
               <div style={{ color: 'rgb(255,200,0)', fontSize: 10, marginBottom: 10, textAlign: 'center' }}>
-                ΓÜá∩╕Å Connect and sign in with your wallet to complete this listing.
+                ⚠️ Connect and sign in with your wallet to complete this listing.
               </div>
             )}
 
             {step === 'confirm' && (
               <div style={{ display: 'flex', gap: 10 }}>
-                <button onClick={() => setStep('alpha')} style={btnGhost}>ΓåÉ Back</button>
+                <button onClick={() => setStep('alpha')} style={btnGhost}>← Back</button>
                 <button
                   onClick={handlePay}
                   disabled={!isAuthed || alphaSlots === 0}
                   style={{ ...btnPrimary, flex: 1, opacity: (!isAuthed || alphaSlots === 0) ? 0.4 : 1 }}
-                >≡ƒôï Pay {LISTING_PRICE_SOL} SOL & List</button>
+                >📋 Pay {LISTING_PRICE_SOL} SOL & List</button>
               </div>
             )}
-            {step === 'sending'   && <div style={{ textAlign: 'center', color: 'var(--text-muted)', fontSize: 11, padding: '10px 0' }}>Γ£ì∩╕Å Confirm transaction in wallet...</div>}
-            {step === 'verifying' && <div style={{ textAlign: 'center', color: 'var(--cyan)', fontSize: 11, padding: '10px 0' }}>≡ƒöì Verifying payment on-chain...</div>}
+            {step === 'sending'   && <div style={{ textAlign: 'center', color: 'var(--text-muted)', fontSize: 11, padding: '10px 0' }}>✍️ Confirm transaction in wallet...</div>}
+            {step === 'verifying' && <div style={{ textAlign: 'center', color: 'var(--cyan)', fontSize: 11, padding: '10px 0' }}>🔍 Verifying payment on-chain...</div>}
             {step === 'error' && (
               <>
                 <div style={{ color: 'var(--red)', fontSize: 10, marginBottom: 10, textAlign: 'center' }}>{payErr}</div>
                 <div style={{ display: 'flex', gap: 10 }}>
-                  <button onClick={() => setStep('confirm')} style={btnGhost}>ΓåÉ Back</button>
+                  <button onClick={() => setStep('confirm')} style={btnGhost}>← Back</button>
                   <button onClick={handlePay} style={{ ...btnPrimary, flex: 1 }}>Retry</button>
                 </div>
               </>
@@ -4310,10 +4310,10 @@ const ListYourBetaModal = ({ prefilledAlpha, authToken, authWallet, isAuthed, li
           </>
         )}
 
-        {/* ΓöÇΓöÇ Done ΓöÇΓöÇ */}
+        {/* ── Done ── */}
         {step === 'done' && (
           <div style={{ textAlign: 'center', padding: '20px 0' }}>
-            <div style={{ fontSize: 28, marginBottom: 10 }}>Γ£à</div>
+            <div style={{ fontSize: 28, marginBottom: 10 }}>✅</div>
             <div style={{ fontSize: 14, fontWeight: 800, color: 'rgb(57,255,20)', marginBottom: 6 }}>Listing confirmed!</div>
             <div style={{ fontSize: 10, color: 'var(--text-muted)' }}>
               ${tokenData?.symbol} is now listed as a beta under ${selectedAlpha?.symbol} for 24 hours.
@@ -4326,8 +4326,8 @@ const ListYourBetaModal = ({ prefilledAlpha, authToken, authWallet, isAuthed, li
   )
 }
 
-// ΓöÇΓöÇΓöÇ Ad Card ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ
-// Injected after beta row 3. Clearly marked as ≡ƒôó AD.
+// ─── Ad Card ─────────────────────────────────────────────────────
+// Injected after beta row 3. Clearly marked as 📢 AD.
 // Random rotation — one ad picked per beta panel load.
 
 const AdCard = ({ ad }) => {
@@ -4346,7 +4346,7 @@ const AdCard = ({ ad }) => {
         background: 'rgba(100,180,255,0.08)',
         borderBottom: '1px solid rgba(100,180,255,0.12)',
       }}>
-        <span style={{ fontSize: 8, fontFamily: 'var(--font-mono)', fontWeight: 700, color: 'rgba(100,180,255,0.6)', letterSpacing: 1 }}>≡ƒôó SPONSORED</span>
+        <span style={{ fontSize: 8, fontFamily: 'var(--font-mono)', fontWeight: 700, color: 'rgba(100,180,255,0.6)', letterSpacing: 1 }}>📢 SPONSORED</span>
         <span style={{ fontSize: 8, fontFamily: 'var(--font-mono)', color: 'rgba(255,255,255,0.2)' }}>Not financial advice</span>
       </div>
 
@@ -4384,13 +4384,13 @@ const AdCard = ({ ad }) => {
           border: '1px solid rgba(100,180,255,0.4)',
           borderRadius: 6, padding: '6px 12px',
           flexShrink: 0, whiteSpace: 'nowrap',
-        }}>{ad.cta_text || 'Learn More'} ΓåÆ</div>
+        }}>{ad.cta_text || 'Learn More'} →</div>
       </a>
     </div>
   )
 }
 
-// ΓöÇΓöÇΓöÇ Listed Modal ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ
+// ─── Listed Modal ─────────────────────────────────────────────────
 const ListedModal = ({ beta, alpha, authToken, priceSol = 1, onClose, onSuccess }) => {
   const { sendTransaction, publicKey } = useWallet()
   const [step,   setStep]   = useState('confirm')
@@ -4455,7 +4455,7 @@ const ListedModal = ({ beta, alpha, authToken, priceSol = 1, onClose, onSuccess 
         fontFamily: 'var(--font-mono)', position: 'relative', zIndex: 100000,
       }} onClick={e => e.stopPropagation()}>
         <div style={{ fontSize: 16, fontWeight: 800, color: 'rgb(100,180,255)', marginBottom: 4, fontFamily: 'var(--font-display)' }}>
-          ≡ƒôï LIST ${beta.symbol}
+          📋 LIST ${beta.symbol}
         </div>
         <div style={{ fontSize: 10, color: 'var(--text-muted)', marginBottom: 20 }}>
           Places this token as a beta under ${alpha?.symbol || 'this alpha'} for 24 hours. Clearly marked as a paid listing — separate from organic detections.
@@ -4490,12 +4490,12 @@ const ListedModal = ({ beta, alpha, authToken, priceSol = 1, onClose, onSuccess 
               flex: 2, padding: '9px 0', borderRadius: 6, fontSize: 12, fontWeight: 800,
               background: 'rgba(100,180,255,0.15)', border: '1px solid rgba(100,180,255,0.5)',
               color: 'rgb(100,180,255)', cursor: 'pointer',
-            }}>≡ƒôï Pay {priceSol} SOL & List</button>
+            }}>📋 Pay {priceSol} SOL & List</button>
           </div>
         )}
-        {step === 'sending'   && <div style={{ textAlign: 'center', color: 'var(--text-muted)', fontSize: 11, padding: '10px 0' }}>Γ£ì∩╕Å Confirm transaction in wallet...</div>}
-        {step === 'verifying' && <div style={{ textAlign: 'center', color: 'var(--cyan)', fontSize: 11, padding: '10px 0' }}>≡ƒöì Verifying payment on-chain...</div>}
-        {step === 'done'      && <div style={{ textAlign: 'center', color: 'rgb(57,255,20)', fontSize: 12, fontWeight: 700, padding: '10px 0' }}>Γ£à Listing confirmed! Token is now live.</div>}
+        {step === 'sending'   && <div style={{ textAlign: 'center', color: 'var(--text-muted)', fontSize: 11, padding: '10px 0' }}>✍️ Confirm transaction in wallet...</div>}
+        {step === 'verifying' && <div style={{ textAlign: 'center', color: 'var(--cyan)', fontSize: 11, padding: '10px 0' }}>🔍 Verifying payment on-chain...</div>}
+        {step === 'done'      && <div style={{ textAlign: 'center', color: 'rgb(57,255,20)', fontSize: 12, fontWeight: 700, padding: '10px 0' }}>✅ Listing confirmed! Token is now live.</div>}
         {step === 'error' && (
           <>
             <div style={{ color: 'var(--red)', fontSize: 10, marginBottom: 12, textAlign: 'center' }}>{errMsg}</div>
@@ -4511,7 +4511,7 @@ const ListedModal = ({ beta, alpha, authToken, priceSol = 1, onClose, onSuccess 
   )
 }
 
-// ΓöÇΓöÇΓöÇ Boost Modal ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ
+// ─── Boost Modal ─────────────────────────────────────────────────
 // Handles the full boost payment flow:
 // 1. Shows boost details + price
 // 2. User sends SOL to treasury via wallet adapter
@@ -4584,7 +4584,7 @@ const BoostModal = ({ beta, alpha, authToken, authWallet, priceSol = 1, onClose,
         fontFamily: 'var(--font-mono)', position: 'relative', zIndex: 100000,
       }} onClick={e => e.stopPropagation()}>
         <div style={{ fontSize: 16, fontWeight: 800, color: 'rgb(255,200,0)', marginBottom: 4, fontFamily: 'var(--font-display)' }}>
-          ΓÜí BOOST ${beta.symbol}
+          ⚡ BOOST ${beta.symbol}
         </div>
         <div style={{ fontSize: 10, color: 'var(--text-muted)', marginBottom: 20 }}>
           Pins this beta to the top of the {alpha?.symbol ? `$${alpha.symbol}` : 'alpha'} beta list and adds it to the main feed for 24 hours.
@@ -4619,22 +4619,22 @@ const BoostModal = ({ beta, alpha, authToken, authWallet, priceSol = 1, onClose,
               flex: 2, padding: '9px 0', borderRadius: 6, fontSize: 12, fontWeight: 800,
               background: 'rgba(255,200,0,0.15)', border: '1px solid rgba(255,200,0,0.5)',
               color: 'rgb(255,200,0)', cursor: 'pointer',
-            }}>ΓÜí Pay {priceSol} SOL & Boost</button>
+            }}>⚡ Pay {priceSol} SOL & Boost</button>
           </div>
         )}
         {step === 'sending' && (
           <div style={{ textAlign: 'center', color: 'var(--text-muted)', fontSize: 11, padding: '10px 0' }}>
-            Γ£ì∩╕Å Confirm transaction in wallet...
+            ✍️ Confirm transaction in wallet...
           </div>
         )}
         {step === 'verifying' && (
           <div style={{ textAlign: 'center', color: 'var(--cyan)', fontSize: 11, padding: '10px 0' }}>
-            ≡ƒöì Verifying payment on-chain...
+            🔍 Verifying payment on-chain...
           </div>
         )}
         {step === 'done' && (
           <div style={{ textAlign: 'center', color: 'rgb(57,255,20)', fontSize: 12, fontWeight: 700, padding: '10px 0' }}>
-            Γ£à Boost confirmed! Token is now live.
+            ✅ Boost confirmed! Token is now live.
           </div>
         )}
         {step === 'error' && (
@@ -4652,7 +4652,7 @@ const BoostModal = ({ beta, alpha, authToken, authWallet, priceSol = 1, onClose,
   )
 }
 
-// ΓöÇΓöÇΓöÇ Beta Panel ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ
+// ─── Beta Panel ──────────────────────────────────────────────────
 
 const BetaPanel = ({ alpha, liveAlphas, onListBeta, onOpenDrawer, onSwap, onScrollToAlpha, onCustomSearch, customAlphaLoading, customAlphaError, settings = {}, isAuthed, authToken, authWallet, onBoostSuccess }) => {
   const { parent, loading: parentLoading }               = useParentAlpha(alpha, liveAlphas)
@@ -4663,18 +4663,18 @@ const BetaPanel = ({ alpha, liveAlphas, onListBeta, onOpenDrawer, onSwap, onScro
   const [sortBy,       setSortBy]       = useState(settings.defaultBetaSort || 'rank')
   const [sortDir,      setSortDir]      = useState('desc')
 
-  // ΓöÇΓöÇ Boost state ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ
+  // ── Boost state ──────────────────────────────────────────────
   const [activeBoosts,    setActiveBoosts]    = useState([])
   const [boostSlotsAvail, setBoostSlotsAvail] = useState(3)
   const [boostTarget,     setBoostTarget]     = useState(null)
   const [boostTxPending,  setBoostTxPending]  = useState(false)
   const [boostMsg,        setBoostMsg]        = useState(null)
 
-  // ΓöÇΓöÇ Listing state ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ
+  // ── Listing state ─────────────────────────────────────────────
   const [activeListings,  setActiveListings]  = useState([])
   const [listSlotsAvail,  setListSlotsAvail]  = useState(2)
 
-  // ΓöÇΓöÇ Ad state ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ
+  // ── Ad state ──────────────────────────────────────────────────
   const [panelAd, setPanelAd] = useState(null)
 
   useEffect(() => {
@@ -4757,8 +4757,8 @@ const BetaPanel = ({ alpha, liveAlphas, onListBeta, onOpenDrawer, onSwap, onScro
   const trenchCount   = betas.filter(b => (b.marketCap || 0) < 30_000).length
 
   const SortIcon = ({ col }) => {
-    if (sortBy !== col) return <span style={{ opacity: 0.3, fontSize: 8 }}>Γåò</span>
-    return <span style={{ color: 'var(--cyan)', fontSize: 8 }}>{sortDir === 'desc' ? 'Γåô' : 'Γåæ'}</span>
+    if (sortBy !== col) return <span style={{ opacity: 0.3, fontSize: 8 }}>↕</span>
+    return <span style={{ color: 'var(--cyan)', fontSize: 8 }}>{sortDir === 'desc' ? '↓' : '↑'}</span>
   }
 
   return (
@@ -4778,13 +4778,13 @@ const BetaPanel = ({ alpha, liveAlphas, onListBeta, onOpenDrawer, onSwap, onScro
         </div>
         {alpha && (
           <div style={{ display: 'flex', gap: 8 }}>
-            <button className="btn btn-ghost btn-sm" onClick={refresh}>Γå║ Rescan</button>
-            <button className="btn btn-amber btn-sm" onClick={onListBeta}>ΓÜí List Beta</button>
+            <button className="btn btn-ghost btn-sm" onClick={refresh}>↺ Rescan</button>
+            <button className="btn btn-amber btn-sm" onClick={onListBeta}>⚡ List Beta</button>
           </div>
         )}
       </div>
 
-      {/* ΓöÇΓöÇ Birdeye intel strip — shown prominently above the beta table ΓöÇΓöÇ */}
+      {/* ── Birdeye intel strip — shown prominently above the beta table ── */}
       {alpha && birdeye?.hasData && (birdeye.holderCount != null || birdeye.buyRatio != null || birdeye.change7d != null) && (
         <div style={{
           display: 'flex', gap: 6, flexWrap: 'wrap', padding: '8px 12px',
@@ -4792,7 +4792,7 @@ const BetaPanel = ({ alpha, liveAlphas, onListBeta, onOpenDrawer, onSwap, onScro
           borderRadius: 8, margin: '0 0 4px',
         }}>
           <span style={{ fontFamily: 'var(--font-mono)', fontSize: 8, color: 'var(--text-muted)', alignSelf: 'center', marginRight: 2 }}>
-            ≡ƒö¡ INTEL
+            🔭 INTEL
           </span>
 
           {birdeye.change7d != null && (
@@ -4851,7 +4851,7 @@ const BetaPanel = ({ alpha, liveAlphas, onListBeta, onOpenDrawer, onSwap, onScro
       )}
       {!alpha ? (
         <div className="empty-state">
-          <div className="empty-state-icon">≡ƒæê</div>
+          <div className="empty-state-icon">👈</div>
           <div className="empty-state-title">No runner selected</div>
           <div className="empty-state-sub">Pick a runner from the left panel, or search any token in the search bar above.</div>
         </div>
@@ -4878,26 +4878,26 @@ const BetaPanel = ({ alpha, liveAlphas, onListBeta, onOpenDrawer, onSwap, onScro
             >
               <option value="all">All MCaps</option>
               <option value="large">&gt;$10M</option>
-              <option value="mid">$1MΓÇô$10M</option>
-              <option value="small">$100KΓÇô$1M</option>
+              <option value="mid">$1M–$10M</option>
+              <option value="small">$100K–$1M</option>
               <option value="micro">&lt;$100K</option>
-              <option value="trench">Γ¢Å∩╕Å Trenches {trenchCount > 0 ? `(${trenchCount})` : ''}</option>
+              <option value="trench">⛏️ Trenches {trenchCount > 0 ? `(${trenchCount})` : ''}</option>
             </select>
             {/* Trenches toggle — desktop only */}
             <button
               className={`beta-trench-btn btn btn-sm ${trenchOnly ? 'btn-primary' : 'btn-ghost'}`}
               onClick={() => setTrenchOnly(!trenchOnly)}
             >
-              Γ¢Å∩╕Å TRENCHES {trenchCount > 0 && `(${trenchCount})`}
+              ⛏️ TRENCHES {trenchCount > 0 && `(${trenchCount})`}
             </button>
             {/* Timing legend — shows what each wave emoji means on hover */}
             <div style={{ display: 'flex', gap: 4, background: 'var(--surface-2)', padding: '3px', borderRadius: 8, border: '1px solid var(--border)', alignItems: 'center' }}>
               <span style={{ fontFamily: 'var(--font-display)', fontSize: 7, color: 'var(--text-secondary)', letterSpacing: 0.5, padding: '2px 5px', opacity: 0.85, borderRight: '1px solid var(--border)', marginRight: 2, fontWeight: 700, textTransform: 'uppercase' }}>TIMING</span>
               {[
-                { emoji: '≡ƒîè', label: 'WAVE',    sub: '<6h',    color: 'var(--neon-green)',    tip: 'Wave — entered less than 6h ago. Fresh and still moving.' },
-                { emoji: '≡ƒôê', label: '2ND LEG', sub: '6-24h',  color: 'var(--amber)',         tip: '2nd Leg — entered 6ΓÇô24h ago. May be building for a second push.' },
-                { emoji: '≡ƒòÉ', label: 'LATE',    sub: '1-7d',   color: '#a0aec0',             tip: 'Late — entered 1ΓÇô7 days ago. Narrative is maturing.' },
-                { emoji: '≡ƒºè', label: 'COLD',    sub: '7d+',    color: '#687280',             tip: 'Cold — entered 7+ days ago. Narrative has cooled.' },
+                { emoji: '🌊', label: 'WAVE',    sub: '<6h',    color: 'var(--neon-green)',    tip: 'Wave — entered less than 6h ago. Fresh and still moving.' },
+                { emoji: '📈', label: '2ND LEG', sub: '6-24h',  color: 'var(--amber)',         tip: '2nd Leg — entered 6–24h ago. May be building for a second push.' },
+                { emoji: '🕐', label: 'LATE',    sub: '1-7d',   color: '#a0aec0',             tip: 'Late — entered 1–7 days ago. Narrative is maturing.' },
+                { emoji: '🧊', label: 'COLD',    sub: '7d+',    color: '#687280',             tip: 'Cold — entered 7+ days ago. Narrative has cooled.' },
               ].map(({ emoji, label, sub, color, tip }) => (
                 <Tooltip key={label} text={tip}>
                   <span style={{
@@ -4921,7 +4921,7 @@ const BetaPanel = ({ alpha, liveAlphas, onListBeta, onOpenDrawer, onSwap, onScro
               <span style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
                 TOKEN
                 <Tooltip text="Tap any row to open full token details">
-                  <span style={{ fontSize: 9, color: 'var(--text-muted)', cursor: 'default', opacity: 0.7 }}>Γôÿ</span>
+                  <span style={{ fontSize: 9, color: 'var(--text-muted)', cursor: 'default', opacity: 0.7 }}>ⓘ</span>
                 </Tooltip>
               </span>
               <span onClick={() => handleSort('mcap')}   style={{ cursor: 'pointer', userSelect: 'none' }}>MCAP / Room <SortIcon col="mcap" /></span>
@@ -4932,7 +4932,7 @@ const BetaPanel = ({ alpha, liveAlphas, onListBeta, onOpenDrawer, onSwap, onScro
               <span>Signal</span>
             </div>
 
-            {/* ΓöÇΓöÇ Scan phase indicator — progressive population UX ΓöÇΓöÇ */}
+            {/* ── Scan phase indicator — progressive population UX ── */}
             {alpha && betasLoading && (
               <div style={{
                 display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8,
@@ -4942,10 +4942,10 @@ const BetaPanel = ({ alpha, liveAlphas, onListBeta, onOpenDrawer, onSwap, onScro
                 borderRadius: 8, fontFamily: 'var(--font-mono)',
                 fontSize: 11, fontWeight: 600, color: 'var(--cyan)',
               }}>
-                <span style={{ animation: 'pulse 1s ease-in-out infinite', display: 'inline-block' }}>Γƒ│</span>
-                {scanPhase === 'expanding'  && <span>≡ƒöì Expanding concept...</span>}
-                {scanPhase === 'searching'  && <span>≡ƒôí Searching market... {betas.length > 0 ? `(${betas.length} found so far)` : ''}</span>}
-                {scanPhase === 'scoring'    && <span>≡ƒñû AI scoring {betas.length} candidates...</span>}
+                <span style={{ animation: 'pulse 1s ease-in-out infinite', display: 'inline-block' }}>⟳</span>
+                {scanPhase === 'expanding'  && <span>🔍 Expanding concept...</span>}
+                {scanPhase === 'searching'  && <span>📡 Searching market... {betas.length > 0 ? `(${betas.length} found so far)` : ''}</span>}
+                {scanPhase === 'scoring'    && <span>🤖 AI scoring {betas.length} candidates...</span>}
                 {(!scanPhase || scanPhase === 'complete') && <span>Loading...</span>}
               </div>
             )}
@@ -4962,7 +4962,7 @@ const BetaPanel = ({ alpha, liveAlphas, onListBeta, onOpenDrawer, onSwap, onScro
 
             {!betasLoading && error && betas.length === 0 && (
               <div className="empty-state" style={{ marginTop: 24 }}>
-                <div className="empty-state-icon">≡ƒô¡</div>
+                <div className="empty-state-icon">📭</div>
                 <div className="empty-state-title">{error}</div>
                 <div className="empty-state-sub">Try a different runner or check back when the narrative heats up.</div>
               </div>
@@ -5002,7 +5002,7 @@ const BetaPanel = ({ alpha, liveAlphas, onListBeta, onOpenDrawer, onSwap, onScro
                       border: '1px solid rgba(255,170,0,0.2)',
                       borderRadius: 7, padding: '7px 12px',
                     }}>
-                      <span style={{ fontSize: 13 }}>ΓÜá∩╕Å</span>
+                      <span style={{ fontSize: 13 }}>⚠️</span>
                       <div>
                         <div style={{
                           fontFamily: 'var(--font-display)', fontSize: 10, fontWeight: 800,
@@ -5027,7 +5027,7 @@ const BetaPanel = ({ alpha, liveAlphas, onListBeta, onOpenDrawer, onSwap, onScro
                     borderTop: '1px solid rgba(0,255,136,0.15)',
                     marginTop: 4,
                   }}>
-                    Γ£à {betas.length} beta{betas.length !== 1 ? 's' : ''} found
+                    ✅ {betas.length} beta{betas.length !== 1 ? 's' : ''} found
                     {!hasAIScored && <span style={{ color: 'var(--amber)', marginLeft: 6, fontSize: 9 }}>(unscored)</span>}
                   </div>
                 </>
@@ -5036,7 +5036,7 @@ const BetaPanel = ({ alpha, liveAlphas, onListBeta, onOpenDrawer, onSwap, onScro
 
             {!betasLoading && trenchOnly && trenchCount === 0 && (
               <div className="empty-state" style={{ marginTop: 24 }}>
-                <div className="empty-state-icon">Γ¢Å∩╕Å</div>
+                <div className="empty-state-icon">⛏️</div>
                 <div className="empty-state-title">No trench plays found.</div>
                 <div className="empty-state-sub">All detected betas are above $30K mcap.</div>
               </div>
@@ -5045,7 +5045,7 @@ const BetaPanel = ({ alpha, liveAlphas, onListBeta, onOpenDrawer, onSwap, onScro
         </>
       )}
 
-      {/* ΓöÇΓöÇ Boost Modal ΓöÇΓöÇ */}
+      {/* ── Boost Modal ── */}
       {boostTarget && (
         <BoostModal
           beta={boostTarget}
@@ -5058,7 +5058,7 @@ const BetaPanel = ({ alpha, liveAlphas, onListBeta, onOpenDrawer, onSwap, onScro
             setActiveBoosts(prev => [...prev, boost])
             setBoostSlotsAvail(prev => Math.max(0, prev - 1))
             setBoostTarget(null)
-            setBoostMsg('ΓÜí Boost live! Token is now pinned to the top of this beta list.')
+            setBoostMsg('⚡ Boost live! Token is now pinned to the top of this beta list.')
             if (onBoostSuccess) onBoostSuccess(boost)
             setTimeout(() => setBoostMsg(null), 6000)
           }}
@@ -5079,7 +5079,7 @@ const BetaPanel = ({ alpha, liveAlphas, onListBeta, onOpenDrawer, onSwap, onScro
 }
 
 
-// ΓöÇΓöÇΓöÇ Watchlist Store ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ
+// ─── Watchlist Store ─────────────────────────────────────────────
 // Users star any token (live, cooling, positioning) to watchlist it.
 // Stored as an array of full token objects so the Watch tab works
 // even after the token drops off the live feed.
@@ -5095,13 +5095,13 @@ const saveWatchlistRaw = (list) => {
   catch {}
 }
 
-// ΓöÇΓöÇΓöÇ Community Flag Store ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ
+// ─── Community Flag Store ─────────────────────────────────────────
 // Simple localStorage-backed flagging system.
 // Users flag a token as RUG, HONEYPOT, or LEGIT.
 // Flags are shown to everyone — local majority vote surface pattern.
 const FLAG_STORE_KEY = 'betaplays_flags_v1'
 
-// ΓöÇΓöÇΓöÇ Flags — Supabase-backed, localStorage as session cache ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ
+// ─── Flags — Supabase-backed, localStorage as session cache ──────
 // getFlags() reads from the in-memory cache populated by loadAllFlags()
 // on mount. Stays fast (no async) for synchronous callers like FlagWarningBadge.
 let _flagsCache = null
@@ -5183,15 +5183,15 @@ const FlagButton = ({ address, symbol }) => {
     : 0
 
   const LABEL_MAP = {
-    rug:      { emoji: '≡ƒ¬ñ', label: 'Rug pull',  color: 'var(--red)'        },
-    honeypot: { emoji: '≡ƒì»', label: 'Honeypot',  color: 'var(--amber)'      },
-    not_beta: { emoji: 'Γ¥î', label: 'Not a beta', color: 'var(--text-muted)' },
+    rug:      { emoji: '🪤', label: 'Rug pull',  color: 'var(--red)'        },
+    honeypot: { emoji: '🍯', label: 'Honeypot',  color: 'var(--amber)'      },
+    not_beta: { emoji: '❌', label: 'Not a beta', color: 'var(--text-muted)' },
   }
 
   const OPTIONS = [
-    ['rug',      '≡ƒ¬ñ Rug pull',   'var(--red)'],
-    ['honeypot', '≡ƒì» Honeypot',   'var(--amber)'],
-    ['not_beta', 'Γ¥î Not a beta', 'var(--text-muted)'],
+    ['rug',      '🪤 Rug pull',   'var(--red)'],
+    ['honeypot', '🍯 Honeypot',   'var(--amber)'],
+    ['not_beta', '❌ Not a beta', 'var(--text-muted)'],
   ]
 
   return (
@@ -5199,19 +5199,19 @@ const FlagButton = ({ address, symbol }) => {
       {/* Current counts */}
       {total > 0 && (
         <div style={{ display: 'flex', gap: 10, marginBottom: 8, flexWrap: 'wrap' }}>
-          {(counts?.rug      || 0) > 0 && <span style={{ fontFamily: 'var(--font-number)', fontSize: 10, color: 'var(--red)'        }}>≡ƒ¬ñ Rug: {counts.rug}</span>}
-          {(counts?.honeypot || 0) > 0 && <span style={{ fontFamily: 'var(--font-number)', fontSize: 10, color: 'var(--amber)'      }}>≡ƒì» Honeypot: {counts.honeypot}</span>}
-          {(counts?.not_beta || 0) > 0 && <span style={{ fontFamily: 'var(--font-number)', fontSize: 10, color: 'var(--text-muted)' }}>Γ¥î Not a beta: {counts.not_beta}</span>}
+          {(counts?.rug      || 0) > 0 && <span style={{ fontFamily: 'var(--font-number)', fontSize: 10, color: 'var(--red)'        }}>🪤 Rug: {counts.rug}</span>}
+          {(counts?.honeypot || 0) > 0 && <span style={{ fontFamily: 'var(--font-number)', fontSize: 10, color: 'var(--amber)'      }}>🍯 Honeypot: {counts.honeypot}</span>}
+          {(counts?.not_beta || 0) > 0 && <span style={{ fontFamily: 'var(--font-number)', fontSize: 10, color: 'var(--text-muted)' }}>❌ Not a beta: {counts.not_beta}</span>}
         </div>
       )}
 
       {/* Voted state — shows what they picked, persists across drawer opens */}
       {voted && votedType ? (
         <span style={{ fontFamily: 'var(--font-mono)', fontSize: 9, color: LABEL_MAP[votedType]?.color || 'var(--neon-green)' }}>
-          ✔ Flagged as {LABEL_MAP[votedType]?.label}
+          ✓ Flagged as {LABEL_MAP[votedType]?.label}
         </span>
       ) : voted ? (
-        <span style={{ fontFamily: 'var(--font-mono)', fontSize: 9, color: 'var(--neon-green)' }}>✔ Flagged</span>
+        <span style={{ fontFamily: 'var(--font-mono)', fontSize: 9, color: 'var(--neon-green)' }}>✓ Flagged</span>
       ) : (
         <>
           <button
@@ -5221,7 +5221,7 @@ const FlagButton = ({ address, symbol }) => {
               color: 'var(--text-secondary)', cursor: 'pointer', borderRadius: 5,
               fontFamily: 'var(--font-mono)', fontSize: 9, padding: '5px 10px',
             }}
-          >≡ƒÜ⌐ Flag this token</button>
+          >🚩 Flag this token</button>
 
           {open && (
             <div style={{
@@ -5264,12 +5264,12 @@ const FlagWarningBadge = ({ address }) => {
       borderColor: notBetaWarn ? 'rgba(255,255,255,0.2)'  : 'rgba(255,68,102,0.4)',
       color: notBetaWarn ? 'var(--text-muted)' : 'var(--red)',
     }}>
-      {rugWarn ? 'ΓÜá∩╕Å RUG' : honeyWarn ? 'ΓÜá∩╕Å HONEY' : 'ΓÜá∩╕Å DISPUTED'}
+      {rugWarn ? '⚠️ RUG' : honeyWarn ? '⚠️ HONEY' : '⚠️ DISPUTED'}
     </span>
   )
 }
 
-// ΓöÇΓöÇΓöÇ Token Detail Drawer ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ
+// ─── Token Detail Drawer ──────────────────────────────────────────
 // Slide-in panel showing full token intel when a beta row is clicked:
 //   - Live price + 24h, 7d, 30d change
 //   - Holder count + concentration risk
@@ -5324,7 +5324,7 @@ const TokenDrawer = ({ token, alpha, onClose, onSwap }) => {
         <button
           onClick={onClose}
           style={{ background: 'none', border: 'none', color: 'var(--text-muted)', cursor: 'pointer', fontSize: 18, padding: '0 4px' }}
-        >Γ£ò</button>
+        >✕</button>
       </div>
 
       {/* Scrollable body */}
@@ -5373,7 +5373,7 @@ const TokenDrawer = ({ token, alpha, onClose, onSwap }) => {
         {/* Birdeye intel */}
         {birdeye?.hasData && (birdeye.holderCount != null || birdeye.buyRatio != null) && (
           <div style={{ background: 'var(--surface-2)', borderRadius: 8, padding: '12px 14px' }}>
-            <div style={{ fontFamily: 'var(--font-mono)', fontSize: 8, color: 'var(--text-muted)', marginBottom: 8, letterSpacing: 1 }}>≡ƒö¡ HOLDER INTEL</div>
+            <div style={{ fontFamily: 'var(--font-mono)', fontSize: 8, color: 'var(--text-muted)', marginBottom: 8, letterSpacing: 1 }}>🔭 HOLDER INTEL</div>
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
               {birdeye.holderCount != null && (
                 <div>
@@ -5452,7 +5452,7 @@ const TokenDrawer = ({ token, alpha, onClose, onSwap }) => {
                   target="_blank" rel="noreferrer"
                   style={{ fontFamily: 'var(--font-mono)', fontSize: 9, color: 'var(--cyan)', textDecoration: 'none', border: '1px solid rgba(0,212,255,0.25)', borderRadius: 3, padding: '1px 5px' }}
                   onClick={e => e.stopPropagation()}
-                >DEX Γåù</a>
+                >DEX ↗</a>
               </div>
             </div>
             {/* Alpha CA if available */}
@@ -5466,7 +5466,7 @@ const TokenDrawer = ({ token, alpha, onClose, onSwap }) => {
                     target="_blank" rel="noreferrer"
                     style={{ fontFamily: 'var(--font-mono)', fontSize: 9, color: 'var(--cyan)', textDecoration: 'none', border: '1px solid rgba(0,212,255,0.25)', borderRadius: 3, padding: '1px 5px' }}
                     onClick={e => e.stopPropagation()}
-                  >DEX Γåù</a>
+                  >DEX ↗</a>
                 </div>
               </div>
             )}
@@ -5475,7 +5475,7 @@ const TokenDrawer = ({ token, alpha, onClose, onSwap }) => {
 
         {/* Community flags — FlagButton handles counts + voting UI */}
         <div style={{ background: 'var(--surface-2)', borderRadius: 8, padding: '12px 14px' }}>
-          <div style={{ fontFamily: 'var(--font-mono)', fontSize: 8, color: 'var(--text-muted)', marginBottom: 8, letterSpacing: 1 }}>≡ƒÜ⌐ COMMUNITY FLAGS</div>
+          <div style={{ fontFamily: 'var(--font-mono)', fontSize: 8, color: 'var(--text-muted)', marginBottom: 8, letterSpacing: 1 }}>🚩 COMMUNITY FLAGS</div>
           {totalFlags === 0 && (
             <div style={{ fontFamily: 'var(--font-mono)', fontSize: 9, color: 'var(--text-muted)', marginBottom: 8 }}>No flags yet — be the first</div>
           )}
@@ -5484,7 +5484,7 @@ const TokenDrawer = ({ token, alpha, onClose, onSwap }) => {
 
         {/* Nominate for OG — compact version */}
         <div style={{ background: 'var(--surface-2)', borderRadius: 8, padding: '12px 14px' }}>
-          <div style={{ fontFamily: 'var(--font-mono)', fontSize: 8, color: 'var(--text-muted)', marginBottom: 8, letterSpacing: 1 }}>Γ¡É NOMINATE FOR OG STATUS</div>
+          <div style={{ fontFamily: 'var(--font-mono)', fontSize: 8, color: 'var(--text-muted)', marginBottom: 8, letterSpacing: 1 }}>⭐ NOMINATE FOR OG STATUS</div>
           <div style={{ fontFamily: 'var(--font-mono)', fontSize: 9, color: 'var(--text-muted)', marginBottom: 8 }}>
             Think this token deserves Legend status? Nominate it for review.
           </div>
@@ -5497,9 +5497,9 @@ const TokenDrawer = ({ token, alpha, onClose, onSwap }) => {
           const veryLow = liq > 0 && liq < 2000
           const low     = liq >= 2000 && liq < 10000
           const warning = veryLow
-            ? 'ΓÜá∩╕Å Very low liquidity — expect high slippage. Swap small amounts only.'
+            ? '⚠️ Very low liquidity — expect high slippage. Swap small amounts only.'
             : low
-            ? 'ΓÜá∩╕Å Low liquidity — swap small amounts to avoid slippage.'
+            ? '⚠️ Low liquidity — swap small amounts to avoid slippage.'
             : null
           return (
             <div>
@@ -5530,7 +5530,7 @@ const TokenDrawer = ({ token, alpha, onClose, onSwap }) => {
                   e.currentTarget.style.boxShadow = 'none'
                 }}
               >
-                ΓÜí SWAP ${token.symbol} <span style={{ fontSize: 9, opacity: 0.7, fontWeight: 400 }}>via Jupiter</span>
+                ⚡ SWAP ${token.symbol} <span style={{ fontSize: 9, opacity: 0.7, fontWeight: 400 }}>via Jupiter</span>
               </button>
               {warning && (
                 <div style={{
@@ -5560,7 +5560,7 @@ const TokenDrawer = ({ token, alpha, onClose, onSwap }) => {
             }}
             onMouseEnter={e => e.currentTarget.style.background = 'rgba(0,212,255,0.1)'}
             onMouseLeave={e => e.currentTarget.style.background = 'none'}
-            >{label} Γåù</a>
+            >{label} ↗</a>
           ))}
           <a
             href={`https://twitter.com/search?q=${encodeURIComponent('$' + token.symbol)}&f=live`}
@@ -5572,7 +5572,7 @@ const TokenDrawer = ({ token, alpha, onClose, onSwap }) => {
             }}
             onMouseEnter={e => e.currentTarget.style.background = 'rgba(0,212,255,0.1)'}
             onMouseLeave={e => e.currentTarget.style.background = 'none'}
-          >≡¥òÅ Search Γåù</a>
+          >𝕏 Search ↗</a>
         </div>
 
       </div>
@@ -5580,9 +5580,9 @@ const TokenDrawer = ({ token, alpha, onClose, onSwap }) => {
   )
 }
 
-// ΓöÇΓöÇΓöÇ Main App ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ
+// ─── Main App ────────────────────────────────────────────────────
 
-// ΓöÇΓöÇΓöÇ Footer ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ
+// ─── Footer ──────────────────────────────────────────────────────
 const AppFooter = () => (
   <footer style={{
     display: 'flex', alignItems: 'center', justifyContent: 'space-between',
@@ -5593,12 +5593,12 @@ const AppFooter = () => (
     fontSize: 9, color: 'var(--text-muted)',
     flexShrink: 0,
   }}>
-    <span style={{ letterSpacing: 1 }}>BETAPLAYS ┬╖ SOLANA ┬╖ BETA</span>
+    <span style={{ letterSpacing: 1 }}>BETAPLAYS · SOLANA · BETA</span>
     <div style={{ display: 'flex', gap: 16, alignItems: 'center' }}>
       {[
-        { label: '≡¥òÅ Twitter',  url: 'https://twitter.com/betaplays'  },
-        { label: 'Γ£ê∩╕Å Telegram', url: 'https://t.me/betaplays'          },
-        { label: '≡ƒÆ╗ GitHub',   url: 'https://github.com/AdedamolaUX/beta-plays' },
+        { label: '𝕏 Twitter',  url: 'https://twitter.com/betaplays'  },
+        { label: '✈️ Telegram', url: 'https://t.me/betaplays'          },
+        { label: '💻 GitHub',   url: 'https://github.com/AdedamolaUX/beta-plays' },
       ].map(({ label, url }) => (
         <a key={label} href={url} target="_blank" rel="noreferrer"
           style={{ color: 'var(--text-muted)', textDecoration: 'none', letterSpacing: 0.5 }}
@@ -5607,12 +5607,12 @@ const AppFooter = () => (
         >{label}</a>
       ))}
     </div>
-    <span style={{ opacity: 0.5 }}>Not financial advice ┬╖ DYOR</span>
+    <span style={{ opacity: 0.5 }}>Not financial advice · DYOR</span>
   </footer>
 )
 
 export default function App() {
-  // ΓöÇΓöÇ Wallet auth ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ
+  // ── Wallet auth ──────────────────────────────────────────────────
   const { publicKey, signMessage, connected } = useWallet()
   const { setVisible: setWalletModalVisible } = useWalletModal()
   const [showWalletModal, setShowWalletModal] = useState(false)
@@ -5675,7 +5675,7 @@ export default function App() {
 
   const { settings, updateSetting, resetSettings } = useSettings()
 
-  // ΓöÇΓöÇ Folio state (multi-folio system) ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ
+  // ── Folio state (multi-folio system) ────────────────────────
   const [folioLeaderboard, setFolioLeaderboard] = useState([])
   const [folioLoading,     setFolioLoading]     = useState(false)
   const [folioView,        setFolioView]        = useState('leaderboard')
@@ -5708,7 +5708,7 @@ export default function App() {
       .then(r => r.json())
       .then(profile => { if (profile?.wallet_address) setFolioProfile(profile) })
       .catch(() => {})
-    // Load all called addresses for ≡ƒÄ» button state
+    // Load all called addresses for 🎯 button state
     fetch(`${BACKEND_URL}/api/folio/mine`, { headers: { Authorization: `Bearer ${authToken}` } })
       .then(r => r.json())
       .then(rows => {
@@ -5753,7 +5753,7 @@ export default function App() {
     setMyFolios(prev => prev.map(f => f.id === folioId ? { ...f, call_count: (f.call_count || 0) + 1 } : f))
   }
 
-  // Handle ≡ƒÄ» click — if _targetFolioId set, add to that folio directly
+  // Handle 🎯 click — if _targetFolioId set, add to that folio directly
   // If multiple folios, show picker; if one, add directly; if none, create default
   const handleFolioCall = useCallback(async (token) => {
     if (!isAuthed || !authToken) return
@@ -5975,7 +5975,7 @@ export default function App() {
       <div className={`main-layout${mobileView === 'betas' ? ' mobile-show-betas' : ''}`} style={{ flex: 1, overflow: 'hidden' }}>
         <AlphaBoard selectedAlpha={selectedAlpha} onSelect={handleSelectAlpha} onNewRunners={handleNewRunners} onLiveAlphas={setAppLiveAlphas} onSznCards={setAppSznCards} onCoolingAlphas={setAppCoolingAlphas} onCustomSearch={handleSearchCustomAlpha} customAlphaLoading={customAlphaLoading} onRegisterClearSearch={fn => { clearAlphaBoardSearch.current = fn }} alphaListRef={alphaListRef} searchResults={searchResults} onSelectSearchResult={(token) => { if (!token) { setSearchResults([]); return }; setSelectedAlpha(token); setSearchResults([]) }} defaultTab={settings.defaultTab} authToken={authToken} isAuthed={isAuthed} authWallet={authWallet} onFolioCall={handleFolioCall} folioCallAddrs={folioCallAddrs} folioLeaderboard={folioLeaderboard} folioLoading={folioLoading} folioView={folioView} setFolioView={setFolioView} folioSaveMsg={folioSaveMsg} myFolios={myFolios} setMyFolios={setMyFolios} folioSearch={folioSearch} folioSearchRes={folioSearchRes} folioSearching={folioSearching} onSaveFolioName={handleSaveFolioName} onFolioSearch={handleFolioSearch} onFolioLeaderboard={handleFolioLeaderboard} folioTagging={folioTagging} setFolioTagging={setFolioTagging} onFolioTag={handleFolioTag} folioProfile={folioProfile} onCreateFolio={handleCreateFolio} activeFolioId={activeFolioId} setActiveFolioId={setActiveFolioId} />
         <div className="mobile-beta-wrapper">
-          <button className="mobile-back-btn" onClick={() => setMobileView('list')}>ΓåÉ RUNNERS</button>
+          <button className="mobile-back-btn" onClick={() => setMobileView('list')}>← RUNNERS</button>
           {isSzn
             ? <SznPanel  szn={selectedAlpha}   onListBeta={() => setShowListModal(selectedAlpha || true)} onOpenDrawer={setDrawerToken} />
             : <BetaPanel alpha={selectedAlpha} liveAlphas={appLiveAlphas} onListBeta={() => setShowListModal(selectedAlpha || true)} onOpenDrawer={setDrawerToken} onSwap={(t) => openJupiterSwap(t)} onScrollToAlpha={handleScrollToAlpha} onCustomSearch={handleSearchCustomAlpha} customAlphaLoading={customAlphaLoading} customAlphaError={customAlphaError} settings={settings} isAuthed={isAuthed} authToken={authToken} authWallet={authWallet} onBoostSuccess={(boost) => { console.log('[App] Boost confirmed:', boost.token_symbol, 'slot', boost.slot_number) }} />
@@ -5983,7 +5983,7 @@ export default function App() {
         </div>
       </div>
 
-      {/* Folio picker — shown when ≡ƒÄ» clicked with multiple folios */}
+      {/* Folio picker — shown when 🎯 clicked with multiple folios */}
       {showFolioPicker && createPortal(
         <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.8)', zIndex: 99998, display: 'flex', alignItems: 'center', justifyContent: 'center' }}
           onClick={() => setShowFolioPicker(false)}>
@@ -6007,7 +6007,7 @@ export default function App() {
                     <div style={{ fontSize: 12, fontWeight: 700 }}>{f.name || `Folio #${f.id}`}</div>
                     <div style={{ fontSize: 9, color: 'var(--text-muted)', marginTop: 2 }}>{f.call_count || 0} calls</div>
                   </div>
-                  <span style={{ color: 'var(--neon-green)', fontSize: 14 }}>≡ƒÄ»</span>
+                  <span style={{ color: 'var(--neon-green)', fontSize: 14 }}>🎯</span>
                 </button>
               ))}
               <button onClick={() => handleCreateFolio('New Folio').then(() => handleFolioPickerSelect(myFolios[myFolios.length - 1]?.id))} style={{
@@ -6046,10 +6046,10 @@ export default function App() {
             <button onClick={() => setShowAdvertiseModal(false)} style={{
               position: 'absolute', top: 14, right: 14, background: 'transparent',
               border: 'none', color: 'var(--text-muted)', cursor: 'pointer', fontSize: 16,
-            }}>Γ£ò</button>
+            }}>✕</button>
 
             <div style={{ fontSize: 22, fontWeight: 800, color: 'rgb(100,180,255)', fontFamily: 'var(--font-display)', marginBottom: 6 }}>
-              ≡ƒôó Advertise on BetaPlays
+              📢 Advertise on BetaPlays
             </div>
             <div style={{ fontSize: 11, color: 'var(--text-muted)', marginBottom: 24, lineHeight: 1.6 }}>
               Reach active Solana degens when they're in discovery mode. Your ad appears in the beta panel — the most viewed section of the app.
@@ -6074,8 +6074,8 @@ export default function App() {
 
             {/* Who can advertise */}
             <div style={{ fontSize: 10, color: 'var(--text-muted)', marginBottom: 16, lineHeight: 1.7 }}>
-              Γ£à Wallets, portfolio tools, DEX aggregators, launchpads, block explorers<br/>
-              Γ¥î Token projects (use <span style={{ color: 'rgb(255,200,0)' }}>ΓÜí BOOSTED</span> or <span style={{ color: 'rgb(100,180,255)' }}>≡ƒôï LISTED</span> instead)
+              ✅ Wallets, portfolio tools, DEX aggregators, launchpads, block explorers<br/>
+              ❌ Token projects (use <span style={{ color: 'rgb(255,200,0)' }}>⚡ BOOSTED</span> or <span style={{ color: 'rgb(100,180,255)' }}>📋 LISTED</span> instead)
             </div>
 
             <div style={{
@@ -6083,7 +6083,7 @@ export default function App() {
               background: 'rgba(57,255,20,0.05)', border: '1px solid rgba(57,255,20,0.2)',
               fontSize: 10, color: 'var(--text-muted)', lineHeight: 1.6,
             }}>
-              ≡ƒÜÇ Self-serve advertising is coming soon. For now, reach out directly on{' '}
+              🚀 Self-serve advertising is coming soon. For now, reach out directly on{' '}
               <a href="https://t.me/betaplays" target="_blank" rel="noopener noreferrer" style={{ color: 'rgb(57,255,20)' }}>Telegram</a>{' '}
               or{' '}
               <a href="https://twitter.com/betaplays" target="_blank" rel="noopener noreferrer" style={{ color: 'rgb(57,255,20)' }}>Twitter/X</a>{' '}
@@ -6130,22 +6130,6 @@ export default function App() {
           onClose={() => setShowSettings(false)}
         />
       )}
-
-      {/* Mobile bottom nav */}
-      <nav className="mobile-bottom-nav">
-        <button className="mobile-nav-btn" onClick={() => { setMobileView('list'); setSelectedAlpha(null) }}>
-          <span className="mobile-nav-icon">🎯</span>
-          <span className="mobile-nav-label">Runners</span>
-        </button>
-        <button className="mobile-nav-btn" onClick={() => { setMobileView('list') }}>
-          <span className="mobile-nav-icon">⭐</span>
-          <span className="mobile-nav-label">Watchlist</span>
-        </button>
-        <button className="mobile-nav-btn" onClick={() => setShowSettings(true)}>
-          <span className="mobile-nav-icon">☰</span>
-          <span className="mobile-nav-label">Menu</span>
-        </button>
-      </nav>
     </div>
   )
 }

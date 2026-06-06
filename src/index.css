@@ -2254,10 +2254,41 @@ body {
     position: relative !important;
   }
 
-  /* Hide ALL original grid children (they stay in DOM for desktop) */
-  .beta-row > .token-info,
-  .beta-row > div:not(.beta-row-metrics):not(.beta-card-top),
-  .beta-row > span { display: none !important; }
+  /* Hide original grid children — but NOT on szn-row */
+  .beta-row:not(.szn-row) > .token-info,
+  .beta-row:not(.szn-row) > div:not(.beta-row-metrics):not(.beta-card-top),
+  .beta-row:not(.szn-row) > span { display: none !important; }
+
+  /* Szn rows — full override */
+  .beta-row.szn-row {
+    display: flex !important;
+    flex-direction: row !important;
+    align-items: center !important;
+    gap: 8px !important;
+    padding: 10px 12px !important;
+  }
+  .beta-row.szn-row > div { display: flex !important; }
+  .beta-row.szn-row > span { display: inline-flex !important; }
+  .beta-row.szn-row .token-info {
+    display: flex !important;
+    flex: 1 1 auto !important;
+    align-items: center !important;
+    gap: 8px !important;
+    min-width: 0 !important;
+    overflow: hidden !important;
+  }
+  .beta-row.szn-row .token-icon {
+    display: flex !important;
+    flex-shrink: 0 !important;
+  }
+  /* Metric divs: column layout */
+  .beta-row.szn-row > div:not(.token-info) {
+    flex-direction: column !important;
+    gap: 1px !important;
+    flex-shrink: 0 !important;
+  }
+  .beta-row.szn-row .beta-card-top,
+  .beta-row.szn-row .beta-row-metrics { display: none !important; }
 
   /* Show mobile card blocks */
   .beta-row > .beta-row-metrics { display: flex !important; }
@@ -2279,23 +2310,23 @@ body {
     flex: 1 !important;
     overflow: hidden !important;
   }
-  /* Inner text col: name row + badge row */
+  /* Inner text col: single flex row — ticker + copy + badges all inline */
   .beta-card-left > div {
     display: flex !important;
-    flex-direction: column !important;
-    align-items: flex-start !important;
+    flex-direction: row !important;
+    align-items: center !important;
+    flex-wrap: wrap !important;
+    gap: 4px !important;
     min-width: 0 !important;
-    gap: 3px !important;
   }
-  /* Name row: ticker + copy button + wave — all inline */
+  /* Name row div: inline too */
   .beta-card-left > div > div:first-child {
     display: flex !important;
     align-items: center !important;
-    gap: 5px !important;
+    gap: 4px !important;
     flex-wrap: nowrap !important;
-    overflow: hidden !important;
   }
-  /* Badge row: TRENCH and other badges inline */
+  /* Badge row: sits right after name on same line */
   .beta-card-left > div > div:nth-child(2) {
     display: flex !important;
     align-items: center !important;
@@ -2311,21 +2342,34 @@ body {
     flex-shrink: 0 !important;
   }
 
-  /* Metrics row */
+  /* Metrics row — flex with equal spacing */
   .beta-row-metrics {
     display: flex !important;
     align-items: flex-start !important;
-    justify-content: flex-start !important;
-    gap: 0 !important;
-    flex-wrap: nowrap !important;
+    justify-content: space-between !important;
     width: 100% !important;
     border-top: 1px solid var(--border) !important;
     padding-top: 8px !important;
-    margin-top: 2px !important;
+    margin-top: 4px !important;
   }
   .beta-row-metric {
+    display: flex !important;
+    flex-direction: column !important;
+    gap: 3px !important;
     flex: 1 !important;
-    min-width: 0 !important;
+  }
+  .beta-row-metric-label {
+    font-family: var(--font-mono) !important;
+    font-size: 7px !important;
+    color: var(--text-muted) !important;
+    text-transform: uppercase !important;
+    letter-spacing: 0.5px !important;
+  }
+  .beta-row-metric-value {
+    font-size: 11px !important;
+    font-weight: 700 !important;
+    color: var(--text-primary) !important;
+    white-space: nowrap !important;
   }
   .beta-row-metric {
     display: flex !important;
@@ -2372,7 +2416,7 @@ body {
   .alpha-card-top { gap: 6px; align-items: flex-start; }
   .alpha-card .token-info { flex-wrap: nowrap; overflow: hidden; gap: 8px; }
 
-  /* Alpha card token info: column layout */
+  /* Alpha card: name row = ticker + badges + copy all on one line */
   .alpha-card .token-info > div {
     display: flex;
     flex-direction: column;
@@ -2380,21 +2424,25 @@ body {
     gap: 2px;
     min-width: 0;
   }
-  /* Name row: ticker + badges inline */
   .alpha-card .token-info > div > div:first-child {
     display: flex;
     align-items: center;
     gap: 4px;
     flex-wrap: nowrap;
-    overflow: hidden;
+    overflow: visible;
   }
-  /* Second row: CopyAddress + other meta — inline */
+  /* CopyAddress row: pull it up into the name row visually */
   .alpha-card .token-info > div > div:nth-child(2) {
     display: flex;
     flex-direction: row;
     align-items: center;
     gap: 4px;
     flex-wrap: nowrap;
+    margin-top: -2px;
+  }
+  /* Hide the second row entirely and inject copy via first row */
+  .alpha-card .token-name {
+    order: 0;
   }
 
   /* ── Scrollable tabs & filter rows ── */
