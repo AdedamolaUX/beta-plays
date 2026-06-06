@@ -2256,11 +2256,12 @@ body {
 
   /* Hide ALL original grid children (they stay in DOM for desktop) */
   .beta-row > .token-info,
-  .beta-row > div:not(.beta-row-metrics),
+  .beta-row > div:not(.beta-row-metrics):not(.beta-card-top),
   .beta-row > span { display: none !important; }
 
-  /* Show only our mobile metrics block */
+  /* Show mobile card blocks */
   .beta-row > .beta-row-metrics { display: flex !important; }
+  .beta-row > .beta-card-top { display: flex !important; }
 
   /* Card top row: icon + name/badges left, signal right */
   .beta-card-top {
