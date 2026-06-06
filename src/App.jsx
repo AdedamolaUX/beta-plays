@@ -3658,21 +3658,23 @@ const BetaRow = ({ beta, alpha, isPinned, isBoosted, isListed, trenchOnly, onOpe
             {beta.logoUrl ? <img src={beta.logoUrl} alt={beta.symbol} style={{ width: '100%', height: '100%', objectFit: 'cover' }} /> : beta.symbol.slice(0, 3)}
           </div>
           <div style={{ minWidth: 0 }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 4, flexWrap: 'wrap' }}>
+            {/* Name row: ticker + copy CA + wave badge */}
+            <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'nowrap' }}>
               <span className="beta-card-name">${beta.symbol}</span>
-              {isBoosted     && <span className="badge" style={{ fontSize: 9, padding: '1px 4px', background: 'rgba(255,200,0,0.15)', borderColor: 'rgba(255,200,0,0.5)', color: 'rgb(255,200,0)', fontWeight: 700 }}>⚡ BOOSTED</span>}
-              {isListed      && <span className="badge" style={{ fontSize: 9, padding: '1px 4px', background: 'rgba(100,180,255,0.15)', borderColor: 'rgba(100,180,255,0.5)', color: 'rgb(100,180,255)', fontWeight: 700 }}>📋 LISTED</span>}
-              {isLPPair      && <span className="badge badge-cabal" style={{ fontSize: 10, padding: '1px 3px' }}>🔗</span>}
-              {isTelegramSig && <span className="badge" style={{ fontSize: 10, padding: '1px 3px', background: 'rgba(0,212,180,0.15)', borderColor: 'rgba(0,212,180,0.4)', color: 'rgb(0,212,180)' }}>📡</span>}
-              {isTwitterSig  && <span className="badge" style={{ fontSize: 10, padding: '1px 3px', background: 'rgba(29,161,242,0.15)', borderColor: 'rgba(29,161,242,0.4)', color: 'rgb(29,161,242)' }}>🐦</span>}
-              {isTrench      && <span className="badge badge-new" style={{ fontSize: 10, padding: '1px 3px' }}>⛏️</span>}
-              {isTied        && <span className="badge badge-strong" style={{ fontSize: 10, padding: '1px 3px' }}>⚡</span>}
-              {beta.isSibling && <span className="badge badge-cabal" style={{ fontSize: 10, padding: '1px 3px' }}>👥</span>}
-              <FlagWarningBadge address={beta.address} />
-            </div>
-            <div style={{ display: 'flex', gap: 4, alignItems: 'center', marginTop: 2 }}>
               <CopyAddress address={beta.address} />
               <WaveBadge phase={wave} />
+            </div>
+            {/* Badge row */}
+            <div style={{ display: 'flex', gap: 3, flexWrap: 'wrap', marginTop: 3 }}>
+              {isBoosted     && <span className="badge" style={{ fontSize: 9, padding: '1px 4px', background: 'rgba(255,200,0,0.15)', borderColor: 'rgba(255,200,0,0.5)', color: 'rgb(255,200,0)', fontWeight: 700 }}>⚡ BOOSTED</span>}
+              {isListed      && <span className="badge" style={{ fontSize: 9, padding: '1px 4px', background: 'rgba(100,180,255,0.15)', borderColor: 'rgba(100,180,255,0.5)', color: 'rgb(100,180,255)', fontWeight: 700 }}>📋 LISTED</span>}
+              {isLPPair      && <span className="badge badge-cabal" style={{ fontSize: 9, padding: '1px 4px' }}>🔗 LP</span>}
+              {isTelegramSig && <span className="badge" style={{ fontSize: 9, padding: '1px 4px', background: 'rgba(0,212,180,0.15)', borderColor: 'rgba(0,212,180,0.4)', color: 'rgb(0,212,180)' }}>📡 TG</span>}
+              {isTwitterSig  && <span className="badge" style={{ fontSize: 9, padding: '1px 4px', background: 'rgba(29,161,242,0.15)', borderColor: 'rgba(29,161,242,0.4)', color: 'rgb(29,161,242)' }}>🐦 X</span>}
+              {isTrench      && <span className="badge badge-new" style={{ fontSize: 9, padding: '1px 4px' }}>⛏️ TRENCH</span>}
+              {isTied        && <span className="badge badge-strong" style={{ fontSize: 9, padding: '1px 4px' }}>⚡ TIED</span>}
+              {beta.isSibling && <span className="badge badge-cabal" style={{ fontSize: 9, padding: '1px 4px' }}>👥 SIBLING</span>}
+              <FlagWarningBadge address={beta.address} />
             </div>
           </div>
         </div>

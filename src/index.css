@@ -2333,28 +2333,43 @@ body {
   .beta-row-metric-value.liq-mid  { color: var(--amber) !important; }
   .beta-row-metric-value.liq-low  { color: var(--red) !important; }
 
-  /* ── Alpha card: compact, keep 4-col metrics like desktop ── */
+  /* ── Alpha card: compact mobile layout ── */
   .alpha-card {
     gap: 6px;
     padding: 10px 12px;
-    border-radius: 10px;
-    border: 1px solid var(--border);
-    background: var(--surface-1);
-    margin-bottom: 6px;
   }
+  /* Metrics: single row of 4 */
   .alpha-card-metrics {
     grid-template-columns: repeat(4, 1fr);
-    gap: 4px 0;
+    gap: 0;
+    border-top: 1px solid var(--border);
+    padding-top: 8px;
+    margin-top: 4px;
   }
-  .metric-label { font-size: 8px; }
+  .metric-label { font-size: 7px; }
   .metric-value { font-size: 11px; }
-  .token-icon { width: 32px; height: 32px; font-size: 10px; }
-  .token-name { font-size: 13px; }
-  .token-change { font-size: 12px; }
-  /* Action buttons row — tighter */
-  .alpha-card-top { gap: 6px; }
-  /* Badge row wrapping */
-  .alpha-card .token-info { flex-wrap: nowrap; overflow: hidden; }
+  .token-icon { width: 32px; height: 32px; font-size: 10px; flex-shrink: 0; }
+  .token-name { font-size: 13px; white-space: nowrap; }
+  .token-change { font-size: 13px; }
+  .alpha-card-top { gap: 6px; align-items: flex-start; }
+  .alpha-card .token-info { flex-wrap: nowrap; overflow: hidden; gap: 8px; }
+
+  /* Move CopyAddress inline with token name on mobile */
+  .alpha-card .token-info > div {
+    display: flex;
+    flex-direction: row;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 4px;
+  }
+  /* Second line (CopyAddress row) — merge into first line */
+  .alpha-card .token-info > div > div:nth-child(2) {
+    display: flex;
+    flex-direction: row;
+    align-items: center;
+    gap: 4px;
+    margin-top: 0;
+  }
 
   /* ── Scrollable tabs & filter rows ── */
   .tab-row, .filter-tabs, .alpha-tabs, .source-filter-row {
