@@ -1136,7 +1136,8 @@ const AlphaCard = ({ alpha, isSelected, onClick, isWatched, onToggleWatch, isCal
           </div>
           <div>
             <div style={{ display: 'flex', alignItems: 'center', gap: 4, flexWrap: 'nowrap', overflow: 'hidden' }}>
-              <div className="token-name" style={{ flexShrink: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>${alpha.symbol}</div>
+              <div className="token-name" style={{ flexShrink: 0, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>${alpha.symbol}</div>
+              <CopyAddress address={alpha.address} />
               {derivative && (
                 <Tooltip text={parentSymbol ? `Derivative of $${parentSymbol}` : 'Derivative token — shares narrative with a parent alpha'}>
                   <span className="badge badge-new" style={{ fontSize: 11, padding: '1px 3px', cursor: 'default' }}>🧬</span>
@@ -1222,7 +1223,6 @@ const AlphaCard = ({ alpha, isSelected, onClick, isWatched, onToggleWatch, isCal
               )}
             </div>
             <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
-              <CopyAddress address={alpha.address} />
               {alpha.coolingLabel && (
                 <span style={{
                   fontFamily:   'var(--font-mono)',
@@ -3658,14 +3658,14 @@ const BetaRow = ({ beta, alpha, isPinned, isBoosted, isListed, trenchOnly, onOpe
             {beta.logoUrl ? <img src={beta.logoUrl} alt={beta.symbol} style={{ width: '100%', height: '100%', objectFit: 'cover' }} /> : beta.symbol.slice(0, 3)}
           </div>
           <div style={{ minWidth: 0 }}>
-            {/* Name row: ticker + copy CA + wave badge */}
-            <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'nowrap' }}>
+            {/* Name row: ticker immediately followed by copy CA */}
+            <div style={{ display: 'flex', alignItems: 'center', gap: 4, flexWrap: 'nowrap', overflow: 'hidden' }}>
               <span className="beta-card-name">${beta.symbol}</span>
               <CopyAddress address={beta.address} />
               <WaveBadge phase={wave} />
             </div>
-            {/* Badge row */}
-            <div style={{ display: 'flex', gap: 3, flexWrap: 'wrap', marginTop: 3 }}>
+            {/* Badge row: all badges on second line */}
+            <div style={{ display: 'flex', gap: 3, flexWrap: 'wrap' }}>
               {isBoosted     && <span className="badge" style={{ fontSize: 9, padding: '1px 4px', background: 'rgba(255,200,0,0.15)', borderColor: 'rgba(255,200,0,0.5)', color: 'rgb(255,200,0)', fontWeight: 700 }}>⚡ BOOSTED</span>}
               {isListed      && <span className="badge" style={{ fontSize: 9, padding: '1px 4px', background: 'rgba(100,180,255,0.15)', borderColor: 'rgba(100,180,255,0.5)', color: 'rgb(100,180,255)', fontWeight: 700 }}>📋 LISTED</span>}
               {isLPPair      && <span className="badge badge-cabal" style={{ fontSize: 9, padding: '1px 4px' }}>🔗 LP</span>}
