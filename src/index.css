@@ -2254,10 +2254,10 @@ body {
     position: relative !important;
   }
 
-  /* Hide ALL original grid children (they stay in DOM for desktop) */
-  .beta-row > .token-info,
-  .beta-row > div:not(.beta-row-metrics):not(.beta-card-top),
-  .beta-row > span { display: none !important; }
+  /* Hide original grid children — but NOT on szn-row */
+  .beta-row:not(.szn-row) > .token-info,
+  .beta-row:not(.szn-row) > div:not(.beta-row-metrics):not(.beta-card-top),
+  .beta-row:not(.szn-row) > span { display: none !important; }
 
   /* Szn rows — full override, show like desktop */
   .beta-row.szn-row {
@@ -2345,10 +2345,11 @@ body {
     flex-shrink: 0 !important;
   }
 
-  /* Metrics row — 5 equal cols, full width */
+  /* Metrics row — flex with equal spacing */
   .beta-row-metrics {
-    display: grid !important;
-    grid-template-columns: repeat(5, 1fr) !important;
+    display: flex !important;
+    align-items: flex-start !important;
+    justify-content: space-between !important;
     width: 100% !important;
     border-top: 1px solid var(--border) !important;
     padding-top: 8px !important;
@@ -2358,7 +2359,7 @@ body {
     display: flex !important;
     flex-direction: column !important;
     gap: 3px !important;
-    padding-right: 4px !important;
+    flex: 1 !important;
   }
   .beta-row-metric-label {
     font-family: var(--font-mono) !important;
