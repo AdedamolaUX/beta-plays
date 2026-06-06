@@ -2263,39 +2263,51 @@ body {
   .beta-row > .beta-row-metrics { display: flex !important; }
   .beta-row > .beta-card-top { display: flex !important; }
 
-  /* Card top row: icon + name/badges left, signal right */
+  /* Card top row: [logo + name/badges] left — [signal] right */
   .beta-card-top {
     display: flex !important;
-    align-items: center !important;
+    align-items: flex-start !important;
     justify-content: space-between !important;
     gap: 8px !important;
+    width: 100% !important;
   }
   .beta-card-left {
     display: flex !important;
     align-items: center !important;
-    gap: 8px !important;
+    gap: 10px !important;
     min-width: 0 !important;
     flex: 1 !important;
+    text-align: left !important;
+  }
+  .beta-card-left > div {
+    display: flex !important;
+    flex-direction: column !important;
+    align-items: flex-start !important;
+    min-width: 0 !important;
   }
   .beta-card-name {
     font-family: var(--font-display) !important;
-    font-size: 14px !important;
-    font-weight: 700 !important;
+    font-size: 15px !important;
+    font-weight: 800 !important;
     color: var(--text-primary) !important;
-  }
-  .beta-card-badges {
-    display: flex !important;
-    flex-wrap: wrap !important;
-    gap: 3px !important;
-    margin-top: 2px !important;
+    white-space: nowrap !important;
   }
 
   /* Metrics row */
   .beta-row-metrics {
     display: flex !important;
     align-items: flex-start !important;
-    gap: 14px !important;
-    flex-wrap: wrap !important;
+    justify-content: flex-start !important;
+    gap: 0 !important;
+    flex-wrap: nowrap !important;
+    width: 100% !important;
+    border-top: 1px solid var(--border) !important;
+    padding-top: 8px !important;
+    margin-top: 2px !important;
+  }
+  .beta-row-metric {
+    flex: 1 !important;
+    min-width: 0 !important;
   }
   .beta-row-metric {
     display: flex !important;
