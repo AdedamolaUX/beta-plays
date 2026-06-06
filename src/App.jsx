@@ -3651,6 +3651,30 @@ const BetaRow = ({ beta, alpha, isPinned, isBoosted, isListed, trenchOnly, onOpe
         </div>
       </div>
 
+      {/* Mobile card metrics row — hidden on desktop via CSS */}
+      <div className="beta-row-metrics">
+        <div className="beta-row-metric">
+          <span className="beta-row-metric-label">MCAP</span>
+          <span className="beta-row-metric-value">{formatNum(beta.marketCap)}</span>
+        </div>
+        <div className="beta-row-metric">
+          <span className="beta-row-metric-label">VOL</span>
+          <span className="beta-row-metric-value">{formatNum(beta.volume24h)}</span>
+        </div>
+        <div className="beta-row-metric">
+          <span className="beta-row-metric-label">LIQ</span>
+          <span className={`beta-row-metric-value ${(beta.liquidity||0)>=50000?'liq-high':(beta.liquidity||0)>=10000?'liq-mid':'liq-low'}`}>{formatNum(beta.liquidity)}</span>
+        </div>
+        <div className="beta-row-metric">
+          <span className="beta-row-metric-label">24H</span>
+          <span className={`beta-row-metric-value ${parseFloat(beta.priceChange24h)>=0?'positive':'negative'}`}>{parseFloat(beta.priceChange24h)>=0?'+':''}{(parseFloat(beta.priceChange24h)||0).toFixed(1)}%</span>
+        </div>
+        <div className="beta-row-metric">
+          <span className="beta-row-metric-label">AGE</span>
+          <span className="beta-row-metric-value" style={{ color: 'var(--text-muted)', fontSize: 10 }}>{beta.ageLabel}</span>
+        </div>
+      </div>
+
       <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
         <span className="mono" style={{ fontSize: 12, color: 'var(--text-primary)' }}>{formatNum(beta.marketCap)}</span>
         <McapRatioBadge ratio={beta.mcapRatio} />

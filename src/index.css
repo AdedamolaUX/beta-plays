@@ -2067,6 +2067,7 @@ body {
 /* Desktop (>1024px): mobile-only elements hidden */
 .mobile-back-btn { display: none; }
 .beta-mcap-select { display: none; }
+.beta-row-metrics { display: none; }
 .mobile-beta-wrapper {
   display: flex;
   flex-direction: column;
@@ -2239,29 +2240,82 @@ body {
   }
   .beta-filter-row::-webkit-scrollbar { display: none; }
 
-  /* ── Beta table: 4 visible cols TOKEN/MCAP/24H%/SIGNAL ── */
-  /* Row children: 1=token-info, 2=mcap-div, 3=vol-span, 4=liq-span, 5=change-span, 6=age-span, 7=signal */
-  .beta-table-header {
-    grid-template-columns: 2fr 1.1fr 0.9fr 80px;
-    font-size: 8px;
-    padding: 6px 10px;
-    gap: 6px;
-    white-space: nowrap;
-  }
+  /* ── Beta table: hide header, switch rows to card layout ── */
+  .beta-table-header { display: none !important; }
+
   .beta-row {
-    grid-template-columns: 2fr 1.1fr 0.9fr 80px;
-    padding: 10px;
-    gap: 6px;
-    align-items: center;
+    display: flex !important;
+    flex-direction: column !important;
+    gap: 6px !important;
+    padding: 10px 12px !important;
+    grid-template-columns: unset !important;
+    align-items: unset !important;
   }
-  /* Header: hide VOL(3rd span), LIQ(4th span), AGE(6th span) */
-  .beta-table-header span:nth-child(3),
-  .beta-table-header span:nth-child(4),
-  .beta-table-header span:nth-child(6) { display: none !important; }
-  /* Row: hide VOL(3rd child), LIQ(4th child), AGE(6th child) */
-  .beta-row > *:nth-child(3),
-  .beta-row > *:nth-child(4),
-  .beta-row > *:nth-child(6) { display: none !important; }
+
+  /* All direct children visible by default */
+  .beta-row > * { display: unset !important; }
+
+  /* Row 1: token icon + symbol + badges + signal (space-between) */
+  .beta-row > .token-info {
+    display: flex !important;
+    align-items: center !important;
+    justify-content: space-between !important;
+    width: 100% !important;
+  }
+
+  /* Hide mcap ratio badge sub-text to save space */
+  .beta-row .mcap-ratio-badge { display: none !important; }
+
+  /* Row 2: metrics inline — mcap · vol · liq · change */
+  .beta-row-metrics {
+    display: flex !important;
+    align-items: center !important;
+    gap: 10px !important;
+    flex-wrap: wrap !important;
+  }
+  .beta-row-metric {
+    display: flex !important;
+    flex-direction: column !important;
+    gap: 1px !important;
+  }
+  .beta-row-metric-label {
+    font-family: var(--font-mono) !important;
+    font-size: 7px !important;
+    color: var(--text-muted) !important;
+    text-transform: uppercase !important;
+    letter-spacing: 0.5px !important;
+  }
+  .beta-row-metric-value {
+    font-family: var(--font-number) !important;
+    font-size: 11px !important;
+    font-weight: 700 !important;
+    color: var(--text-primary) !important;
+  }
+  .beta-row-metric-value.positive { color: var(--neon-green) !important; }
+  .beta-row-metric-value.negative { color: var(--red) !important; }
+  .beta-row-metric-value.liq-high { color: var(--neon-green) !important; }
+  .beta-row-metric-value.liq-mid  { color: var(--amber) !important; }
+  .beta-row-metric-value.liq-low  { color: var(--red) !important; }
+
+  /* Hide original grid cells — replaced by .beta-row-metrics div */
+  .beta-row > div:nth-child(2),
+  .beta-row > span:nth-child(3),
+  .beta-row > span:nth-child(4),
+  .beta-row > span:nth-child(5),
+  .beta-row > span:nth-child(6),
+  .beta-row > div:nth-child(7) { display: none !important; }
+
+  /* Signal badge: float right inside token-info row */
+  .beta-row > .token-info {
+    position: relative;
+  }
+  /* SignalBadge is rendered as last child of beta-row — pull it into the top row */
+  .beta-row > *:last-child {
+    display: block !important;
+    position: absolute !important;
+    top: 10px !important;
+    right: 12px !important;
+  }
 
   /* ── Alpha card: compact, keep 4-col metrics like desktop ── */
   .alpha-card {
