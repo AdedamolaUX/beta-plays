@@ -4803,18 +4803,32 @@ const BetaPanel = ({ alpha, liveAlphas, onListBeta, onOpenDrawer, onSwap, onScro
           {!parentLoading && parent && <ParentAlphaCard parent={parent} />}
 
           {/* Filters + Timing — single combined row */}
-          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center', flexShrink: 0 }}>
-            {/* Mcap filter tabs */}
-            <div style={{ display: 'flex', gap: 4, background: 'var(--surface-2)', padding: 3, borderRadius: 8, border: '1px solid var(--border)' }}>
+          <div className="beta-filter-row" style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center', flexShrink: 0 }}>
+            {/* Mcap filter tabs — desktop */}
+            <div className="beta-mcap-tabs" style={{ display: 'flex', gap: 4, background: 'var(--surface-2)', padding: 3, borderRadius: 8, border: '1px solid var(--border)' }}>
               {[['all','All'],['large','>$10M'],['mid','$1M-10M'],['small','$100K-1M'],['micro','<$100K']].map(([key, label]) => (
                 <button key={key} className={`tab-btn ${mcapFilter === key ? 'active' : ''}`} onClick={() => setMcapFilter(key)}>
                   {label}
                 </button>
               ))}
             </div>
-            {/* Trenches toggle */}
+            {/* Mcap filter dropdown — mobile only */}
+            <select
+              className="beta-mcap-select"
+              value={trenchOnly ? 'trench' : mcapFilter}
+              onChange={e => { if (e.target.value === 'trench') { setTrenchOnly(true); setMcapFilter('all') } else { setTrenchOnly(false); setMcapFilter(e.target.value) } }}
+              style={{ display: 'none', background: 'var(--surface-2)', border: '1px solid var(--border)', borderRadius: 8, color: 'var(--text-primary)', fontFamily: 'var(--font-mono)', fontSize: 11, padding: '5px 10px', cursor: 'pointer' }}
+            >
+              <option value="all">All Caps</option>
+              <option value="large">&gt;$10M</option>
+              <option value="mid">$1M–$10M</option>
+              <option value="small">$100K–$1M</option>
+              <option value="micro">&lt;$100K</option>
+              <option value="trench">⛏️ Trenches {trenchCount > 0 ? `(${trenchCount})` : ''}</option>
+            </select>
+            {/* Trenches toggle — desktop only */}
             <button
-              className={`btn btn-sm ${trenchOnly ? 'btn-primary' : 'btn-ghost'}`}
+              className={`beta-trench-btn btn btn-sm ${trenchOnly ? 'btn-primary' : 'btn-ghost'}`}
               onClick={() => setTrenchOnly(!trenchOnly)}
             >
               ⛏️ TRENCHES {trenchCount > 0 && `(${trenchCount})`}
