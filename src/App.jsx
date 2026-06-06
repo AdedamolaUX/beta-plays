@@ -3887,12 +3887,18 @@ const SznPanel = ({ szn, onListBeta, onOpenDrawer }) => {
                   <div className="token-address">{shortAddress(token.address)}</div>
                 </div>
               </div>
-              <span className="mono" style={{ fontSize: 12, color: 'var(--text-primary)' }}>{formatNum(token.marketCap)}</span>
-              <span className="mono" style={{ fontSize: 12, color: 'var(--text-secondary)' }}>{formatNum(token.volume24h)}</span>
-              <span className={`token-change ${isPositive ? 'positive' : 'negative'}`} style={{ fontSize: 12 }}>
-                {isPositive ? '+' : ''}{change.toFixed(1)}%
-              </span>
-              <span className="mono" style={{ fontSize: 11, color: 'var(--text-muted)' }}>—</span>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
+                <span style={{ fontFamily: 'var(--font-mono)', fontSize: 7, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.5px' }}>MCAP</span>
+                <span className="mono" style={{ fontSize: 11, color: 'var(--text-primary)', fontWeight: 700 }}>{formatNum(token.marketCap)}</span>
+              </div>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
+                <span style={{ fontFamily: 'var(--font-mono)', fontSize: 7, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.5px' }}>VOL</span>
+                <span className="mono" style={{ fontSize: 11, color: 'var(--text-secondary)', fontWeight: 700 }}>{formatNum(token.volume24h)}</span>
+              </div>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
+                <span style={{ fontFamily: 'var(--font-mono)', fontSize: 7, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.5px' }}>24H</span>
+                <span className={`token-change ${isPositive ? 'positive' : 'negative'}`} style={{ fontSize: 11, fontWeight: 700 }}>{isPositive ? '+' : ''}{change.toFixed(1)}%</span>
+              </div>
               <span className="badge badge-strong" style={{ fontSize: 8, padding: '2px 6px' }}>🌊 SZN</span>
             </div>
           )

@@ -2259,39 +2259,36 @@ body {
   .beta-row:not(.szn-row) > div:not(.beta-row-metrics):not(.beta-card-top),
   .beta-row:not(.szn-row) > span { display: none !important; }
 
-  /* Szn rows — full override, show like desktop */
+  /* Szn rows — full override */
   .beta-row.szn-row {
     display: flex !important;
     flex-direction: row !important;
     align-items: center !important;
-    gap: 10px !important;
+    gap: 8px !important;
     padding: 10px 12px !important;
   }
-  /* Restore ALL children */
-  .beta-row.szn-row > div,
-  .beta-row.szn-row > span { display: flex !important; }
-  .beta-row.szn-row > span { display: inline-block !important; }
+  .beta-row.szn-row > div { display: flex !important; }
+  .beta-row.szn-row > span { display: inline-flex !important; }
   .beta-row.szn-row .token-info {
     display: flex !important;
-    flex: 1 !important;
+    flex: 1 1 auto !important;
     align-items: center !important;
     gap: 8px !important;
     min-width: 0 !important;
+    overflow: hidden !important;
   }
   .beta-row.szn-row .token-icon {
     display: flex !important;
-    width: 28px !important;
-    height: 28px !important;
     flex-shrink: 0 !important;
   }
-  /* Hide mobile-only blocks in szn rows */
+  /* Metric divs: column layout */
+  .beta-row.szn-row > div:not(.token-info) {
+    flex-direction: column !important;
+    gap: 1px !important;
+    flex-shrink: 0 !important;
+  }
   .beta-row.szn-row .beta-card-top,
   .beta-row.szn-row .beta-row-metrics { display: none !important; }
-  /* Data spans: space them out */
-  .beta-row.szn-row > span:not(.badge) {
-    font-size: 11px !important;
-    white-space: nowrap !important;
-  }
 
   /* Show mobile card blocks */
   .beta-row > .beta-row-metrics { display: flex !important; }
