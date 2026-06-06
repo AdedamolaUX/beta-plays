@@ -2069,6 +2069,9 @@ body {
 .beta-mcap-select { display: none; }
 .beta-row-metrics { display: none; }
 .beta-card-top { display: none; }
+.mobile-bottom-nav-el { display: none; }
+
+/* Desktop: wrapper is a proper grid child, always visible */
 .mobile-beta-wrapper {
   display: flex;
   flex-direction: column;
@@ -2131,13 +2134,9 @@ body {
     flex-direction: column;
   }
 
-  /* Beta wrapper: hidden by default on mobile, shown when runner selected */
+  /* Beta wrapper: hidden by default on mobile */
   .mobile-beta-wrapper {
     display: none !important;
-    flex-direction: column;
-    flex: 1;
-    min-height: 0;
-    overflow: hidden;
   }
 
   .main-layout.mobile-show-betas > *:first-child {
@@ -2145,6 +2144,10 @@ body {
   }
   .main-layout.mobile-show-betas .mobile-beta-wrapper {
     display: flex !important;
+    flex-direction: column;
+    flex: 1;
+    min-height: 0;
+    overflow: hidden;
   }
 
   /* ── Back button ── */
