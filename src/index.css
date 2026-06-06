@@ -2069,9 +2069,6 @@ body {
 .beta-mcap-select { display: none; }
 .beta-row-metrics { display: none; }
 .beta-card-top { display: none; }
-.mobile-bottom-nav-el { display: none; }
-
-/* Desktop: wrapper is a proper grid child, always visible */
 .mobile-beta-wrapper {
   display: flex;
   flex-direction: column;
@@ -2134,9 +2131,13 @@ body {
     flex-direction: column;
   }
 
-  /* Beta wrapper: hidden by default on mobile */
+  /* Beta wrapper: hidden by default on mobile, shown when runner selected */
   .mobile-beta-wrapper {
     display: none !important;
+    flex-direction: column;
+    flex: 1;
+    min-height: 0;
+    overflow: hidden;
   }
 
   .main-layout.mobile-show-betas > *:first-child {
@@ -2144,10 +2145,6 @@ body {
   }
   .main-layout.mobile-show-betas .mobile-beta-wrapper {
     display: flex !important;
-    flex-direction: column;
-    flex: 1;
-    min-height: 0;
-    overflow: hidden;
   }
 
   /* ── Back button ── */
@@ -2513,10 +2510,23 @@ body {
   /* Pad content above nav */
   .app-wrapper { padding-bottom: 56px; }
 
-  /* Menu/settings panel scrollable on mobile */
-  .settings-panel-inner,
-  [class*="settings"] > div > div {
+  /* Hide settings ⚙️ icon on mobile — it's in the Menu now */
+  .navbar-settings-btn { display: none !important; }
+
+  /* Menu/settings panel: scrollable on mobile */
+  .settings-overlay > div:last-child {
     overflow-y: auto !important;
-    max-height: 85vh !important;
+    max-height: 90dvh !important;
+    -webkit-overflow-scrolling: touch !important;
+  }
+
+  /* Runner icon in bottom nav */
+  .mobile-nav-icon svg {
+    color: var(--text-muted);
+    display: block;
+  }
+  .mobile-nav-btn:active .mobile-nav-icon svg,
+  .mobile-nav-btn:active .mobile-nav-label {
+    color: var(--neon-green);
   }
 }
