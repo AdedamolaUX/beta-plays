@@ -146,8 +146,9 @@ const Tooltip = ({ text, children }) => {
   const show = () => {
     if (ref.current) {
       const r = ref.current.getBoundingClientRect()
+      // Clamp so tooltip never overflows viewport edges
       const rawLeft = r.left + r.width / 2
-      const TOOLTIP_HALF = 130
+      const TOOLTIP_HALF = 130 // ~half of maxWidth:260
       const clamped = Math.min(
         Math.max(rawLeft, TOOLTIP_HALF + 8),
         window.innerWidth - TOOLTIP_HALF - 8
@@ -156,19 +157,16 @@ const Tooltip = ({ text, children }) => {
     }
   }
   const hide = () => setPos(null)
-  const isTouchDevice = () => window.matchMedia('(hover: none)').matches
-  const toggle = (e) => { e.stopPropagation(); pos ? hide() : show() }
 
   return (
     <span
       ref={ref}
       style={{ display: 'inline-flex', alignItems: 'center' }}
-      onMouseEnter={() => { if (!isTouchDevice()) show() }}
-      onMouseLeave={() => { if (!isTouchDevice()) hide() }}
-      onTouchStart={(e) => e.stopPropagation()}
+      onMouseEnter={show}
+      onMouseLeave={hide}
     >
       {children}
-      {pos && !isTouchDevice() && createPortal(
+      {pos && createPortal(
         <span style={{ ...TOOLTIP_STYLE, left: pos.left, top: pos.top }}>{text}</span>,
         document.body
       )}
@@ -569,7 +567,7 @@ const SettingsPanel = ({ settings, onUpdate, onReset, onClose }) => {
         {/* Header */}
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
           <div style={{ fontFamily: 'var(--font-display)', fontSize: 16, fontWeight: 800, color: 'var(--neon-green)' }}>
-            ⚙️ Settings
+            ☰ Menu
           </div>
           <button onClick={onClose} style={{ background: 'none', border: 'none', color: 'var(--text-muted)', cursor: 'pointer', fontSize: 18, lineHeight: 1 }}>✕</button>
         </div>
@@ -674,6 +672,31 @@ const SettingsPanel = ({ settings, onUpdate, onReset, onClose }) => {
             Reset to defaults
           </button>
         </div>
+
+        {/* Socials */}
+        <div style={{ borderTop: '1px solid var(--border)', paddingTop: 16 }}>
+          <div style={{ fontFamily: 'var(--font-mono)', fontSize: 9, color: 'var(--text-muted)', letterSpacing: 1, marginBottom: 10 }}>COMMUNITY</div>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+            {[
+              { icon: '𝕏', label: 'Twitter / X', url: 'https://twitter.com/betaplaysai' },
+              { icon: '✈️', label: 'Telegram', url: 'https://t.me/betaplays' },
+              { icon: '💻', label: 'GitHub', url: 'https://github.com/AdedamolaUX/beta-plays' },
+            ].map(({ icon, label: lbl, url }) => (
+              <a key={url} href={url} target="_blank" rel="noreferrer"
+                style={{ display: 'flex', alignItems: 'center', gap: 10, color: 'var(--text-secondary)', textDecoration: 'none', fontFamily: 'var(--font-display)', fontSize: 12, fontWeight: 700, padding: '7px 0', borderBottom: '1px solid rgba(255,255,255,0.04)' }}
+                onMouseEnter={e => e.currentTarget.style.color = 'var(--cyan)'}
+                onMouseLeave={e => e.currentTarget.style.color = 'var(--text-secondary)'}
+              >
+                <span style={{ fontSize: 15, width: 22, textAlign: 'center' }}>{icon}</span>
+                {lbl}
+                <span style={{ marginLeft: 'auto', color: 'var(--text-muted)', fontSize: 10 }}>↗</span>
+              </a>
+            ))}
+          </div>
+          <div style={{ marginTop: 12, fontFamily: 'var(--font-mono)', fontSize: 8, color: 'var(--text-muted)', textAlign: 'center', opacity: 0.5 }}>
+            NOT FINANCIAL ADVICE · DYOR · ALL TRADING CARRIES RISK
+          </div>
+        </div>
       </div>
     </div>
   )
@@ -691,7 +714,7 @@ const Navbar = ({ onListBeta, onAdvertise, newRunners, liveAlphas, coolingAlphas
     />
     <span className="brand-name">Beta<span>Plays</span></span>
   </div>
-    <div className="navbar-center" style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+    <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
       <div className={`navbar-status${newRunners ? ' navbar-status--flash' : ''}`}>
         <span className={`status-dot${newRunners ? ' status-dot--flash' : ''}`}></span>
         <span style={{ fontFamily: 'var(--font-number)', fontSize: 11, fontWeight: 700, letterSpacing: '0.08em' }}>
@@ -752,7 +775,7 @@ const Navbar = ({ onListBeta, onAdvertise, newRunners, liveAlphas, coolingAlphas
           fontSize: 16, padding: '6px 10px', lineHeight: 1,
           transition: 'all 0.15s ease',
         }}
-        title="Settings"
+        title="Menu"
       >⚙️</button>
       <button className="btn btn-amber btn-sm" onClick={onListBeta}>
         ⚡ List Your Beta
@@ -1136,7 +1159,7 @@ const AlphaCard = ({ alpha, isSelected, onClick, isWatched, onToggleWatch, isCal
           </div>
           <div>
             <div style={{ display: 'flex', alignItems: 'center', gap: 4, flexWrap: 'nowrap', overflow: 'hidden' }}>
-              <div className="token-name" style={{ flexShrink: 0, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>${alpha.symbol}</div>
+              <div className="token-name" style={{ flexShrink: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>${alpha.symbol}</div>
               <CopyAddress address={alpha.address} />
               {derivative && (
                 <Tooltip text={parentSymbol ? `Derivative of $${parentSymbol}` : 'Derivative token — shares narrative with a parent alpha'}>
@@ -3651,58 +3674,6 @@ const BetaRow = ({ beta, alpha, isPinned, isBoosted, isListed, trenchOnly, onOpe
         </div>
       </div>
 
-      {/* ── Mobile card layout — hidden on desktop ── */}
-      <div className="beta-card-top">
-        <div className="beta-card-left">
-          <div className="token-icon" style={{ width: 32, height: 32, fontSize: 9, flexShrink: 0, borderRadius: '50%', background: 'var(--surface-3)', border: '1px solid var(--border)', display: 'flex', alignItems: 'center', justifyContent: 'center', overflow: 'hidden' }}>
-            {beta.logoUrl ? <img src={beta.logoUrl} alt={beta.symbol} style={{ width: '100%', height: '100%', objectFit: 'cover' }} /> : beta.symbol.slice(0, 3)}
-          </div>
-          <div style={{ minWidth: 0 }}>
-            {/* Name row: ticker immediately followed by copy CA */}
-            <div style={{ display: 'flex', alignItems: 'center', gap: 4, flexWrap: 'nowrap', overflow: 'hidden' }}>
-              <span className="beta-card-name">${beta.symbol}</span>
-              <CopyAddress address={beta.address} />
-              <WaveBadge phase={wave} />
-            </div>
-            {/* Badge row: all badges on second line */}
-            <div style={{ display: 'flex', gap: 3, flexWrap: 'wrap' }}>
-              {isBoosted     && <span className="badge" style={{ fontSize: 9, padding: '1px 4px', background: 'rgba(255,200,0,0.15)', borderColor: 'rgba(255,200,0,0.5)', color: 'rgb(255,200,0)', fontWeight: 700 }}>⚡ BOOSTED</span>}
-              {isListed      && <span className="badge" style={{ fontSize: 9, padding: '1px 4px', background: 'rgba(100,180,255,0.15)', borderColor: 'rgba(100,180,255,0.5)', color: 'rgb(100,180,255)', fontWeight: 700 }}>📋 LISTED</span>}
-              {isLPPair      && <span className="badge badge-cabal" style={{ fontSize: 9, padding: '1px 4px' }}>🔗 LP</span>}
-              {isTelegramSig && <span className="badge" style={{ fontSize: 9, padding: '1px 4px', background: 'rgba(0,212,180,0.15)', borderColor: 'rgba(0,212,180,0.4)', color: 'rgb(0,212,180)' }}>📡 TG</span>}
-              {isTwitterSig  && <span className="badge" style={{ fontSize: 9, padding: '1px 4px', background: 'rgba(29,161,242,0.15)', borderColor: 'rgba(29,161,242,0.4)', color: 'rgb(29,161,242)' }}>🐦 X</span>}
-              {isTrench      && <span className="badge badge-new" style={{ fontSize: 9, padding: '1px 4px' }}>⛏️ TRENCH</span>}
-              {isTied        && <span className="badge badge-strong" style={{ fontSize: 9, padding: '1px 4px' }}>⚡ TIED</span>}
-              {beta.isSibling && <span className="badge badge-cabal" style={{ fontSize: 9, padding: '1px 4px' }}>👥 SIBLING</span>}
-              <FlagWarningBadge address={beta.address} />
-            </div>
-          </div>
-        </div>
-        <SignalBadge beta={beta} />
-      </div>
-      <div className="beta-row-metrics">
-        <div className="beta-row-metric">
-          <span className="beta-row-metric-label">MCAP</span>
-          <span className="beta-row-metric-value">{formatNum(beta.marketCap)}</span>
-        </div>
-        <div className="beta-row-metric">
-          <span className="beta-row-metric-label">VOL</span>
-          <span className="beta-row-metric-value">{formatNum(beta.volume24h)}</span>
-        </div>
-        <div className="beta-row-metric">
-          <span className="beta-row-metric-label">LIQ</span>
-          <span className={`beta-row-metric-value ${(beta.liquidity||0)>=50000?'liq-high':(beta.liquidity||0)>=10000?'liq-mid':'liq-low'}`}>{formatNum(beta.liquidity)}</span>
-        </div>
-        <div className="beta-row-metric">
-          <span className="beta-row-metric-label">24H%</span>
-          <span className={`beta-row-metric-value ${parseFloat(beta.priceChange24h)>=0?'positive':'negative'}`}>{parseFloat(beta.priceChange24h)>=0?'+':''}{(parseFloat(beta.priceChange24h)||0).toFixed(1)}%</span>
-        </div>
-        <div className="beta-row-metric">
-          <span className="beta-row-metric-label">AGE</span>
-          <span className="beta-row-metric-value" style={{ color: 'var(--text-muted)', fontSize: 10 }}>{beta.ageLabel}</span>
-        </div>
-      </div>
-
       <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
         <span className="mono" style={{ fontSize: 12, color: 'var(--text-primary)' }}>{formatNum(beta.marketCap)}</span>
         <McapRatioBadge ratio={beta.mcapRatio} />
@@ -3756,50 +3727,51 @@ const ParentAlphaCard = ({ parent }) => {
         marginBottom: 8, transition: 'all 0.15s ease', flexShrink: 0,
       }}
     >
-      {/* Header row: label + cooling badge */}
       <div style={{
         fontFamily: 'var(--font-mono)', fontSize: 9, fontWeight: 700,
-        color: 'var(--cyan)', letterSpacing: 1.2, textTransform: 'uppercase',
-        marginBottom: 8, display: 'flex', alignItems: 'center',
-        justifyContent: 'space-between', flexWrap: 'wrap', gap: 4,
+        color: 'var(--cyan)', letterSpacing: 1.5, textTransform: 'uppercase',
+        marginBottom: 10, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8,
       }}>
-        <span>🧬 Parent Alpha — Root of this narrative</span>
+        🧬 Parent Alpha — Root of this narrative
         {isCooling && (
-          <span className="badge badge-weak" style={{ fontSize: 9, padding: '2px 6px', cursor: 'default', whiteSpace: 'nowrap' }}>
-            ❄️ COOLING — 2nd leg incoming
+          <span className="badge badge-weak" style={{ fontSize: 9, padding: '1px 3px', cursor: 'default' }}>
+            ❄️ COOLING — Second leg may be incoming
           </span>
         )}
       </div>
-      {/* Token row: logo+name+actions | metrics+change */}
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, flexWrap: 'wrap' }}>
-        <div className="token-info" style={{ flex: '1 1 auto', minWidth: 0 }}>
-          <div className="token-icon" style={{ width: 36, height: 36, flexShrink: 0, border: '1px solid rgba(0,212,255,0.4)' }}>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+        <div className="token-info">
+          <div className="token-icon" style={{ width: 40, height: 40, border: '1px solid rgba(0,212,255,0.4)' }}>
             {parent.logoUrl ? <img src={parent.logoUrl} alt={parent.symbol} /> : parent.symbol.slice(0, 3)}
           </div>
-          <div style={{ minWidth: 0 }}>
-            <div style={{ fontFamily: 'var(--font-display)', fontWeight: 800, fontSize: 15, color: 'var(--text-primary)' }}>
+          <div>
+            <div style={{ fontFamily: 'var(--font-display)', fontWeight: 800, fontSize: 16, color: 'var(--text-primary)' }}>
               ${parent.symbol}
             </div>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 4, marginTop: 2 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 5, marginTop: 3 }}>
               <CopyAddress address={parent.address} />
-              <span
-                onClick={e => { e.stopPropagation(); window.open(parent.dexUrl || `https://dexscreener.com/solana/${parent.address}`, '_blank') }}
-                style={{ fontFamily: 'var(--font-mono)', fontSize: 8, color: 'var(--text-muted)', cursor: 'pointer', padding: '1px 4px', borderRadius: 3, border: '1px solid rgba(255,255,255,0.08)' }}
-              >DEX ↗</span>
+              <Tooltip text="Open on DEXScreener">
+                <span
+                  onClick={e => { e.stopPropagation(); window.open(parent.dexUrl || `https://dexscreener.com/solana/${parent.address}`, '_blank') }}
+                  style={{ fontFamily: 'var(--font-mono)', fontSize: 8, color: 'var(--text-muted)', cursor: 'pointer', padding: '1px 4px', borderRadius: 3, border: '1px solid rgba(255,255,255,0.08)', transition: 'color 0.15s' }}
+                  onMouseEnter={e => e.currentTarget.style.color = 'var(--cyan)'}
+                  onMouseLeave={e => e.currentTarget.style.color = 'var(--text-muted)'}
+                >DEX ↗</span>
+              </Tooltip>
               <XSearchButton symbol={parent.symbol} onClick={e => e.stopPropagation()} />
             </div>
           </div>
         </div>
-        <div style={{ display: 'flex', gap: 12, alignItems: 'center', flexShrink: 0 }}>
+        <div style={{ display: 'flex', gap: 20, alignItems: 'center' }}>
           <div className="metric">
             <span className="metric-label">MCAP</span>
             <span className="metric-value">{formatNum(parent.marketCap)}</span>
           </div>
           <div className="metric">
-            <span className="metric-label">VOL</span>
+            <span className="metric-label">Vol 24h</span>
             <span className="metric-value">{formatNum(parent.volume24h)}</span>
           </div>
-          <div className={`token-change ${isPositive ? 'positive' : 'negative'}`} style={{ fontSize: 14 }}>
+          <div className={`token-change ${isPositive ? 'positive' : 'negative'}`} style={{ fontSize: 15 }}>
             {isPositive ? '+' : ''}{change.toFixed(1)}%
           </div>
         </div>
@@ -3887,16 +3859,16 @@ const SznPanel = ({ szn, onListBeta, onOpenDrawer }) => {
                   <div className="token-address">{shortAddress(token.address)}</div>
                 </div>
               </div>
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
-                <span style={{ fontFamily: 'var(--font-mono)', fontSize: 7, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.5px' }}>MCAP</span>
-                <span className="mono" style={{ fontSize: 11, color: 'var(--text-primary)', fontWeight: 700 }}>{formatNum(token.marketCap)}</span>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 1, alignItems: 'center' }}>
+                <span style={{ fontFamily: 'var(--font-mono)', fontSize: 7, color: 'var(--text-muted)', textTransform: 'uppercase' }}>MCAP</span>
+                <span className="mono" style={{ fontSize: 11, fontWeight: 700 }}>{formatNum(token.marketCap)}</span>
               </div>
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
-                <span style={{ fontFamily: 'var(--font-mono)', fontSize: 7, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.5px' }}>VOL</span>
-                <span className="mono" style={{ fontSize: 11, color: 'var(--text-secondary)', fontWeight: 700 }}>{formatNum(token.volume24h)}</span>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 1, alignItems: 'center' }}>
+                <span style={{ fontFamily: 'var(--font-mono)', fontSize: 7, color: 'var(--text-muted)', textTransform: 'uppercase' }}>VOL</span>
+                <span className="mono" style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-secondary)' }}>{formatNum(token.volume24h)}</span>
               </div>
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
-                <span style={{ fontFamily: 'var(--font-mono)', fontSize: 7, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.5px' }}>24H</span>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 1, alignItems: 'center' }}>
+                <span style={{ fontFamily: 'var(--font-mono)', fontSize: 7, color: 'var(--text-muted)', textTransform: 'uppercase' }}>24H</span>
                 <span className={`token-change ${isPositive ? 'positive' : 'negative'}`} style={{ fontSize: 11, fontWeight: 700 }}>{isPositive ? '+' : ''}{change.toFixed(1)}%</span>
               </div>
               <span className="badge badge-strong" style={{ fontSize: 8, padding: '2px 6px' }}>🌊 SZN</span>
@@ -4861,31 +4833,18 @@ const BetaPanel = ({ alpha, liveAlphas, onListBeta, onOpenDrawer, onSwap, onScro
           {!parentLoading && parent && <ParentAlphaCard parent={parent} />}
 
           {/* Filters + Timing — single combined row */}
-          <div className="beta-filter-row" style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center', flexShrink: 0 }}>
-            {/* Mcap filter tabs — desktop */}
-            <div className="beta-mcap-tabs" style={{ display: 'flex', gap: 4, background: 'var(--surface-2)', padding: 3, borderRadius: 8, border: '1px solid var(--border)' }}>
+          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center', flexShrink: 0 }}>
+            {/* Mcap filter tabs */}
+            <div style={{ display: 'flex', gap: 4, background: 'var(--surface-2)', padding: 3, borderRadius: 8, border: '1px solid var(--border)' }}>
               {[['all','All'],['large','>$10M'],['mid','$1M-10M'],['small','$100K-1M'],['micro','<$100K']].map(([key, label]) => (
                 <button key={key} className={`tab-btn ${mcapFilter === key ? 'active' : ''}`} onClick={() => setMcapFilter(key)}>
                   {label}
                 </button>
               ))}
             </div>
-            {/* Mcap filter dropdown — mobile only */}
-            <select
-              className="beta-mcap-select"
-              value={trenchOnly ? 'trench' : mcapFilter}
-              onChange={e => { if (e.target.value === 'trench') { setTrenchOnly(true); setMcapFilter('all') } else { setTrenchOnly(false); setMcapFilter(e.target.value) } }}
-            >
-              <option value="all">All MCaps</option>
-              <option value="large">&gt;$10M</option>
-              <option value="mid">$1M–$10M</option>
-              <option value="small">$100K–$1M</option>
-              <option value="micro">&lt;$100K</option>
-              <option value="trench">⛏️ Trenches {trenchCount > 0 ? `(${trenchCount})` : ''}</option>
-            </select>
-            {/* Trenches toggle — desktop only */}
+            {/* Trenches toggle */}
             <button
-              className={`beta-trench-btn btn btn-sm ${trenchOnly ? 'btn-primary' : 'btn-ghost'}`}
+              className={`btn btn-sm ${trenchOnly ? 'btn-primary' : 'btn-ghost'}`}
               onClick={() => setTrenchOnly(!trenchOnly)}
             >
               ⛏️ TRENCHES {trenchCount > 0 && `(${trenchCount})`}
@@ -5943,13 +5902,12 @@ export default function App() {
   const [appCoolingAlphas, setAppCoolingAlphas] = useState([])  // fed by AlphaBoard via onLiveAlphas
   const alphaListRef = useRef(null)
   const isSzn = selectedAlpha?.isSzn === true
-  const [mobileView, setMobileView] = useState('list') // 'list' | 'betas'
+  const [mobileView, setMobileView] = useState('list')
+  const [showMobileMenu, setShowMobileMenu] = useState(false)
 
   const handleSelectAlpha = (alpha) => {
     setSelectedAlpha(alpha)
-    if (alpha?.address) {
-      sessionStorage.setItem('betaplays_selected', alpha.address)
-    }
+    if (alpha?.address) sessionStorage.setItem('betaplays_selected', alpha.address)
     if (alpha) setMobileView('betas')
   }
 
@@ -6130,6 +6088,22 @@ export default function App() {
           onClose={() => setShowSettings(false)}
         />
       )}
+
+      {/* Mobile bottom nav */}
+      <nav className="mobile-bottom-nav">
+        <button className="mobile-nav-btn" onClick={() => { setMobileView('list'); setSelectedAlpha(null) }}>
+          <span className="mobile-nav-icon">🎯</span>
+          <span className="mobile-nav-label">Runners</span>
+        </button>
+        <button className="mobile-nav-btn" onClick={() => { /* watchlist tab */ }}>
+          <span className="mobile-nav-icon">⭐</span>
+          <span className="mobile-nav-label">Watchlist</span>
+        </button>
+        <button className="mobile-nav-btn" onClick={() => setShowSettings(true)}>
+          <span className="mobile-nav-icon">☰</span>
+          <span className="mobile-nav-label">Menu</span>
+        </button>
+      </nav>
     </div>
   )
 }
