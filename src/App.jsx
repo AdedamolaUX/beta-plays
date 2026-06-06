@@ -5943,8 +5943,8 @@ export default function App() {
     setSelectedAlpha(alpha)
     if (alpha?.address) {
       sessionStorage.setItem('betaplays_selected', alpha.address)
-      setMobileView('betas')
     }
+    if (alpha) setMobileView('betas')
   }
 
   // Load flags from Supabase on mount — populates _flagsCache so
