@@ -3872,7 +3872,7 @@ const SznPanel = ({ szn, onListBeta, onOpenDrawer }) => {
           const change     = parseFloat(token.priceChange24h) || 0
           const isPositive = change >= 0
           return (
-            <div key={token.id || i} className="beta-row"
+            <div key={token.id || i} className="beta-row szn-row"
               onClick={() => onOpenDrawer && onOpenDrawer(token)}
               style={{ cursor: 'pointer' }}
             >
