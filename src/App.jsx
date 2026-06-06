@@ -569,7 +569,7 @@ const SettingsPanel = ({ settings, onUpdate, onReset, onClose }) => {
         {/* Header */}
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
           <div style={{ fontFamily: 'var(--font-display)', fontSize: 16, fontWeight: 800, color: 'var(--neon-green)' }}>
-            ⚙️ Settings
+            ☰ Menu
           </div>
           <button onClick={onClose} style={{ background: 'none', border: 'none', color: 'var(--text-muted)', cursor: 'pointer', fontSize: 18, lineHeight: 1 }}>✕</button>
         </div>
@@ -673,6 +673,31 @@ const SettingsPanel = ({ settings, onUpdate, onReset, onClose }) => {
           >
             Reset to defaults
           </button>
+        </div>
+
+        {/* Community */}
+        <div style={{ borderTop: '1px solid var(--border)', paddingTop: 16 }}>
+          <div style={{ fontFamily: 'var(--font-mono)', fontSize: 9, color: 'var(--text-muted)', letterSpacing: 1, marginBottom: 10 }}>COMMUNITY</div>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+            {[
+              { icon: '𝕏', label: 'Twitter / X', url: 'https://twitter.com/betaplaysai' },
+              { icon: '✈️', label: 'Telegram', url: 'https://t.me/betaplays' },
+              { icon: '💻', label: 'GitHub', url: 'https://github.com/AdedamolaUX/beta-plays' },
+            ].map(({ icon, label: lbl, url }) => (
+              <a key={url} href={url} target="_blank" rel="noreferrer"
+                style={{ display: 'flex', alignItems: 'center', gap: 10, color: 'var(--text-secondary)', textDecoration: 'none', fontFamily: 'var(--font-display)', fontSize: 12, fontWeight: 700, padding: '8px 0', borderBottom: '1px solid rgba(255,255,255,0.04)' }}
+                onMouseEnter={e => e.currentTarget.style.color = 'var(--cyan)'}
+                onMouseLeave={e => e.currentTarget.style.color = 'var(--text-secondary)'}
+              >
+                <span style={{ fontSize: 15, width: 22, textAlign: 'center' }}>{icon}</span>
+                {lbl}
+                <span style={{ marginLeft: 'auto', color: 'var(--text-muted)', fontSize: 10 }}>↗</span>
+              </a>
+            ))}
+          </div>
+          <div style={{ marginTop: 12, fontFamily: 'var(--font-mono)', fontSize: 8, color: 'var(--text-muted)', textAlign: 'center', opacity: 0.5 }}>
+            NOT FINANCIAL ADVICE · DYOR · ALL TRADING CARRIES RISK
+          </div>
         </div>
       </div>
     </div>
@@ -6130,6 +6155,22 @@ export default function App() {
           onClose={() => setShowSettings(false)}
         />
       )}
+
+      {/* Mobile bottom nav */}
+      <nav className="mobile-bottom-nav">
+        <button className="mobile-nav-btn" onClick={() => { setMobileView('list'); setSelectedAlpha(null) }}>
+          <span className="mobile-nav-icon">🎯</span>
+          <span className="mobile-nav-label">Runners</span>
+        </button>
+        <button className="mobile-nav-btn" onClick={() => setMobileView('list')}>
+          <span className="mobile-nav-icon">⭐</span>
+          <span className="mobile-nav-label">Watchlist</span>
+        </button>
+        <button className="mobile-nav-btn" onClick={() => setShowSettings(true)}>
+          <span className="mobile-nav-icon">☰</span>
+          <span className="mobile-nav-label">Menu</span>
+        </button>
+      </nav>
     </div>
   )
 }
