@@ -2064,8 +2064,9 @@ body {
    APP — MOBILE RESPONSIVENESS
    ============================================ */
 
-/* Desktop: back button hidden, wrapper is a proper grid child */
+/* Desktop (>1024px): mobile-only elements hidden */
 .mobile-back-btn { display: none; }
+.beta-mcap-select { display: none; }
 .mobile-beta-wrapper {
   display: flex;
   flex-direction: column;
@@ -2074,7 +2075,7 @@ body {
   height: 100%;
 }
 
-@media (max-width: 768px) {
+@media (max-width: 1024px) {
 
   /* ── Navbar: single row, compact ── */
   .navbar {
@@ -2215,12 +2216,17 @@ body {
     border: 1px solid var(--border) !important;
     border-radius: 8px !important;
     color: var(--text-primary) !important;
-    font-family: var(--font-mono) !important;
-    font-size: 10px !important;
-    padding: 4px 8px !important;
+    font-family: var(--font-display) !important;
+    font-size: 8px !important;
+    font-weight: 700 !important;
+    letter-spacing: 0.5px !important;
+    padding: 3px 6px !important;
     cursor: pointer !important;
-    height: 30px;
+    height: 28px;
+    width: auto;
     flex-shrink: 0;
+    -webkit-appearance: auto;
+    appearance: auto;
   }
 
   /* ── Filter row: dropdown + timing on one line, scrollable ── */
