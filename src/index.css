@@ -2209,38 +2209,53 @@ body {
   /* ── Beta filters: show dropdown, hide tab row + trench btn ── */
   .beta-mcap-tabs { display: none !important; }
   .beta-trench-btn { display: none !important; }
-  .beta-mcap-select { display: block !important; }
-
-  /* ── Filter row: dropdown + timing on one line ── */
-  .beta-filter-row {
-    flex-wrap: nowrap !important;
-    overflow-x: auto;
-    gap: 6px !important;
+  .beta-mcap-select {
+    display: block !important;
+    background: var(--surface-2) !important;
+    border: 1px solid var(--border) !important;
+    border-radius: 8px !important;
+    color: var(--text-primary) !important;
+    font-family: var(--font-mono) !important;
+    font-size: 10px !important;
+    padding: 4px 8px !important;
+    cursor: pointer !important;
+    height: 30px;
+    flex-shrink: 0;
   }
 
-  /* ── Beta table: TOKEN(2fr) MCAP(1.2fr) 24H%(1fr) SIGNAL(90px) ── */
-  /* Desktop cols order: TOKEN=1, MCAP=2, VOL=3, LIQ=4, 24H%=5, AGE=6, SIGNAL=7 */
-  /* Mobile: keep 1,2,5,7 — hide 3,4,6 */
+  /* ── Filter row: dropdown + timing on one line, scrollable ── */
+  .beta-filter-row {
+    flex-wrap: nowrap !important;
+    overflow-x: auto !important;
+    gap: 6px !important;
+    scrollbar-width: none;
+    padding-bottom: 2px;
+  }
+  .beta-filter-row::-webkit-scrollbar { display: none; }
+
+  /* ── Beta table: 4 visible cols TOKEN/MCAP/24H%/SIGNAL ── */
+  /* Row children: 1=token-info, 2=mcap-div, 3=vol-span, 4=liq-span, 5=change-span, 6=age-span, 7=signal */
   .beta-table-header {
-    grid-template-columns: 2fr 1.2fr 1fr 90px;
+    grid-template-columns: 2fr 1.1fr 0.9fr 80px;
     font-size: 8px;
     padding: 6px 10px;
     gap: 6px;
     white-space: nowrap;
   }
   .beta-row {
-    grid-template-columns: 2fr 1.2fr 1fr 90px;
+    grid-template-columns: 2fr 1.1fr 0.9fr 80px;
     padding: 10px;
     gap: 6px;
+    align-items: center;
   }
-  /* Hide VOL (3rd), LIQ (4th), AGE (6th) header spans */
+  /* Header: hide VOL(3rd span), LIQ(4th span), AGE(6th span) */
   .beta-table-header span:nth-child(3),
   .beta-table-header span:nth-child(4),
-  .beta-table-header span:nth-child(6) { display: none; }
-  /* Hide VOL (3rd), LIQ (4th), AGE (6th) row cells */
+  .beta-table-header span:nth-child(6) { display: none !important; }
+  /* Row: hide VOL(3rd child), LIQ(4th child), AGE(6th child) */
   .beta-row > *:nth-child(3),
   .beta-row > *:nth-child(4),
-  .beta-row > *:nth-child(6) { display: none; }
+  .beta-row > *:nth-child(6) { display: none !important; }
 
   /* ── Alpha card: compact, keep 4-col metrics like desktop ── */
   .alpha-card {

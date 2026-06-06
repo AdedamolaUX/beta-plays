@@ -4817,9 +4817,8 @@ const BetaPanel = ({ alpha, liveAlphas, onListBeta, onOpenDrawer, onSwap, onScro
               className="beta-mcap-select"
               value={trenchOnly ? 'trench' : mcapFilter}
               onChange={e => { if (e.target.value === 'trench') { setTrenchOnly(true); setMcapFilter('all') } else { setTrenchOnly(false); setMcapFilter(e.target.value) } }}
-              style={{ display: 'none', background: 'var(--surface-2)', border: '1px solid var(--border)', borderRadius: 8, color: 'var(--text-primary)', fontFamily: 'var(--font-mono)', fontSize: 11, padding: '5px 10px', cursor: 'pointer' }}
             >
-              <option value="all">All Caps</option>
+              <option value="all">All MCaps</option>
               <option value="large">&gt;$10M</option>
               <option value="mid">$1M–$10M</option>
               <option value="small">$100K–$1M</option>
