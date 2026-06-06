@@ -156,22 +156,20 @@ const Tooltip = ({ text, children }) => {
     }
   }
   const hide = () => setPos(null)
+  const isTouchDevice = () => window.matchMedia('(hover: none)').matches
   const toggle = (e) => { e.stopPropagation(); pos ? hide() : show() }
 
   return (
     <span
       ref={ref}
       style={{ display: 'inline-flex', alignItems: 'center' }}
-      onMouseEnter={show}
-      onMouseLeave={hide}
-      onTouchStart={toggle}
+      onMouseEnter={() => { if (!isTouchDevice()) show() }}
+      onMouseLeave={() => { if (!isTouchDevice()) hide() }}
+      onTouchStart={(e) => e.stopPropagation()}
     >
       {children}
-      {pos && createPortal(
-        <span
-          style={{ ...TOOLTIP_STYLE, left: pos.left, top: pos.top }}
-          onTouchStart={e => { e.stopPropagation(); hide() }}
-        >{text}</span>,
+      {pos && !isTouchDevice() && createPortal(
+        <span style={{ ...TOOLTIP_STYLE, left: pos.left, top: pos.top }}>{text}</span>,
         document.body
       )}
     </span>
@@ -3706,51 +3704,50 @@ const ParentAlphaCard = ({ parent }) => {
         marginBottom: 8, transition: 'all 0.15s ease', flexShrink: 0,
       }}
     >
+      {/* Header row: label + cooling badge */}
       <div style={{
         fontFamily: 'var(--font-mono)', fontSize: 9, fontWeight: 700,
-        color: 'var(--cyan)', letterSpacing: 1.5, textTransform: 'uppercase',
-        marginBottom: 10, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8,
+        color: 'var(--cyan)', letterSpacing: 1.2, textTransform: 'uppercase',
+        marginBottom: 8, display: 'flex', alignItems: 'center',
+        justifyContent: 'space-between', flexWrap: 'wrap', gap: 4,
       }}>
-        🧬 Parent Alpha — Root of this narrative
+        <span>🧬 Parent Alpha — Root of this narrative</span>
         {isCooling && (
-          <span className="badge badge-weak" style={{ fontSize: 9, padding: '1px 3px', cursor: 'default' }}>
-            ❄️ COOLING — Second leg may be incoming
+          <span className="badge badge-weak" style={{ fontSize: 9, padding: '2px 6px', cursor: 'default', whiteSpace: 'nowrap' }}>
+            ❄️ COOLING — 2nd leg incoming
           </span>
         )}
       </div>
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-        <div className="token-info">
-          <div className="token-icon" style={{ width: 40, height: 40, border: '1px solid rgba(0,212,255,0.4)' }}>
+      {/* Token row: logo+name+actions | metrics+change */}
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, flexWrap: 'wrap' }}>
+        <div className="token-info" style={{ flex: '1 1 auto', minWidth: 0 }}>
+          <div className="token-icon" style={{ width: 36, height: 36, flexShrink: 0, border: '1px solid rgba(0,212,255,0.4)' }}>
             {parent.logoUrl ? <img src={parent.logoUrl} alt={parent.symbol} /> : parent.symbol.slice(0, 3)}
           </div>
-          <div>
-            <div style={{ fontFamily: 'var(--font-display)', fontWeight: 800, fontSize: 16, color: 'var(--text-primary)' }}>
+          <div style={{ minWidth: 0 }}>
+            <div style={{ fontFamily: 'var(--font-display)', fontWeight: 800, fontSize: 15, color: 'var(--text-primary)' }}>
               ${parent.symbol}
             </div>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 5, marginTop: 3 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 4, marginTop: 2 }}>
               <CopyAddress address={parent.address} />
-              <Tooltip text="Open on DEXScreener">
-                <span
-                  onClick={e => { e.stopPropagation(); window.open(parent.dexUrl || `https://dexscreener.com/solana/${parent.address}`, '_blank') }}
-                  style={{ fontFamily: 'var(--font-mono)', fontSize: 8, color: 'var(--text-muted)', cursor: 'pointer', padding: '1px 4px', borderRadius: 3, border: '1px solid rgba(255,255,255,0.08)', transition: 'color 0.15s' }}
-                  onMouseEnter={e => e.currentTarget.style.color = 'var(--cyan)'}
-                  onMouseLeave={e => e.currentTarget.style.color = 'var(--text-muted)'}
-                >DEX ↗</span>
-              </Tooltip>
+              <span
+                onClick={e => { e.stopPropagation(); window.open(parent.dexUrl || `https://dexscreener.com/solana/${parent.address}`, '_blank') }}
+                style={{ fontFamily: 'var(--font-mono)', fontSize: 8, color: 'var(--text-muted)', cursor: 'pointer', padding: '1px 4px', borderRadius: 3, border: '1px solid rgba(255,255,255,0.08)' }}
+              >DEX ↗</span>
               <XSearchButton symbol={parent.symbol} onClick={e => e.stopPropagation()} />
             </div>
           </div>
         </div>
-        <div style={{ display: 'flex', gap: 20, alignItems: 'center' }}>
+        <div style={{ display: 'flex', gap: 12, alignItems: 'center', flexShrink: 0 }}>
           <div className="metric">
             <span className="metric-label">MCAP</span>
             <span className="metric-value">{formatNum(parent.marketCap)}</span>
           </div>
           <div className="metric">
-            <span className="metric-label">Vol 24h</span>
+            <span className="metric-label">VOL</span>
             <span className="metric-value">{formatNum(parent.volume24h)}</span>
           </div>
-          <div className={`token-change ${isPositive ? 'positive' : 'negative'}`} style={{ fontSize: 15 }}>
+          <div className={`token-change ${isPositive ? 'positive' : 'negative'}`} style={{ fontSize: 14 }}>
             {isPositive ? '+' : ''}{change.toFixed(1)}%
           </div>
         </div>

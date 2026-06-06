@@ -2089,10 +2089,22 @@ body {
   .brand-name { font-size: 13px; }
   .navbar-brand { gap: 6px; }
   .navbar-brand img { height: 28px !important; width: 28px !important; }
-  /* Actions: hide settings + advertise buttons */
-  .navbar-actions { gap: 6px; }
-  .navbar-actions button[title="Settings"],
-  .navbar-actions button[onClick*="Advertise"] { display: none; }
+  /* Navbar actions — compact, hide advertise */
+  .navbar-actions { gap: 4px; overflow: hidden; max-width: calc(100vw - 140px); }
+  /* Hide Advertise button (last btn) and Settings */
+  .navbar-actions > button:last-child { display: none; }
+  .navbar-actions > button:nth-last-child(2) { display: none; }
+  /* Shrink connect/sign-in/wallet button */
+  .navbar-actions > button:first-child {
+    font-size: 10px;
+    padding: 5px 8px;
+    min-width: unset;
+  }
+  /* Shrink List Beta button */
+  .navbar-actions .btn-amber {
+    font-size: 10px;
+    padding: 5px 8px;
+  }
 
   /* ── Narrative ticker — slimmer ── */
   .narrative-ticker-wrap { padding: 3px 0; }
@@ -2162,6 +2174,37 @@ body {
   /* ── Beta panel header ── */
   .beta-panel-title { font-size: 15px; }
   .beta-panel-header { flex-direction: column; gap: 6px; align-items: flex-start; }
+
+  /* ── Parent alpha card: compact on mobile ── */
+  .parent-alpha-card,
+  [class*="parent-alpha"] {
+    padding: 10px 12px;
+  }
+  /* "PARENT ALPHA — ROOT OF THIS NARRATIVE" label — single line */
+  .parent-alpha-label,
+  .parent-badge {
+    font-size: 9px;
+    letter-spacing: 0.5px;
+    white-space: nowrap;
+  }
+  /* Parent card inner layout — row not column */
+  .parent-alpha-inner,
+  .parent-card-body {
+    flex-direction: row;
+    align-items: center;
+    gap: 8px;
+    flex-wrap: wrap;
+  }
+  /* Shrink parent token icon */
+  .parent-alpha-card .token-icon { width: 28px; height: 28px; }
+  /* Parent card header row */
+  .parent-card-header {
+    flex-direction: row;
+    align-items: center;
+    justify-content: space-between;
+    flex-wrap: wrap;
+    gap: 4px;
+  }
 
   /* ── Beta table: TOKEN(2fr) MCAP(1fr) 24H%(0.8fr) SIGNAL(110px) ── */
   /* Desktop cols: TOKEN=1, MCAP=2, VOL=3, LIQ=4, 24H%=5, AGE=6, SIGNAL=7 */
