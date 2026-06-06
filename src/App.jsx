@@ -3651,7 +3651,33 @@ const BetaRow = ({ beta, alpha, isPinned, isBoosted, isListed, trenchOnly, onOpe
         </div>
       </div>
 
-      {/* Mobile card metrics row — hidden on desktop via CSS */}
+      {/* ── Mobile card layout — hidden on desktop ── */}
+      <div className="beta-card-top">
+        <div className="beta-card-left">
+          <div className="token-icon" style={{ width: 32, height: 32, fontSize: 9, flexShrink: 0, borderRadius: '50%', background: 'var(--surface-3)', border: '1px solid var(--border)', display: 'flex', alignItems: 'center', justifyContent: 'center', overflow: 'hidden' }}>
+            {beta.logoUrl ? <img src={beta.logoUrl} alt={beta.symbol} style={{ width: '100%', height: '100%', objectFit: 'cover' }} /> : beta.symbol.slice(0, 3)}
+          </div>
+          <div style={{ minWidth: 0 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 4, flexWrap: 'wrap' }}>
+              <span className="beta-card-name">${beta.symbol}</span>
+              {isBoosted     && <span className="badge" style={{ fontSize: 9, padding: '1px 4px', background: 'rgba(255,200,0,0.15)', borderColor: 'rgba(255,200,0,0.5)', color: 'rgb(255,200,0)', fontWeight: 700 }}>⚡ BOOSTED</span>}
+              {isListed      && <span className="badge" style={{ fontSize: 9, padding: '1px 4px', background: 'rgba(100,180,255,0.15)', borderColor: 'rgba(100,180,255,0.5)', color: 'rgb(100,180,255)', fontWeight: 700 }}>📋 LISTED</span>}
+              {isLPPair      && <span className="badge badge-cabal" style={{ fontSize: 10, padding: '1px 3px' }}>🔗</span>}
+              {isTelegramSig && <span className="badge" style={{ fontSize: 10, padding: '1px 3px', background: 'rgba(0,212,180,0.15)', borderColor: 'rgba(0,212,180,0.4)', color: 'rgb(0,212,180)' }}>📡</span>}
+              {isTwitterSig  && <span className="badge" style={{ fontSize: 10, padding: '1px 3px', background: 'rgba(29,161,242,0.15)', borderColor: 'rgba(29,161,242,0.4)', color: 'rgb(29,161,242)' }}>🐦</span>}
+              {isTrench      && <span className="badge badge-new" style={{ fontSize: 10, padding: '1px 3px' }}>⛏️</span>}
+              {isTied        && <span className="badge badge-strong" style={{ fontSize: 10, padding: '1px 3px' }}>⚡</span>}
+              {beta.isSibling && <span className="badge badge-cabal" style={{ fontSize: 10, padding: '1px 3px' }}>👥</span>}
+              <FlagWarningBadge address={beta.address} />
+            </div>
+            <div style={{ display: 'flex', gap: 4, alignItems: 'center', marginTop: 2 }}>
+              <CopyAddress address={beta.address} />
+              <WaveBadge phase={wave} />
+            </div>
+          </div>
+        </div>
+        <SignalBadge beta={beta} />
+      </div>
       <div className="beta-row-metrics">
         <div className="beta-row-metric">
           <span className="beta-row-metric-label">MCAP</span>
@@ -3666,7 +3692,7 @@ const BetaRow = ({ beta, alpha, isPinned, isBoosted, isListed, trenchOnly, onOpe
           <span className={`beta-row-metric-value ${(beta.liquidity||0)>=50000?'liq-high':(beta.liquidity||0)>=10000?'liq-mid':'liq-low'}`}>{formatNum(beta.liquidity)}</span>
         </div>
         <div className="beta-row-metric">
-          <span className="beta-row-metric-label">24H</span>
+          <span className="beta-row-metric-label">24H%</span>
           <span className={`beta-row-metric-value ${parseFloat(beta.priceChange24h)>=0?'positive':'negative'}`}>{parseFloat(beta.priceChange24h)>=0?'+':''}{(parseFloat(beta.priceChange24h)||0).toFixed(1)}%</span>
         </div>
         <div className="beta-row-metric">

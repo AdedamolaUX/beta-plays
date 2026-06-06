@@ -2068,6 +2068,7 @@ body {
 .mobile-back-btn { display: none; }
 .beta-mcap-select { display: none; }
 .beta-row-metrics { display: none; }
+.beta-card-top { display: none; }
 .mobile-beta-wrapper {
   display: flex;
   flex-direction: column;
@@ -2240,54 +2241,76 @@ body {
   }
   .beta-filter-row::-webkit-scrollbar { display: none; }
 
-  /* ── Beta table: hide header, switch rows to card layout ── */
+  /* ── Beta table: card layout ── */
   .beta-table-header { display: none !important; }
 
+  /* Card container */
   .beta-row {
     display: flex !important;
     flex-direction: column !important;
-    gap: 6px !important;
-    padding: 10px 12px !important;
+    gap: 8px !important;
+    padding: 12px !important;
     grid-template-columns: unset !important;
-    align-items: unset !important;
+    position: relative !important;
   }
 
-  /* All direct children visible by default */
-  .beta-row > * { display: unset !important; }
+  /* Hide ALL original grid children (they stay in DOM for desktop) */
+  .beta-row > .token-info,
+  .beta-row > div:not(.beta-row-metrics),
+  .beta-row > span { display: none !important; }
 
-  /* Row 1: token icon + symbol + badges + signal (space-between) */
-  .beta-row > .token-info {
+  /* Show only our mobile metrics block */
+  .beta-row > .beta-row-metrics { display: flex !important; }
+
+  /* Card top row: icon + name/badges left, signal right */
+  .beta-card-top {
     display: flex !important;
     align-items: center !important;
     justify-content: space-between !important;
-    width: 100% !important;
+    gap: 8px !important;
   }
-
-  /* Hide mcap ratio badge sub-text to save space */
-  .beta-row .mcap-ratio-badge { display: none !important; }
-
-  /* Row 2: metrics inline — mcap · vol · liq · change */
-  .beta-row-metrics {
+  .beta-card-left {
     display: flex !important;
     align-items: center !important;
-    gap: 10px !important;
+    gap: 8px !important;
+    min-width: 0 !important;
+    flex: 1 !important;
+  }
+  .beta-card-name {
+    font-family: var(--font-display) !important;
+    font-size: 14px !important;
+    font-weight: 700 !important;
+    color: var(--text-primary) !important;
+  }
+  .beta-card-badges {
+    display: flex !important;
+    flex-wrap: wrap !important;
+    gap: 3px !important;
+    margin-top: 2px !important;
+  }
+
+  /* Metrics row */
+  .beta-row-metrics {
+    display: flex !important;
+    align-items: flex-start !important;
+    gap: 14px !important;
     flex-wrap: wrap !important;
   }
   .beta-row-metric {
     display: flex !important;
     flex-direction: column !important;
-    gap: 1px !important;
+    gap: 2px !important;
   }
   .beta-row-metric-label {
     font-family: var(--font-mono) !important;
     font-size: 7px !important;
     color: var(--text-muted) !important;
     text-transform: uppercase !important;
-    letter-spacing: 0.5px !important;
+    letter-spacing: 0.6px !important;
   }
   .beta-row-metric-value {
     font-family: var(--font-number) !important;
-    font-size: 11px !important;
+    font-size: 12px !important;
     font-weight: 700 !important;
     color: var(--text-primary) !important;
   }
@@ -2296,26 +2319,6 @@ body {
   .beta-row-metric-value.liq-high { color: var(--neon-green) !important; }
   .beta-row-metric-value.liq-mid  { color: var(--amber) !important; }
   .beta-row-metric-value.liq-low  { color: var(--red) !important; }
-
-  /* Hide original grid cells — replaced by .beta-row-metrics div */
-  .beta-row > div:nth-child(2),
-  .beta-row > span:nth-child(3),
-  .beta-row > span:nth-child(4),
-  .beta-row > span:nth-child(5),
-  .beta-row > span:nth-child(6),
-  .beta-row > div:nth-child(7) { display: none !important; }
-
-  /* Signal badge: float right inside token-info row */
-  .beta-row > .token-info {
-    position: relative;
-  }
-  /* SignalBadge is rendered as last child of beta-row — pull it into the top row */
-  .beta-row > *:last-child {
-    display: block !important;
-    position: absolute !important;
-    top: 10px !important;
-    right: 12px !important;
-  }
 
   /* ── Alpha card: compact, keep 4-col metrics like desktop ── */
   .alpha-card {
