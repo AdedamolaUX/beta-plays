@@ -517,6 +517,7 @@ const SettingsPanel = ({ settings, onUpdate, onReset, onClose }) => {
   const panel = {
     background: 'var(--surface-2)', border: '1px solid var(--border-lit)',
     borderRadius: 12, padding: 24, width: 340, maxWidth: '90vw',
+    maxHeight: '85dvh', overflowY: 'auto', WebkitOverflowScrolling: 'touch',
     display: 'flex', flexDirection: 'column', gap: 20,
   }
   const row = {
@@ -716,10 +717,6 @@ const Navbar = ({ onListBeta, onAdvertise, newRunners, liveAlphas, coolingAlphas
     />
     <span className="brand-name">Beta<span>Plays</span></span>
   </div>
-    <div className="navbar-ecosystem">
-      <span style={{ width: 7, height: 7, borderRadius: '50%', background: 'var(--neon-green)', display: 'inline-block', marginRight: 5, boxShadow: '0 0 6px var(--neon-green)' }} />
-      <span style={{ fontFamily: 'var(--font-mono)', fontSize: 10, fontWeight: 700, color: 'var(--text-secondary)', letterSpacing: 0.5 }}>SOLANA</span>
-    </div>
     <div className="navbar-center" style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
       <div className={`navbar-status${newRunners ? ' navbar-status--flash' : ''}`}>
         <span className={`status-dot${newRunners ? ' status-dot--flash' : ''}`}></span>
@@ -1740,8 +1737,9 @@ const FolioCard = ({ folio, authWallet, authToken, folioSearch, folioSearchRes, 
   )
 }
 
-const AlphaBoard = ({ selectedAlpha, onSelect, onNewRunners, onLiveAlphas, onSznCards, onCoolingAlphas, onCustomSearch, customAlphaLoading, onRegisterClearSearch, alphaListRef, searchResults, onSelectSearchResult, defaultTab = 'live', authToken, isAuthed, authWallet, onFolioCall, folioCallAddrs, folioLeaderboard, folioLoading, folioView, setFolioView, folioSaveMsg, myFolios, setMyFolios, folioSearch, folioSearchRes, folioSearching, onSaveFolioName, onFolioSearch, onFolioLeaderboard, folioTagging, setFolioTagging, onFolioTag, folioProfile, onCreateFolio, activeFolioId, setActiveFolioId }) => {
+const AlphaBoard = ({ selectedAlpha, onSelect, onNewRunners, onLiveAlphas, onSznCards, onCoolingAlphas, onCustomSearch, customAlphaLoading, onRegisterClearSearch, onRegisterSwitchTab, alphaListRef, searchResults, onSelectSearchResult, defaultTab = 'live', authToken, isAuthed, authWallet, onFolioCall, folioCallAddrs, folioLeaderboard, folioLoading, folioView, setFolioView, folioSaveMsg, myFolios, setMyFolios, folioSearch, folioSearchRes, folioSearching, onSaveFolioName, onFolioSearch, onFolioLeaderboard, folioTagging, setFolioTagging, onFolioTag, folioProfile, onCreateFolio, activeFolioId, setActiveFolioId }) => {
   const [activeTab,        setActiveTab]        = useState(defaultTab)
+  useEffect(() => { if (onRegisterSwitchTab) onRegisterSwitchTab((tab) => setActiveTab(tab)) }, [])
   const [searchQuery,      setSearchQuery]      = useState('')
   useEffect(() => {
     if (onRegisterClearSearch) onRegisterClearSearch(() => setSearchQuery(''))
@@ -5971,6 +5969,7 @@ export default function App() {
   const [appSznCards,     setAppSznCards]     = useState([])
   const [appCoolingAlphas, setAppCoolingAlphas] = useState([])  // fed by AlphaBoard via onLiveAlphas
   const alphaListRef = useRef(null)
+  const switchTabRef = useRef(null)
   const isSzn = selectedAlpha?.isSzn === true
   const [mobileView, setMobileView] = useState('list') // 'list' | 'betas'
 
@@ -6002,7 +6001,7 @@ export default function App() {
       <Navbar onListBeta={() => setShowListModal(true)} onAdvertise={() => setShowAdvertiseModal(true)} newRunners={newRunners} liveAlphas={appLiveAlphas} coolingAlphas={appCoolingAlphas} onSettings={() => setShowSettings(true)} onWalletConnect={() => setWalletModalVisible(true)} onWalletSignIn={handleWalletSignIn} onWalletSignOut={handleSignOut} isAuthed={isAuthed} isConnected={connected} walletAddress={authWallet} />
       <NarrativeTicker liveAlphas={appLiveAlphas} sznCards={appSznCards} />
       <div className={`main-layout${mobileView === 'betas' ? ' mobile-show-betas' : ''}`} style={{ flex: 1, overflow: 'hidden' }}>
-        <AlphaBoard selectedAlpha={selectedAlpha} onSelect={handleSelectAlpha} onNewRunners={handleNewRunners} onLiveAlphas={setAppLiveAlphas} onSznCards={setAppSznCards} onCoolingAlphas={setAppCoolingAlphas} onCustomSearch={handleSearchCustomAlpha} customAlphaLoading={customAlphaLoading} onRegisterClearSearch={fn => { clearAlphaBoardSearch.current = fn }} alphaListRef={alphaListRef} searchResults={searchResults} onSelectSearchResult={(token) => { if (!token) { setSearchResults([]); return }; setSelectedAlpha(token); setSearchResults([]) }} defaultTab={settings.defaultTab} authToken={authToken} isAuthed={isAuthed} authWallet={authWallet} onFolioCall={handleFolioCall} folioCallAddrs={folioCallAddrs} folioLeaderboard={folioLeaderboard} folioLoading={folioLoading} folioView={folioView} setFolioView={setFolioView} folioSaveMsg={folioSaveMsg} myFolios={myFolios} setMyFolios={setMyFolios} folioSearch={folioSearch} folioSearchRes={folioSearchRes} folioSearching={folioSearching} onSaveFolioName={handleSaveFolioName} onFolioSearch={handleFolioSearch} onFolioLeaderboard={handleFolioLeaderboard} folioTagging={folioTagging} setFolioTagging={setFolioTagging} onFolioTag={handleFolioTag} folioProfile={folioProfile} onCreateFolio={handleCreateFolio} activeFolioId={activeFolioId} setActiveFolioId={setActiveFolioId} />
+        <AlphaBoard selectedAlpha={selectedAlpha} onSelect={handleSelectAlpha} onNewRunners={handleNewRunners} onLiveAlphas={setAppLiveAlphas} onSznCards={setAppSznCards} onCoolingAlphas={setAppCoolingAlphas} onCustomSearch={handleSearchCustomAlpha} customAlphaLoading={customAlphaLoading} onRegisterClearSearch={fn => { clearAlphaBoardSearch.current = fn }} onRegisterSwitchTab={fn => { switchTabRef.current = fn }} alphaListRef={alphaListRef} searchResults={searchResults} onSelectSearchResult={(token) => { if (!token) { setSearchResults([]); return }; setSelectedAlpha(token); setSearchResults([]) }} defaultTab={settings.defaultTab} authToken={authToken} isAuthed={isAuthed} authWallet={authWallet} onFolioCall={handleFolioCall} folioCallAddrs={folioCallAddrs} folioLeaderboard={folioLeaderboard} folioLoading={folioLoading} folioView={folioView} setFolioView={setFolioView} folioSaveMsg={folioSaveMsg} myFolios={myFolios} setMyFolios={setMyFolios} folioSearch={folioSearch} folioSearchRes={folioSearchRes} folioSearching={folioSearching} onSaveFolioName={handleSaveFolioName} onFolioSearch={handleFolioSearch} onFolioLeaderboard={handleFolioLeaderboard} folioTagging={folioTagging} setFolioTagging={setFolioTagging} onFolioTag={handleFolioTag} folioProfile={folioProfile} onCreateFolio={handleCreateFolio} activeFolioId={activeFolioId} setActiveFolioId={setActiveFolioId} />
         <div className="mobile-beta-wrapper">
           <button className="mobile-back-btn" onClick={() => setMobileView('list')}>← RUNNERS</button>
           {isSzn
@@ -6162,21 +6161,11 @@ export default function App() {
 
       {/* Mobile bottom nav */}
       <nav className="mobile-bottom-nav">
-        <button className="mobile-nav-btn" onClick={() => { setMobileView('list'); setSelectedAlpha(null) }}>
-          <span className="mobile-nav-icon">
-            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-              <circle cx="14.5" cy="3.5" r="1.5" fill="currentColor" stroke="none"/>
-              <path d="M13 6l-2 5"/>
-              <path d="M11 11l-3 2-2 5"/>
-              <path d="M11 11l3 3 3-2"/>
-              <path d="M14 14l1 5"/>
-              <path d="M8.5 8.5l-2.5-2"/>
-              <path d="M13 8l3-1.5"/>
-            </svg>
-          </span>
+        <button className="mobile-nav-btn" onClick={() => { setMobileView('list'); setSelectedAlpha(null); if (switchTabRef.current) switchTabRef.current('live') }}>
+          <span className="mobile-nav-icon">🎯</span>
           <span className="mobile-nav-label">Runners</span>
         </button>
-        <button className="mobile-nav-btn" onClick={() => setMobileView('list')}>
+        <button className="mobile-nav-btn" onClick={() => { setMobileView('list'); if (switchTabRef.current) switchTabRef.current('watch') }}>
           <span className="mobile-nav-icon">⭐</span>
           <span className="mobile-nav-label">Watchlist</span>
         </button>
