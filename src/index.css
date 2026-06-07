@@ -2064,6 +2064,17 @@ body {
    APP — MOBILE RESPONSIVENESS
    ============================================ */
 
+/* Ecosystem pill — shown on both */
+.navbar-ecosystem {
+  display: flex;
+  align-items: center;
+  background: rgba(0,212,255,0.06);
+  border: 1px solid rgba(0,212,255,0.2);
+  border-radius: 20px;
+  padding: 4px 10px;
+  flex-shrink: 0;
+}
+
 /* Desktop (>1024px): mobile-only elements hidden */
 .mobile-back-btn { display: none; }
 .beta-mcap-select { display: none; }
@@ -2176,7 +2187,13 @@ body {
 
   /* ── Beta panel header ── */
   .beta-panel-title { font-size: 15px; }
-  .beta-panel-header { flex-direction: column; gap: 6px; align-items: flex-start; }
+  .beta-panel-header {
+    flex-direction: row !important;
+    flex-wrap: wrap !important;
+    gap: 8px !important;
+    align-items: center !important;
+    justify-content: space-between !important;
+  }
 
   /* ── Parent alpha card: compact on mobile ── */
   .parent-alpha-card,
@@ -2342,7 +2359,7 @@ body {
     flex-shrink: 0 !important;
   }
 
-  /* Metrics row — flex with equal spacing */
+  /* Metrics row — match alpha card style exactly */
   .beta-row-metrics {
     display: flex !important;
     align-items: flex-start !important;
@@ -2357,16 +2374,19 @@ body {
     flex-direction: column !important;
     gap: 3px !important;
     flex: 1 !important;
+    align-items: center !important;
+    text-align: center !important;
   }
   .beta-row-metric-label {
     font-family: var(--font-mono) !important;
-    font-size: 7px !important;
+    font-size: 9px !important;
     color: var(--text-muted) !important;
     text-transform: uppercase !important;
-    letter-spacing: 0.5px !important;
+    letter-spacing: 0.8px !important;
   }
   .beta-row-metric-value {
-    font-size: 11px !important;
+    font-family: var(--font-number) !important;
+    font-size: 12px !important;
     font-weight: 700 !important;
     color: var(--text-primary) !important;
     white-space: nowrap !important;
@@ -2472,6 +2492,9 @@ body {
   /* Hide desktop footer */
   footer { display: none !important; }
 
+  /* Hide ⚙️ settings button — it's in Menu now */
+  .navbar-settings-btn { display: none !important; }
+
   /* Bottom nav bar */
   .mobile-bottom-nav {
     display: flex;
@@ -2510,23 +2533,10 @@ body {
   /* Pad content above nav */
   .app-wrapper { padding-bottom: 56px; }
 
-  /* Hide settings ⚙️ icon on mobile — it's in the Menu now */
-  .navbar-settings-btn { display: none !important; }
-
-  /* Menu/settings panel: scrollable on mobile */
-  .settings-overlay > div:last-child {
+  /* Menu/settings panel scrollable on mobile */
+  .settings-panel-inner,
+  [class*="settings"] > div > div {
     overflow-y: auto !important;
-    max-height: 90dvh !important;
-    -webkit-overflow-scrolling: touch !important;
-  }
-
-  /* Runner icon in bottom nav */
-  .mobile-nav-icon svg {
-    color: var(--text-muted);
-    display: block;
-  }
-  .mobile-nav-btn:active .mobile-nav-icon svg,
-  .mobile-nav-btn:active .mobile-nav-label {
-    color: var(--neon-green);
+    max-height: 85vh !important;
   }
 }
