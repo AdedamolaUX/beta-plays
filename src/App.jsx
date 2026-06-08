@@ -3638,7 +3638,6 @@ const BetaRow = ({ beta, alpha, isPinned, isBoosted, isListed, trenchOnly, onOpe
             <span style={{ fontFamily: 'var(--font-display)', fontWeight: 700, fontSize: 13, color: 'var(--text-primary)' }}>
               ${beta.symbol}
             </span>
-            <CopyAddress address={beta.address} />
             {isBoosted      && <Tooltip text="Boosted — project paid to promote this beta"><span className="badge" style={{ fontSize: 10, padding: '1px 4px', background: 'rgba(255,200,0,0.15)', borderColor: 'rgba(255,200,0,0.5)', color: 'rgb(255,200,0)', cursor: 'default', fontWeight: 700 }}>⚡ BOOSTED</span></Tooltip>}
             {isListed       && <Tooltip text="Listed — project paid to place this token as a beta here"><span className="badge" style={{ fontSize: 10, padding: '1px 4px', background: 'rgba(100,180,255,0.15)', borderColor: 'rgba(100,180,255,0.5)', color: 'rgb(100,180,255)', cursor: 'default', fontWeight: 700 }}>📋 LISTED</span></Tooltip>}
             {isLPPair       && <Tooltip text="LP pair — direct on-chain liquidity link"><span className="badge badge-cabal" style={{ fontSize: 11, padding: '1px 3px', cursor: 'default' }}>🔗</span></Tooltip>}
@@ -3675,6 +3674,7 @@ const BetaRow = ({ beta, alpha, isPinned, isBoosted, isListed, trenchOnly, onOpe
             )}
           </div>
           <div style={{ display: 'flex', gap: 6, alignItems: 'center', marginTop: 1 }}>
+            <CopyAddress address={beta.address} />
             {beta.isHistorical && <span style={{ fontFamily: 'var(--font-mono)', fontSize: 9, color: 'var(--text-muted)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: 3, padding: '1px 3px' }}>📦</span>}
             <WaveBadge phase={wave} />
           </div>
