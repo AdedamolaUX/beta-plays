@@ -251,6 +251,12 @@ body {
 ::-webkit-scrollbar-track { background: transparent; }
 ::-webkit-scrollbar-thumb { background: var(--neon-dim); border-radius: 2px; }
 
+/* Hide scrollbars on horizontal scroll containers and modal panels */
+.navbar, nav, [style*="overflow"] {
+  scrollbar-width: none;
+}
+.navbar::-webkit-scrollbar, nav::-webkit-scrollbar { display: none; }
+
 #root {
   height: 100%;
   display: flex;

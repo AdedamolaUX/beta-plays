@@ -3930,7 +3930,10 @@ const SznPanel = ({ szn, onListBeta, onOpenDrawer }) => {
                 <span style={{ fontFamily: 'var(--font-mono)', fontSize: 7, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.5px' }}>24H</span>
                 <span className={`token-change ${isPositive ? 'positive' : 'negative'}`} style={{ fontSize: 11, fontWeight: 700 }}>{isPositive ? '+' : ''}{change.toFixed(1)}%</span>
               </div>
-              <span className="badge badge-strong" style={{ fontSize: 8, padding: '2px 6px' }}>🌊 SZN</span>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 1, alignItems: 'center', flexShrink: 0 }}>
+                <span style={{ fontFamily: 'var(--font-mono)', fontSize: 7, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.5px' }}>SIGNAL</span>
+                <span className="badge badge-strong" style={{ fontSize: 8, padding: '2px 6px' }}>🌊 SZN</span>
+              </div>
             </div>
           )
         })}
