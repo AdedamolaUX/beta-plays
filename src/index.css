@@ -2298,14 +2298,20 @@ body {
     display: flex !important;
     flex-shrink: 0 !important;
   }
-  /* Metric divs: column layout */
+  /* Metric divs: column layout, centered */
   .beta-row.szn-row > div:not(.token-info) {
     flex-direction: column !important;
     gap: 1px !important;
     flex-shrink: 0 !important;
+    align-items: center !important;
   }
   .beta-row.szn-row .beta-card-top,
   .beta-row.szn-row .beta-row-metrics { display: none !important; }
+  /* Signal badge (SZN) in szn rows — keep visible, no shrink */
+  .beta-row.szn-row > span.badge {
+    flex-shrink: 0 !important;
+    margin-left: auto !important;
+  }
 
   /* Show mobile card blocks */
   .beta-row > .beta-row-metrics { display: flex !important; }
@@ -2466,6 +2472,15 @@ body {
   }
 
   /* ── Scrollable tabs & filter rows ── */
+  /* Hide scrollbar on inline-styled tab row */
+  .alpha-board > div[style*="overflowX"],
+  .alpha-board > div > div[style*="overflowX"] {
+    scrollbar-width: none !important;
+  }
+  .alpha-board > div[style*="overflowX"]::-webkit-scrollbar,
+  .alpha-board > div > div[style*="overflowX"]::-webkit-scrollbar {
+    display: none !important;
+  }
   .tab-row, .filter-tabs, .alpha-tabs, .source-filter-row {
     overflow-x: auto;
     flex-wrap: nowrap;
@@ -2533,10 +2548,17 @@ body {
   /* Pad content above nav */
   .app-wrapper { padding-bottom: 56px; }
 
-  /* Menu/settings panel scrollable on mobile */
+  /* Menu/settings panel scrollable on mobile — scrollbar hidden */
   .settings-panel-inner,
   [class*="settings"] > div > div {
     overflow-y: auto !important;
     max-height: 85vh !important;
+  }
+  /* Hide scrollbar on fixed overlay modal inner panel (Menu) */
+  [style*="position: fixed"][style*="zIndex: 9999"] > div {
+    scrollbar-width: none !important;
+  }
+  [style*="position: fixed"][style*="zIndex: 9999"] > div::-webkit-scrollbar {
+    display: none !important;
   }
 }
