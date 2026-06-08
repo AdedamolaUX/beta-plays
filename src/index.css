@@ -251,12 +251,6 @@ body {
 ::-webkit-scrollbar-track { background: transparent; }
 ::-webkit-scrollbar-thumb { background: var(--neon-dim); border-radius: 2px; }
 
-/* Hide scrollbars on horizontal scroll containers and modal panels */
-.navbar, nav, [style*="overflow"] {
-  scrollbar-width: none;
-}
-.navbar::-webkit-scrollbar, nav::-webkit-scrollbar { display: none; }
-
 #root {
   height: 100%;
   display: flex;
@@ -679,6 +673,11 @@ body {
   flex-direction: column;
   gap: 6px;
   padding-bottom: 8px;
+}
+
+/* SZN row metric label spans — hidden on desktop (header covers it) */
+.beta-row.szn-row > div > span:first-child {
+  display: none;
 }
 
 .beta-table-header {
@@ -2317,6 +2316,9 @@ body {
     display: flex !important;
     flex-shrink: 0 !important;
   }
+  /* Show szn metric labels on mobile */
+  .beta-row.szn-row > div > span:first-child { display: block !important; }
+
   /* Metric divs: column layout, centered */
   .beta-row.szn-row > div:not(.token-info) {
     flex-direction: column !important;
