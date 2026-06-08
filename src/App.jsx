@@ -518,6 +518,7 @@ const SettingsPanel = ({ settings, onUpdate, onReset, onClose }) => {
     background: 'var(--surface-2)', border: '1px solid var(--border-lit)',
     borderRadius: 12, padding: 24, width: 340, maxWidth: '90vw',
     display: 'flex', flexDirection: 'column', gap: 20,
+    maxHeight: '85dvh', overflowY: 'auto',
   }
   const row = {
     display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12,
@@ -569,7 +570,7 @@ const SettingsPanel = ({ settings, onUpdate, onReset, onClose }) => {
         {/* Header */}
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
           <div style={{ fontFamily: 'var(--font-display)', fontSize: 16, fontWeight: 800, color: 'var(--neon-green)' }}>
-            ⚙️ Settings
+            ☰ Menu
           </div>
           <button onClick={onClose} style={{ background: 'none', border: 'none', color: 'var(--text-muted)', cursor: 'pointer', fontSize: 18, lineHeight: 1 }}>✕</button>
         </div>
@@ -674,6 +675,28 @@ const SettingsPanel = ({ settings, onUpdate, onReset, onClose }) => {
             Reset to defaults
           </button>
         </div>
+
+        {/* Community */}
+        <div style={{ borderTop: '1px solid var(--border)', paddingTop: 16 }}>
+          <div style={{ fontFamily: 'var(--font-mono)', fontSize: 9, color: 'var(--text-muted)', letterSpacing: 1, marginBottom: 12 }}>COMMUNITY</div>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+            <a href="https://twitter.com/betaplaysai" target="_blank" rel="noreferrer"
+              style={{ display: 'flex', alignItems: 'center', gap: 8, color: 'var(--text-secondary)', fontFamily: 'var(--font-display)', fontSize: 11, textDecoration: 'none' }}>
+              <span>🐦</span><span>@betaplaysai</span>
+            </a>
+            <a href="https://t.me/betaplays" target="_blank" rel="noreferrer"
+              style={{ display: 'flex', alignItems: 'center', gap: 8, color: 'var(--text-secondary)', fontFamily: 'var(--font-display)', fontSize: 11, textDecoration: 'none' }}>
+              <span>📡</span><span>t.me/betaplays</span>
+            </a>
+            <a href="https://github.com/AdedamolaUX/beta-plays" target="_blank" rel="noreferrer"
+              style={{ display: 'flex', alignItems: 'center', gap: 8, color: 'var(--text-secondary)', fontFamily: 'var(--font-display)', fontSize: 11, textDecoration: 'none' }}>
+              <span>⚙️</span><span>GitHub</span>
+            </a>
+          </div>
+          <div style={{ fontFamily: 'var(--font-body)', fontSize: 9, color: 'var(--text-muted)', marginTop: 12, lineHeight: 1.5 }}>
+            DYOR. Not financial advice. BetaPlays surfaces correlations — always verify before trading.
+          </div>
+        </div>
       </div>
     </div>
   )
@@ -690,6 +713,10 @@ const Navbar = ({ onListBeta, onAdvertise, newRunners, liveAlphas, coolingAlphas
       style={{ height: 44, width: 44, objectFit: 'contain' }}
     />
     <span className="brand-name">Beta<span>Plays</span></span>
+  </div>
+  <div className="navbar-ecosystem">
+    <span style={{ width: 6, height: 6, borderRadius: '50%', background: 'var(--neon-green)', display: 'inline-block', marginRight: 5, boxShadow: '0 0 6px var(--neon-green)' }} />
+    <span>SOLANA</span>
   </div>
     <div className="navbar-center" style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
       <div className={`navbar-status${newRunners ? ' navbar-status--flash' : ''}`}>
@@ -746,6 +773,7 @@ const Navbar = ({ onListBeta, onAdvertise, newRunners, liveAlphas, coolingAlphas
       )}
       <button
         onClick={onSettings}
+        className="navbar-settings-btn"
         style={{
           background: 'rgba(255,255,255,0.05)', border: '1px solid var(--border)',
           borderRadius: 8, cursor: 'pointer', color: 'var(--text-muted)',
@@ -1711,11 +1739,14 @@ const FolioCard = ({ folio, authWallet, authToken, folioSearch, folioSearchRes, 
   )
 }
 
-const AlphaBoard = ({ selectedAlpha, onSelect, onNewRunners, onLiveAlphas, onSznCards, onCoolingAlphas, onCustomSearch, customAlphaLoading, onRegisterClearSearch, alphaListRef, searchResults, onSelectSearchResult, defaultTab = 'live', authToken, isAuthed, authWallet, onFolioCall, folioCallAddrs, folioLeaderboard, folioLoading, folioView, setFolioView, folioSaveMsg, myFolios, setMyFolios, folioSearch, folioSearchRes, folioSearching, onSaveFolioName, onFolioSearch, onFolioLeaderboard, folioTagging, setFolioTagging, onFolioTag, folioProfile, onCreateFolio, activeFolioId, setActiveFolioId }) => {
+const AlphaBoard = ({ selectedAlpha, onSelect, onNewRunners, onLiveAlphas, onSznCards, onCoolingAlphas, onCustomSearch, customAlphaLoading, onRegisterClearSearch, onRegisterSwitchTab, alphaListRef, searchResults, onSelectSearchResult, defaultTab = 'live', authToken, isAuthed, authWallet, onFolioCall, folioCallAddrs, folioLeaderboard, folioLoading, folioView, setFolioView, folioSaveMsg, myFolios, setMyFolios, folioSearch, folioSearchRes, folioSearching, onSaveFolioName, onFolioSearch, onFolioLeaderboard, folioTagging, setFolioTagging, onFolioTag, folioProfile, onCreateFolio, activeFolioId, setActiveFolioId }) => {
   const [activeTab,        setActiveTab]        = useState(defaultTab)
   const [searchQuery,      setSearchQuery]      = useState('')
   useEffect(() => {
     if (onRegisterClearSearch) onRegisterClearSearch(() => setSearchQuery(''))
+  }, [])
+  useEffect(() => {
+    if (onRegisterSwitchTab) onRegisterSwitchTab((tab) => setActiveTab(tab))
   }, [])
   const [showAdminPanel,   setShowAdminPanel]   = useState(false)
   // ── Folio state ───────────────────────────────────────────────
@@ -5836,6 +5867,7 @@ export default function App() {
   const [customAlphaError,   setCustomAlphaError]   = useState('')
   const [searchResults,      setSearchResults]      = useState([])
   const clearAlphaBoardSearch = useRef(null) // set by AlphaBoard
+  const switchTabRef = useRef(null) // set by AlphaBoard
 
   const handleSearchCustomAlpha = async (query) => {
     if (!query.trim()) return
@@ -5973,7 +6005,7 @@ export default function App() {
       <Navbar onListBeta={() => setShowListModal(true)} onAdvertise={() => setShowAdvertiseModal(true)} newRunners={newRunners} liveAlphas={appLiveAlphas} coolingAlphas={appCoolingAlphas} onSettings={() => setShowSettings(true)} onWalletConnect={() => setWalletModalVisible(true)} onWalletSignIn={handleWalletSignIn} onWalletSignOut={handleSignOut} isAuthed={isAuthed} isConnected={connected} walletAddress={authWallet} />
       <NarrativeTicker liveAlphas={appLiveAlphas} sznCards={appSznCards} />
       <div className={`main-layout${mobileView === 'betas' ? ' mobile-show-betas' : ''}`} style={{ flex: 1, overflow: 'hidden' }}>
-        <AlphaBoard selectedAlpha={selectedAlpha} onSelect={handleSelectAlpha} onNewRunners={handleNewRunners} onLiveAlphas={setAppLiveAlphas} onSznCards={setAppSznCards} onCoolingAlphas={setAppCoolingAlphas} onCustomSearch={handleSearchCustomAlpha} customAlphaLoading={customAlphaLoading} onRegisterClearSearch={fn => { clearAlphaBoardSearch.current = fn }} alphaListRef={alphaListRef} searchResults={searchResults} onSelectSearchResult={(token) => { if (!token) { setSearchResults([]); return }; setSelectedAlpha(token); setSearchResults([]) }} defaultTab={settings.defaultTab} authToken={authToken} isAuthed={isAuthed} authWallet={authWallet} onFolioCall={handleFolioCall} folioCallAddrs={folioCallAddrs} folioLeaderboard={folioLeaderboard} folioLoading={folioLoading} folioView={folioView} setFolioView={setFolioView} folioSaveMsg={folioSaveMsg} myFolios={myFolios} setMyFolios={setMyFolios} folioSearch={folioSearch} folioSearchRes={folioSearchRes} folioSearching={folioSearching} onSaveFolioName={handleSaveFolioName} onFolioSearch={handleFolioSearch} onFolioLeaderboard={handleFolioLeaderboard} folioTagging={folioTagging} setFolioTagging={setFolioTagging} onFolioTag={handleFolioTag} folioProfile={folioProfile} onCreateFolio={handleCreateFolio} activeFolioId={activeFolioId} setActiveFolioId={setActiveFolioId} />
+        <AlphaBoard selectedAlpha={selectedAlpha} onSelect={handleSelectAlpha} onNewRunners={handleNewRunners} onLiveAlphas={setAppLiveAlphas} onSznCards={setAppSznCards} onCoolingAlphas={setAppCoolingAlphas} onCustomSearch={handleSearchCustomAlpha} customAlphaLoading={customAlphaLoading} onRegisterClearSearch={fn => { clearAlphaBoardSearch.current = fn }} onRegisterSwitchTab={fn => { switchTabRef.current = fn }} alphaListRef={alphaListRef} searchResults={searchResults} onSelectSearchResult={(token) => { if (!token) { setSearchResults([]); return }; setSelectedAlpha(token); setSearchResults([]) }} defaultTab={settings.defaultTab} authToken={authToken} isAuthed={isAuthed} authWallet={authWallet} onFolioCall={handleFolioCall} folioCallAddrs={folioCallAddrs} folioLeaderboard={folioLeaderboard} folioLoading={folioLoading} folioView={folioView} setFolioView={setFolioView} folioSaveMsg={folioSaveMsg} myFolios={myFolios} setMyFolios={setMyFolios} folioSearch={folioSearch} folioSearchRes={folioSearchRes} folioSearching={folioSearching} onSaveFolioName={handleSaveFolioName} onFolioSearch={handleFolioSearch} onFolioLeaderboard={handleFolioLeaderboard} folioTagging={folioTagging} setFolioTagging={setFolioTagging} onFolioTag={handleFolioTag} folioProfile={folioProfile} onCreateFolio={handleCreateFolio} activeFolioId={activeFolioId} setActiveFolioId={setActiveFolioId} />
         <div className="mobile-beta-wrapper">
           <button className="mobile-back-btn" onClick={() => setMobileView('list')}>← RUNNERS</button>
           {isSzn
@@ -5982,6 +6014,31 @@ export default function App() {
           }
         </div>
       </div>
+
+      <nav className="mobile-bottom-nav">
+        <button className="mobile-nav-btn" onClick={() => { setMobileView('list'); setSelectedAlpha(null); if (switchTabRef.current) switchTabRef.current('live') }}>
+          <span className="mobile-nav-icon">
+            <svg width="20" height="20" viewBox="0 0 20 20" fill="none" xmlns="http://www.w3.org/2000/svg">
+              <circle cx="10" cy="3.5" r="1.8" stroke="currentColor" strokeWidth="1.4"/>
+              <line x1="10" y1="5.3" x2="8.5" y2="10" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round"/>
+              <line x1="10" y1="5.3" x2="11.5" y2="10" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round"/>
+              <line x1="8.5" y1="10" x2="6.5" y2="14.5" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round"/>
+              <line x1="11.5" y1="10" x2="13.5" y2="14.5" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round"/>
+              <line x1="7.5" y1="8" x2="5" y2="10.5" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round"/>
+              <line x1="12.5" y1="8" x2="15" y2="10.5" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round"/>
+            </svg>
+          </span>
+          <span className="mobile-nav-label">Runners</span>
+        </button>
+        <button className="mobile-nav-btn" onClick={() => { setMobileView('list'); if (switchTabRef.current) switchTabRef.current('watch') }}>
+          <span className="mobile-nav-icon">⭐</span>
+          <span className="mobile-nav-label">Watchlist</span>
+        </button>
+        <button className="mobile-nav-btn" onClick={() => setShowSettings(true)}>
+          <span className="mobile-nav-icon">☰</span>
+          <span className="mobile-nav-label">Menu</span>
+        </button>
+      </nav>
 
       {/* Folio picker — shown when 🎯 clicked with multiple folios */}
       {showFolioPicker && createPortal(
