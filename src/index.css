@@ -675,6 +675,11 @@ body {
   padding-bottom: 8px;
 }
 
+/* SZN row: hide inline metric labels on desktop — header covers them */
+.beta-row.szn-row > div > span:first-child {
+  display: none;
+}
+
 /* SZN row inline metric labels hidden on desktop (header covers them) */
 .beta-row.szn-row > div > span:first-child {
   display: none;
@@ -2324,6 +2329,9 @@ body {
   .beta-row.szn-row > div > span:first-child { display: block !important; }
 
   /* SZN labels visible on mobile (no table header) */
+  .beta-row.szn-row > div > span:first-child { display: block !important; }
+
+  /* SZN labels visible on mobile */
   .beta-row.szn-row > div > span:first-child { display: block !important; }
 
   /* Metric divs: column layout, centered */
