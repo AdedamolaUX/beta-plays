@@ -3644,7 +3644,6 @@ const BetaRow = ({ beta, alpha, isPinned, isBoosted, isListed, trenchOnly, onOpe
             {isTelegramSig  && <Tooltip text="Telegram signal — spotted in CT alpha channels"><span className="badge" style={{ fontSize: 11, padding: '1px 3px', background: 'rgba(0,212,180,0.15)', borderColor: 'rgba(0,212,180,0.4)', color: 'rgb(0,212,180)', animation: 'pulse 2s infinite', cursor: 'default' }}>📡</span></Tooltip>}
             {isTwitterSig   && <Tooltip text="Twitter signal — spotted on CT"><span className="badge" style={{ fontSize: 11, padding: '1px 3px', background: 'rgba(29,161,242,0.15)', borderColor: 'rgba(29,161,242,0.4)', color: 'rgb(29,161,242)', animation: 'pulse 2s infinite', cursor: 'default' }}>🐦</span></Tooltip>}
             {isTied         && <Tooltip text="Tied — two tokens with similar momentum for this concept"><span className="badge badge-strong" style={{ fontSize: 11, padding: '1px 3px', cursor: 'default' }}>⚡</span></Tooltip>}
-            {isTrench       && <Tooltip text="Trenches — market cap under $30K. Very high risk, very high reward."><span className="badge badge-new" style={{ fontSize: 11, padding: '1px 3px', cursor: 'default' }}>⛏️</span></Tooltip>}
             <FlagWarningBadge address={beta.address} />
             {beta.decayCount >= 2 && (
               <Tooltip text={`⚠️ ${beta.decayCount}/5 decay signals: ${(beta.decaySignals || []).join(', ')}`}>
@@ -3702,7 +3701,6 @@ const BetaRow = ({ beta, alpha, isPinned, isBoosted, isListed, trenchOnly, onOpe
               {isLPPair      && <span className="badge badge-cabal" style={{ fontSize: 9, padding: '1px 4px' }}>🔗 LP</span>}
               {isTelegramSig && <span className="badge" style={{ fontSize: 9, padding: '1px 4px', background: 'rgba(0,212,180,0.15)', borderColor: 'rgba(0,212,180,0.4)', color: 'rgb(0,212,180)' }}>📡 TG</span>}
               {isTwitterSig  && <span className="badge" style={{ fontSize: 9, padding: '1px 4px', background: 'rgba(29,161,242,0.15)', borderColor: 'rgba(29,161,242,0.4)', color: 'rgb(29,161,242)' }}>🐦 X</span>}
-              {isTrench      && <span className="badge badge-new" style={{ fontSize: 9, padding: '1px 4px' }}>⛏️ TRENCH</span>}
               {isTied        && <span className="badge badge-strong" style={{ fontSize: 9, padding: '1px 4px' }}>⚡ TIED</span>}
               {beta.isSibling && <span className="badge badge-cabal" style={{ fontSize: 9, padding: '1px 4px' }}>👥 SIBLING</span>}
               <FlagWarningBadge address={beta.address} />

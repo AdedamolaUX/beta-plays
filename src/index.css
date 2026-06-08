@@ -2074,11 +2074,17 @@ body {
 .navbar-ecosystem {
   display: flex;
   align-items: center;
-  background: rgba(0,212,255,0.06);
-  border: 1px solid rgba(0,212,255,0.2);
+  gap: 5px;
+  background: rgba(57,255,20,0.06);
+  border: 1px solid rgba(57,255,20,0.2);
   border-radius: 20px;
   padding: 4px 10px;
   flex-shrink: 0;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  color: var(--neon-green);
 }
 
 /* Desktop (>1024px): mobile-only elements hidden */
@@ -2106,6 +2112,7 @@ body {
   }
   /* Hide entire middle navbar section (LIVE·SOLANA + badges + latency) */
   .navbar-center { display: none !important; }
+  .navbar-ecosystem { display: none !important; }
   .brand-name { font-size: 13px; }
   .navbar-brand { gap: 6px; }
   .navbar-brand img { height: 28px !important; width: 28px !important; }
@@ -2146,6 +2153,12 @@ body {
     overflow: hidden;
     display: flex;
     flex-direction: column;
+  }
+  .alpha-list {
+    overflow-y: auto !important;
+    overflow-x: hidden !important;
+    flex: 1 !important;
+    min-height: 0 !important;
   }
 
   /* Beta wrapper: hidden by default on mobile, shown when runner selected */
