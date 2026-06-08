@@ -1735,6 +1735,41 @@ body {
 .lp-btn-large:hover { background: #6D28D9; transform: translateY(-2px); }
 
 /* FOOTER */
+/* ── Partnership Section ── */
+.lp-partner-section { padding: 6rem 4rem; }
+.lp-partner-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr 1fr;
+  gap: 1px;
+  background: var(--lp-border);
+  border-radius: 8px;
+  overflow: hidden;
+  margin-bottom: 3rem;
+}
+.lp-partner-card {
+  background: var(--lp-void2);
+  padding: 2.5rem;
+  transition: background 0.25s;
+  position: relative;
+  overflow: hidden;
+}
+.lp-partner-card:hover { background: var(--lp-void3); }
+.lp-partner-icon { font-size: 2rem; margin-bottom: 1rem; }
+.lp-partner-cta { text-align: center; }
+.lp-partner-sub {
+  font-family: 'Space Mono', monospace;
+  font-size: 0.7rem;
+  letter-spacing: 2px;
+  color: var(--lp-text-dim);
+  margin-bottom: 1.5rem;
+  text-transform: uppercase;
+}
+
+@media (max-width: 768px) {
+  .lp-partner-section { padding: 3rem 1.25rem; }
+  .lp-partner-grid { grid-template-columns: 1fr; }
+}
+
 .lp-footer { border-top: 1px solid var(--lp-border); padding: 3rem 4rem; }
 .lp-footer-top {
   display: grid;

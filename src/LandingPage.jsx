@@ -45,7 +45,7 @@ const LandingPage = () => {
           </h1>
           <div className="lp-h1-divider" />
           <span className="lp-h1-sub">
-            NO CRYING OVER SPILLED MILK.<br />BET ON THE <em>DERIVATIVE.</em>
+            NO CRYING IN THE CASINO.<br />BET ON THE <em>DERIVATIVE.</em>
           </span>
           <p className="lp-hero-desc">
             BetaPlays maps narrative correlations in real time. Find the{' '}
@@ -282,6 +282,53 @@ const LandingPage = () => {
             </div>
             <div className="lp-proj-price">1 SOL / 24 HOURS · <strong>2 SLOTS MAX PER ALPHA</strong></div>
           </div>
+        </div>
+      </section>
+
+      {/* ── PARTNERSHIP ── */}
+      <section className="lp-section lp-partner-section" id="partners">
+        <div className="lp-projects-intro">
+          <div>
+            <div className="lp-label">BACK US EARLY</div>
+            <h2 className="lp-section-title">BUILD THE EDGE<br />WITH US.</h2>
+          </div>
+          <p className="lp-section-sub">
+            BetaPlays is early. We&apos;re building the narrative intelligence layer
+            that every Solana degen will rely on. If you see the vision —
+            capital, connections, or strategic partnerships — we want to hear from you.
+          </p>
+        </div>
+        <div className="lp-partner-grid">
+          <div className="lp-partner-card">
+            <div className="lp-proj-accent lp-acc-purple" />
+            <div className="lp-partner-icon">💰</div>
+            <div className="lp-proj-title">Invest Capital</div>
+            <div className="lp-proj-desc">Back the earliest stage of BetaPlays. Get in before the audience, the revenue, and the moat are fully built.</div>
+          </div>
+          <div className="lp-partner-card">
+            <div className="lp-proj-accent lp-acc-green" />
+            <div className="lp-partner-icon">🤝</div>
+            <div className="lp-proj-title">Strategic Partner</div>
+            <div className="lp-proj-desc">Exchanges, wallets, data providers — if your product serves Solana degens, there&apos;s a deal to be structured.</div>
+          </div>
+          <div className="lp-partner-card">
+            <div className="lp-proj-accent" style={{ background: 'var(--lp-cyan)' }} />
+            <div className="lp-partner-icon">🧠</div>
+            <div className="lp-proj-title">Advisor</div>
+            <div className="lp-proj-desc">Deep in CT, DeFi, or growth? Help shape the product and go-to-market in exchange for early access and upside.</div>
+          </div>
+        </div>
+        <div className="lp-partner-cta">
+          <p className="lp-partner-sub">Takes 2 minutes. No commitment — just a conversation.</p>
+          <a
+            href="https://tally.so/r/NpPgKj"
+            target="_blank"
+            rel="noreferrer"
+            className="lp-btn-primary"
+            style={{ display: 'inline-block', textDecoration: 'none' }}
+          >
+            BACK BETAPLAYS EARLY →
+          </a>
         </div>
       </section>
 
