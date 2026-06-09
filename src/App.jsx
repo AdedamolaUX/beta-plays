@@ -1155,139 +1155,201 @@ const AlphaCard = ({ alpha, isSelected, onClick, isWatched, onToggleWatch, isCal
         </>,
         document.body
       )}
-      {/* ── Row 1: Identity — icon + symbol + badges + % ── */}
-      <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-        <div className="token-icon" style={{ flexShrink: 0 }}>
-          {alpha.logoUrl
-            ? <img src={alpha.logoUrl} alt={alpha.symbol} />
-            : alpha.symbol.slice(0, 3)}
-        </div>
-        <div style={{ flex: 1, minWidth: 0 }}>
-          {/* Symbol + inline status badges */}
-          <div style={{ display: 'flex', alignItems: 'center', gap: 4, flexWrap: 'nowrap', overflow: 'hidden' }}>
-            <div className="token-name" style={{ flexShrink: 0 }}>${alpha.symbol}</div>
-            {derivative && (
-              <Tooltip text={parentSymbol ? `Derivative of $${parentSymbol}` : 'Derivative token — shares narrative with a parent alpha'}>
-                <span className="alpha-badge">🧬</span>
-              </Tooltip>
-            )}
-            {alpha.isLegend && (
-              <Tooltip text="Legend — OG token with verified history">
-                <span className="alpha-badge">🏆</span>
-              </Tooltip>
-            )}
-            {alpha.isCooling && !alpha.isDumped && (
-              <Tooltip text="Cooling — price action slowing down">
-                <span className="alpha-badge">❄️</span>
-              </Tooltip>
-            )}
-            {alpha.isDumped && (
-              <Tooltip text="Dumped — price collapsed 75%+ from peak. Treat as dead unless volume returns.">
-                <span className="alpha-badge" style={{ background: 'rgba(255,68,102,0.15)', borderColor: 'rgba(255,68,102,0.4)', color: 'var(--red)' }}>💀</span>
-              </Tooltip>
-            )}
-            {alpha.source === 'pumpfun_bonded' && (
-              <Tooltip text="Graduated from PumpFun — bonded token">
-                <span className="alpha-badge">🎓</span>
-              </Tooltip>
-            )}
-            {alpha.source === 'pumpfun_pre' && (
-              <span className="alpha-badge" style={{ background: 'rgba(255,184,0,0.12)', borderColor: 'rgba(255,184,0,0.3)', color: 'var(--amber)' }}>
-                🔥 {alpha.bondingProgress}%
-              </span>
-            )}
-            {(alpha.source === 'birdeye_trending' || alpha.source === 'dex_gainers') && (
-              <Tooltip text="Organic runner — found via momentum, not paid promotion">
-                <span className="alpha-badge">🦅</span>
-              </Tooltip>
-            )}
-            {alpha.source === 'dex_new' && (
-              <Tooltip text="New pair — recently launched token">
-                <span className="alpha-badge">✨</span>
-              </Tooltip>
-            )}
-            {alpha.isRevival && (
-              <Tooltip text={alpha.recoveryPct != null ? `Revived — ${alpha.recoveryPct}% of peak recovered` : 'Revived — recovering from cooling'}>
-                <span className="alpha-badge" style={{ animation: 'pulse 2s infinite' }}>🔄</span>
-              </Tooltip>
-            )}
-            {(alpha.runCount || 0) >= 3 && (
-              <Tooltip text={`On runner feed ${alpha.runCount}× — signals strength`}>
-                <span className="alpha-badge" style={{
-                  background: alpha.runCount >= 10 ? 'rgba(0,255,153,0.15)' : alpha.runCount >= 5 ? 'rgba(0,212,255,0.12)' : 'rgba(255,255,255,0.07)',
-                  borderColor: alpha.runCount >= 10 ? 'rgba(0,255,153,0.4)' : alpha.runCount >= 5 ? 'rgba(0,212,255,0.35)' : 'rgba(255,255,255,0.15)',
-                  color: alpha.runCount >= 10 ? 'var(--neon-green)' : alpha.runCount >= 5 ? 'var(--cyan)' : 'var(--text-muted)',
-                }}>🔄 {alpha.runCount}×</span>
-              </Tooltip>
-            )}
+      <div className="alpha-card-top">
+        <div className="token-info">
+          <div className="token-icon">
+            {alpha.logoUrl
+              ? <img src={alpha.logoUrl} alt={alpha.symbol} />
+              : alpha.symbol.slice(0, 3)}
           </div>
-          {/* Sub-line: price + context labels */}
-          <div style={{ display: 'flex', gap: 6, alignItems: 'center', marginTop: 2 }}>
-            <span style={{ fontFamily: 'var(--font-mono)', fontSize: 9, color: 'var(--text-muted)' }}>{formatPrice(alpha.priceUsd)}</span>
-            {alpha.coolingLabel && (
-              <span style={{ fontFamily: 'var(--font-mono)', fontSize: 8, color: alpha.isDumped ? 'var(--red)' : 'var(--cyan)', maxWidth: 90, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={alpha.coolingLabel}>{alpha.coolingLabel}</span>
-            )}
-            {alpha.volumeRising && (
-              <span style={{ fontFamily: 'var(--font-number)', fontSize: 8, color: 'rgb(0,255,150)' }}>📈 vol↑</span>
-            )}
-            {alpha.peakDistance != null && !alpha.isDumped && (
-              <span style={{ fontFamily: 'var(--font-mono)', fontSize: 8, color: 'var(--text-muted)' }}>{alpha.peakDistance}% of peak</span>
-            )}
-            {alpha.weeklyContext && !alpha.isDumped && alpha.weeklyContext.ageDays >= 2 && (
-              <span style={{ fontFamily: 'var(--font-mono)', fontSize: 8, color: 'var(--text-muted)' }}>{alpha.weeklyContext.changeSinceFirst >= 0 ? '+' : ''}{alpha.weeklyContext.changeSinceFirst}% in {alpha.weeklyContext.ageDays}d</span>
-            )}
-          </div>
-        </div>
-        {/* % change — always top right */}
-        <div className={`token-change ${isPositive ? 'positive' : 'negative'}`} style={{ flexShrink: 0 }}>
-          {isPositive ? '+' : ''}{change.toFixed(1)}%
-        </div>
-      </div>
+          <div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 4, flexWrap: 'nowrap', overflow: 'hidden' }}>
+              <div className="token-name" style={{ flexShrink: 0, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>${alpha.symbol}</div>
+              <CopyAddress address={alpha.address} />
+              {derivative && (
+                <Tooltip text={parentSymbol ? `Derivative of $${parentSymbol}` : 'Derivative token — shares narrative with a parent alpha'}>
+                  <span className="badge badge-new" style={{ fontSize: 11, padding: '1px 3px', cursor: 'default' }}>🧬</span>
+                </Tooltip>
+              )}
+              {alpha.isLegend && (
+                <Tooltip text="Legend — OG token with verified history">
+                  <span className="badge badge-verified" style={{ fontSize: 11, padding: '1px 3px', cursor: 'default' }}>🏆</span>
+                </Tooltip>
+              )}
+              {alpha.isCooling && !alpha.isDumped && (
+                <Tooltip text="Cooling — price action slowing down">
+                  <span className="badge badge-weak" style={{ fontSize: 11, padding: '1px 3px', cursor: 'default' }}>❄️</span>
+                </Tooltip>
+              )}
+              {alpha.isDumped && (
+                <Tooltip text="Dumped — price collapsed 75%+ from peak. Treat as dead unless volume returns.">
+                  <span className="badge badge-weak" style={{ fontSize: 11, padding: '1px 3px', background: 'rgba(255,68,102,0.15)', borderColor: 'rgba(255,68,102,0.4)', color: 'var(--red)', cursor: 'default' }}>💀</span>
+                </Tooltip>
+              )}
+              {alpha.source === 'pumpfun_bonded' && (
+                <Tooltip text="Graduated from PumpFun — bonded token">
+                  <span className="badge badge-new" style={{ fontSize: 11, padding: '1px 3px', cursor: 'default' }}>🎓</span>
+                </Tooltip>
+              )}
+              {alpha.source === 'pumpfun_pre' && (
+                <span className="badge badge-verified" style={{ fontSize: 7, padding: '1px 5px', background: 'rgba(255,184,0,0.12)', borderColor: 'rgba(255,184,0,0.3)', color: 'var(--amber)' }}>
+                  🔥 {alpha.bondingProgress}% bonding
+                </span>
+              )}
+              {(alpha.source === 'birdeye_trending' || alpha.source === 'dex_gainers') && (
+                <Tooltip text="Organic runner — found via momentum, not paid promotion">
+                  <span className="badge badge-organic" style={{ fontSize: 11, padding: '1px 3px', cursor: 'default' }}>🦅</span>
+                </Tooltip>
+              )}
+              {alpha.source === 'dex_new' && (
+                <Tooltip text="New pair — recently launched token">
+                  <span className="badge badge-new-pair" style={{ fontSize: 11, padding: '1px 3px', cursor: 'default' }}>✨</span>
+                </Tooltip>
+              )}
+              {/* Revival badge — token returned from cooling/dumped state */}
+              {alpha.isRevival && (
+                <Tooltip text={
+                  alpha.recoveryPct != null
+                    ? `Revived Token — ${alpha.recoveryPct}% of peak recovered`
+                    : `Revived Token — recovering from cooling`
+                }>
+                  <span style={{
+                    fontSize: 11, padding: '1px 3px', borderRadius: 3,
+                    cursor: 'default', lineHeight: 1,
+                    animation: 'pulse 2s infinite',
+                    display: 'inline-block', flexShrink: 0,
+                  }}>🔄</span>
+                </Tooltip>
+              )}
 
-      {/* ── Row 2: Actions — uniform icon buttons ── */}
-      <div style={{ display: 'flex', alignItems: 'center', gap: 4, marginTop: 6 }}>
-        <CopyAddress address={alpha.address} />
-        <Tooltip text={isWatched ? 'Remove from watchlist' : 'Add to watchlist'}>
-          <button
-            onClick={e => { e.stopPropagation(); onToggleWatch?.(alpha) }}
-            className="alpha-action-btn"
-            style={{
-              color: isWatched ? 'var(--amber)' : 'var(--text-secondary)',
-              background: isWatched ? 'rgba(255,184,0,0.12)' : 'rgba(255,255,255,0.06)',
-              borderColor: isWatched ? 'rgba(255,184,0,0.4)' : 'rgba(255,255,255,0.12)',
-            }}
-            onMouseEnter={e => { e.currentTarget.style.background = 'rgba(255,184,0,0.15)'; e.currentTarget.style.borderColor = 'rgba(255,184,0,0.5)' }}
-            onMouseLeave={e => { e.currentTarget.style.background = isWatched ? 'rgba(255,184,0,0.12)' : 'rgba(255,255,255,0.06)'; e.currentTarget.style.borderColor = isWatched ? 'rgba(255,184,0,0.4)' : 'rgba(255,255,255,0.12)' }}
-          >{isWatched ? '⭐' : '☆'}</button>
-        </Tooltip>
-        {onFolioCall && (
-          <Tooltip text={isCalled ? 'Remove from folio' : '🎯 Call it — add to public folio'}>
+              {/* Re-entry strength badge — how many times token has appeared on the runner feed */}
+              {(alpha.runCount || 0) >= 3 && (
+                <Tooltip text={`On runner feed ${alpha.runCount}× — signals strength`}>
+                  <span style={{
+                    fontFamily:  'var(--font-mono)', fontSize: 9,
+                    padding:     '1px 4px', borderRadius: 3, cursor: 'default',
+                    background:  alpha.runCount >= 10
+                      ? 'rgba(0,255,153,0.15)'
+                      : alpha.runCount >= 5
+                      ? 'rgba(0,212,255,0.12)'
+                      : 'rgba(255,255,255,0.07)',
+                    border: alpha.runCount >= 10
+                      ? '1px solid rgba(0,255,153,0.4)'
+                      : alpha.runCount >= 5
+                      ? '1px solid rgba(0,212,255,0.35)'
+                      : '1px solid rgba(255,255,255,0.15)',
+                    color: alpha.runCount >= 10
+                      ? 'var(--neon-green)'
+                      : alpha.runCount >= 5
+                      ? 'var(--cyan)'
+                      : 'var(--text-muted)',
+                    fontWeight: 700,
+                  }}>
+                    🔄 {alpha.runCount}×
+                  </span>
+                </Tooltip>
+              )}
+            </div>
+            <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+              {alpha.coolingLabel && (
+                <span style={{
+                  fontFamily:   'var(--font-mono)',
+                  fontSize:     8,
+                  color:        alpha.isDumped ? 'var(--red)' : 'var(--cyan)',
+                  maxWidth:     90,
+                  overflow:     'hidden',
+                  textOverflow: 'ellipsis',
+                  whiteSpace:   'nowrap',
+                  display:      'inline-block',
+                }}
+                title={alpha.coolingLabel}
+                >
+                  {alpha.coolingLabel}
+                </span>
+              )}
+              {alpha.volumeRising && (
+                <span style={{ fontFamily: 'var(--font-number)', fontSize: 8, color: 'rgb(0,255,150)' }}>
+                  📈 vol↑
+                </span>
+              )}
+              {alpha.peakDistance != null && !alpha.isDumped && (
+                <span style={{ fontFamily: 'var(--font-mono)', fontSize: 8, color: 'var(--text-muted)' }}>
+                  {alpha.peakDistance}% of peak
+                </span>
+              )}
+              {alpha.weeklyContext && !alpha.isDumped && alpha.weeklyContext.ageDays >= 2 && (
+                <span style={{ fontFamily: 'var(--font-mono)', fontSize: 8, color: 'var(--text-muted)' }}>
+                  {alpha.weeklyContext.changeSinceFirst >= 0 ? '+' : ''}{alpha.weeklyContext.changeSinceFirst}% in {alpha.weeklyContext.ageDays}d
+                </span>
+              )}
+            </div>
+          </div>
+        </div>
+        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 4 }}>
+          <div className={`token-change ${isPositive ? 'positive' : 'negative'}`}>
+            {isPositive ? '+' : ''}{change.toFixed(1)}%
+          </div>
+          {/* Actions: star + folio call + DEX link */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
+            <Tooltip text={isWatched ? 'Remove from watchlist' : 'Add to watchlist'}>
             <button
-              onClick={e => { e.stopPropagation(); onFolioCall?.(alpha) }}
-              className="alpha-action-btn"
+              onClick={e => { e.stopPropagation(); onToggleWatch?.(alpha) }}
               style={{
-                color: isCalled ? 'var(--neon-green)' : 'var(--text-secondary)',
-                background: isCalled ? 'rgba(57,255,20,0.12)' : 'rgba(255,255,255,0.06)',
-                borderColor: isCalled ? 'rgba(57,255,20,0.4)' : 'rgba(255,255,255,0.12)',
+                background: isWatched ? 'rgba(255,184,0,0.12)' : 'rgba(255,255,255,0.06)',
+                border: `1px solid ${isWatched ? 'rgba(255,184,0,0.4)' : 'rgba(255,255,255,0.12)'}`,
+                borderRadius: 4, cursor: 'pointer', padding: '1px 5px',
+                fontSize: 11, lineHeight: 1.6, color: isWatched ? 'var(--amber)' : 'var(--text-secondary)',
+                transition: 'all 0.15s',
               }}
-              onMouseEnter={e => { e.currentTarget.style.background = 'rgba(57,255,20,0.15)'; e.currentTarget.style.borderColor = 'rgba(57,255,20,0.5)' }}
-              onMouseLeave={e => { e.currentTarget.style.background = isCalled ? 'rgba(57,255,20,0.12)' : 'rgba(255,255,255,0.06)'; e.currentTarget.style.borderColor = isCalled ? 'rgba(57,255,20,0.4)' : 'rgba(255,255,255,0.12)' }}
-            >{isCalled ? '🎯' : '◎'}</button>
-          </Tooltip>
-        )}
-        <Tooltip text="Open on DEXScreener">
-          <button
-            onClick={e => { e.stopPropagation(); window.open(alpha.dexUrl || `https://dexscreener.com/solana/${alpha.address}`, '_blank') }}
-            className="alpha-action-btn"
-            onMouseEnter={e => { e.currentTarget.style.color = 'var(--cyan)'; e.currentTarget.style.borderColor = 'rgba(0,212,255,0.4)' }}
-            onMouseLeave={e => { e.currentTarget.style.color = 'var(--text-muted)'; e.currentTarget.style.borderColor = 'rgba(255,255,255,0.12)' }}
-          >DEX ↗</button>
-        </Tooltip>
-        <XSearchButton symbol={alpha.symbol} onClick={e => e.stopPropagation()} />
+              onMouseEnter={e => { e.currentTarget.style.background = 'rgba(255,184,0,0.15)'; e.currentTarget.style.borderColor = 'rgba(255,184,0,0.5)' }}
+              onMouseLeave={e => { e.currentTarget.style.background = isWatched ? 'rgba(255,184,0,0.12)' : 'rgba(255,255,255,0.06)'; e.currentTarget.style.borderColor = isWatched ? 'rgba(255,184,0,0.4)' : 'rgba(255,255,255,0.12)' }}
+            >{isWatched ? '⭐' : '☆'}</button>
+            </Tooltip>
+            {onFolioCall && (
+              <Tooltip text={isCalled ? 'Remove from folio' : '🎯 Call it — add to public folio'}>
+              <button
+                onClick={e => { e.stopPropagation(); onFolioCall?.(alpha) }}
+                style={{
+                  background: isCalled ? 'rgba(57,255,20,0.12)' : 'rgba(255,255,255,0.06)',
+                  border: `1px solid ${isCalled ? 'rgba(57,255,20,0.4)' : 'rgba(255,255,255,0.12)'}`,
+                  borderRadius: 4, cursor: 'pointer', padding: '1px 5px',
+                  fontSize: 11, lineHeight: 1.6, color: isCalled ? 'var(--neon-green)' : 'var(--text-secondary)',
+                  transition: 'all 0.15s',
+                }}
+                onMouseEnter={e => { e.currentTarget.style.background = 'rgba(57,255,20,0.15)'; e.currentTarget.style.borderColor = 'rgba(57,255,20,0.5)' }}
+                onMouseLeave={e => { e.currentTarget.style.background = isCalled ? 'rgba(57,255,20,0.12)' : 'rgba(255,255,255,0.06)'; e.currentTarget.style.borderColor = isCalled ? 'rgba(57,255,20,0.4)' : 'rgba(255,255,255,0.12)' }}
+              >{isCalled ? '🎯' : '◎'}</button>
+              </Tooltip>
+            )}
+            <Tooltip text="Open on DEXScreener">
+            <span
+              onClick={e => {
+                e.stopPropagation()
+                const url = alpha.dexUrl || `https://dexscreener.com/solana/${alpha.address}`
+                window.open(url, '_blank')
+              }}
+              style={{
+                fontFamily: 'var(--font-mono)', fontSize: 8,
+                color: 'var(--text-muted)', cursor: 'pointer',
+                padding: '1px 4px', borderRadius: 3,
+                border: '1px solid rgba(255,255,255,0.08)',
+                transition: 'color 0.15s',
+              }}
+              onMouseEnter={e => e.currentTarget.style.color = 'var(--cyan)'}
+              onMouseLeave={e => e.currentTarget.style.color = 'var(--text-muted)'}
+            >
+              DEX ↗
+            </span>
+            </Tooltip>
+            <XSearchButton symbol={alpha.symbol} onClick={e => e.stopPropagation()} />
+          </div>
+        </div>
       </div>
-
-      {/* ── Row 3: Metrics ── */}
       <div className="alpha-card-metrics">
+        <div className="metric">
+          <span className="metric-label">Price</span>
+          <span className="metric-value">{formatPrice(alpha.priceUsd)}</span>
+        </div>
         <div className="metric">
           <span className="metric-label">MCAP</span>
           <span className="metric-value">{formatNum(alpha.marketCap)}</span>
