@@ -527,19 +527,12 @@ body {
 .alpha-list::-webkit-scrollbar-track { background: transparent; }
 .alpha-list::-webkit-scrollbar-thumb { background: var(--neon-dim); border-radius: 2px; }
 
-/* ── Alpha card: clickable symbol copies CA (desktop only) ── */
-.alpha-sym-copy {
-  cursor: pointer;
-}
-.alpha-sym-copy:hover {
-  color: var(--cyan);
-  text-decoration: underline dotted;
-  text-underline-offset: 3px;
-}
-@media (max-width: 1024px) {
-  .alpha-sym-copy {
-    cursor: default !important;
-    pointer-events: none;
+/* ── Alpha card badges — smaller uniform size on desktop only ── */
+@media (min-width: 1025px) {
+  .alpha-card-badge {
+    font-size: 8px !important;
+    padding: 1px 2px !important;
+    line-height: 1 !important;
   }
 }
 

@@ -1084,7 +1084,6 @@ const AlphaCard = ({ alpha, isSelected, onClick, isWatched, onToggleWatch, isCal
   const change     = parseFloat(alpha.priceChange24h) || 0
   const isPositive = change >= 0
   const derivative = isDerivative(alpha.symbol)
-  const [symCopied, setSymCopied] = useState(false)
 
   // Read parent symbol from localStorage map — written by useParentAlpha.
   // Uses useState+useEffect (not useMemo) so the card re-renders when the
@@ -1165,66 +1164,46 @@ const AlphaCard = ({ alpha, isSelected, onClick, isWatched, onToggleWatch, isCal
           </div>
           <div>
             <div style={{ display: 'flex', alignItems: 'center', gap: 4, flexWrap: 'nowrap', overflow: 'hidden' }}>
-              <div
-                className="token-name alpha-sym-copy"
-                style={{ flexShrink: 0, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}
-                onClick={e => {
-                  e.stopPropagation()
-                  if (!alpha.address) return
-                  navigator.clipboard.writeText(alpha.address).catch(() => {
-                    const el = document.createElement('textarea')
-                    el.value = alpha.address
-                    document.body.appendChild(el)
-                    el.select()
-                    document.execCommand('copy')
-                    document.body.removeChild(el)
-                  })
-                  setSymCopied(true)
-                  setTimeout(() => setSymCopied(false), 1500)
-                }}
-              >
-                {symCopied
-                  ? <span style={{ color: 'var(--neon-green)', fontSize: 9, fontFamily: 'var(--font-mono)', fontWeight: 700 }}>✓ copied</span>
-                  : `$${alpha.symbol}`}
-              </div>
+              <div className="token-name" style={{ flexShrink: 0, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>${alpha.symbol}</div>
+              <CopyAddress address={alpha.address} />
               {derivative && (
                 <Tooltip text={parentSymbol ? `Derivative of $${parentSymbol}` : 'Derivative token — shares narrative with a parent alpha'}>
-                  <span className="badge badge-new" style={{ fontSize: 11, padding: '1px 3px', cursor: 'default' }}>🧬</span>
+                  <span className="badge badge-new alpha-card-badge" style={{ fontSize: 11, padding: '1px 3px', cursor: 'default' }}>🧬</span>
                 </Tooltip>
               )}
               {alpha.isLegend && (
                 <Tooltip text="Legend — OG token with verified history">
-                  <span className="badge badge-verified" style={{ fontSize: 11, padding: '1px 3px', cursor: 'default' }}>🏆</span>
+                  <span className="badge badge-verified alpha-card-badge" style={{ fontSize: 11, padding: '1px 3px', cursor: 'default' }}>🏆</span>
                 </Tooltip>
               )}
               {alpha.isCooling && !alpha.isDumped && (
                 <Tooltip text="Cooling — price action slowing down">
-                  <span className="badge badge-weak" style={{ fontSize: 11, padding: '1px 3px', cursor: 'default' }}>❄️</span>
+                  <span className="badge badge-weak alpha-card-badge" style={{ fontSize: 11, padding: '1px 3px', cursor: 'default' }}>❄️</span>
                 </Tooltip>
               )}
               {alpha.isDumped && (
                 <Tooltip text="Dumped — price collapsed 75%+ from peak. Treat as dead unless volume returns.">
-                  <span className="badge badge-weak" style={{ fontSize: 11, padding: '1px 3px', background: 'rgba(255,68,102,0.15)', borderColor: 'rgba(255,68,102,0.4)', color: 'var(--red)', cursor: 'default' }}>💀</span>
+                  <span className="badge badge-weak alpha-card-badge" style={{ fontSize: 11, padding: '1px 3px', background: 'rgba(255,68,102,0.15)', borderColor: 'rgba(255,68,102,0.4)', color: 'var(--red)', cursor: 'default' }}>💀</span>
                 </Tooltip>
               )}
               {alpha.source === 'pumpfun_bonded' && (
                 <Tooltip text="Graduated from PumpFun — bonded token">
-                  <span className="badge badge-new" style={{ fontSize: 11, padding: '1px 3px', cursor: 'default' }}>🎓</span>
+                  <span className="badge badge-new alpha-card-badge" style={{ fontSize: 11, padding: '1px 3px', cursor: 'default' }}>🎓</span>
                 </Tooltip>
               )}
               {alpha.source === 'pumpfun_pre' && (
-                <span className="badge badge-verified" style={{ fontSize: 7, padding: '1px 5px', background: 'rgba(255,184,0,0.12)', borderColor: 'rgba(255,184,0,0.3)', color: 'var(--amber)' }}>
+                <span className="badge badge-verified alpha-card-badge" style={{ fontSize: 7, padding: '1px 5px', background: 'rgba(255,184,0,0.12)', borderColor: 'rgba(255,184,0,0.3)', color: 'var(--amber)' }}>
                   🔥 {alpha.bondingProgress}% bonding
                 </span>
               )}
               {(alpha.source === 'birdeye_trending' || alpha.source === 'dex_gainers') && (
                 <Tooltip text="Organic runner — found via momentum, not paid promotion">
-                  <span className="badge badge-organic" style={{ fontSize: 11, padding: '1px 3px', cursor: 'default' }}>🦅</span>
+                  <span className="badge badge-organic alpha-card-badge" style={{ fontSize: 11, padding: '1px 3px', cursor: 'default' }}>🦅</span>
                 </Tooltip>
               )}
               {alpha.source === 'dex_new' && (
                 <Tooltip text="New pair — recently launched token">
-                  <span className="badge badge-new-pair" style={{ fontSize: 11, padding: '1px 3px', cursor: 'default' }}>✨</span>
+                  <span className="badge badge-new-pair alpha-card-badge" style={{ fontSize: 11, padding: '1px 3px', cursor: 'default' }}>✨</span>
                 </Tooltip>
               )}
               {/* Revival badge — token returned from cooling/dumped state */}
@@ -1234,7 +1213,7 @@ const AlphaCard = ({ alpha, isSelected, onClick, isWatched, onToggleWatch, isCal
                     ? `Revived Token — ${alpha.recoveryPct}% of peak recovered`
                     : `Revived Token — recovering from cooling`
                 }>
-                  <span style={{
+                  <span className="alpha-card-badge" style={{
                     fontSize: 11, padding: '1px 3px', borderRadius: 3,
                     cursor: 'default', lineHeight: 1,
                     animation: 'pulse 2s infinite',
@@ -1246,7 +1225,7 @@ const AlphaCard = ({ alpha, isSelected, onClick, isWatched, onToggleWatch, isCal
               {/* Re-entry strength badge — how many times token has appeared on the runner feed */}
               {(alpha.runCount || 0) >= 3 && (
                 <Tooltip text={`On runner feed ${alpha.runCount}× — signals strength`}>
-                  <span style={{
+                  <span className="alpha-card-badge" style={{
                     fontFamily:  'var(--font-mono)', fontSize: 9,
                     padding:     '1px 4px', borderRadius: 3, cursor: 'default',
                     background:  alpha.runCount >= 10
@@ -1362,7 +1341,8 @@ const AlphaCard = ({ alpha, isSelected, onClick, isWatched, onToggleWatch, isCal
               DEX ↗
             </span>
             </Tooltip>
-            </div>
+            <XSearchButton symbol={alpha.symbol} onClick={e => e.stopPropagation()} />
+          </div>
         </div>
       </div>
       <div className="alpha-card-metrics">
