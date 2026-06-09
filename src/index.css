@@ -286,6 +286,7 @@ body {
 }
 
 .navbar-brand { display: flex; align-items: center; gap: 10px; }
+.navbar-brand img { display: none; }
 
 .brand-logo {
   width: 32px;
@@ -2160,7 +2161,7 @@ body {
   .navbar-ecosystem { display: none !important; }
   .brand-name { font-size: 13px; }
   .navbar-brand { gap: 6px; }
-  .navbar-brand img { height: 28px !important; width: 28px !important; }
+  .navbar-brand img { display: block; height: 28px !important; width: 28px !important; }
   /* Navbar actions — compact, hide advertise */
   .navbar-actions { gap: 4px; overflow: hidden; max-width: calc(100vw - 140px); }
   /* Hide Advertise button (last btn) and Settings */
