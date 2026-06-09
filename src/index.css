@@ -537,6 +537,21 @@ body {
   .alpha-badge-desktop-hide {
     display: none !important;
   }
+  .alpha-sym-copy {
+    cursor: pointer;
+  }
+  .alpha-sym-copy:hover {
+    color: var(--cyan);
+    text-decoration: underline dotted;
+    text-underline-offset: 3px;
+  }
+}
+/* Mobile: long-press hint via user-select none */
+@media (max-width: 1024px) {
+  .alpha-sym-copy {
+    -webkit-user-select: none;
+    user-select: none;
+  }
 }
 
 /* ── Token Cards ── */
