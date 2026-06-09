@@ -1168,7 +1168,7 @@ const AlphaCard = ({ alpha, isSelected, onClick, isWatched, onToggleWatch, isCal
               <CopyAddress address={alpha.address} />
               {derivative && (
                 <Tooltip text={parentSymbol ? `Derivative of $${parentSymbol}` : 'Derivative token — shares narrative with a parent alpha'}>
-                  <span className="badge badge-new alpha-card-badge" style={{ fontSize: 11, padding: '1px 3px', cursor: 'default' }}>🧬</span>
+                  <span className="badge badge-new alpha-card-badge alpha-badge-desktop-hide" style={{ fontSize: 11, padding: '1px 3px', cursor: 'default' }}>🧬</span>
                 </Tooltip>
               )}
               {alpha.isLegend && (
@@ -1198,7 +1198,7 @@ const AlphaCard = ({ alpha, isSelected, onClick, isWatched, onToggleWatch, isCal
               )}
               {(alpha.source === 'birdeye_trending' || alpha.source === 'dex_gainers') && (
                 <Tooltip text="Organic runner — found via momentum, not paid promotion">
-                  <span className="badge badge-organic alpha-card-badge" style={{ fontSize: 11, padding: '1px 3px', cursor: 'default' }}>🦅</span>
+                  <span className="badge badge-organic alpha-card-badge alpha-badge-desktop-hide" style={{ fontSize: 11, padding: '1px 3px', cursor: 'default' }}>🦅</span>
                 </Tooltip>
               )}
               {alpha.source === 'dex_new' && (
