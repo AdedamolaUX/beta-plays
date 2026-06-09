@@ -287,6 +287,7 @@ body {
 
 .navbar-brand { display: flex; align-items: center; gap: 10px; }
 .navbar-brand img { display: none; }
+.navbar-ecosystem { display: none; }
 
 .brand-logo {
   width: 32px;
@@ -2158,7 +2159,7 @@ body {
   }
   /* Hide entire middle navbar section (LIVE·SOLANA + badges + latency) */
   .navbar-center { display: none !important; }
-  .navbar-ecosystem { display: none !important; }
+  .navbar-ecosystem { display: flex !important; }
   .brand-name { font-size: 13px; }
   .navbar-brand { gap: 6px; }
   .navbar-brand img { display: block; height: 28px !important; width: 28px !important; }
