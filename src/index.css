@@ -251,11 +251,9 @@ body {
 ::-webkit-scrollbar-track { background: transparent; }
 ::-webkit-scrollbar-thumb { background: var(--neon-dim); border-radius: 2px; }
 
-/* Hide scrollbars on horizontal scroll containers and modal panels */
-.navbar, nav, [style*="overflow"] {
-  scrollbar-width: none;
-}
+/* Hide scrollbar on navbar only — do NOT apply to overflow containers globally */
 .navbar::-webkit-scrollbar, nav::-webkit-scrollbar { display: none; }
+.navbar, nav { scrollbar-width: none; }
 
 #root {
   height: 100%;
@@ -440,6 +438,15 @@ body {
   overflow: hidden;
 }
 
+/* Tab strip scrollbar — thin on desktop, hidden on mobile (mobile overrides below) */
+.alpha-board > div[style*="overflowX"] {
+  scrollbar-width: thin;
+  scrollbar-color: var(--neon-dim) transparent;
+}
+.alpha-board > div[style*="overflowX"]::-webkit-scrollbar { height: 3px; }
+.alpha-board > div[style*="overflowX"]::-webkit-scrollbar-track { background: transparent; }
+.alpha-board > div[style*="overflowX"]::-webkit-scrollbar-thumb { background: var(--neon-dim); border-radius: 2px; }
+
 .alpha-board-header {
   display: flex;
   align-items: center;
@@ -514,6 +521,9 @@ body {
   scrollbar-width: thin;
   scrollbar-color: var(--neon-dim) transparent;
 }
+.alpha-list::-webkit-scrollbar { width: 4px; }
+.alpha-list::-webkit-scrollbar-track { background: transparent; }
+.alpha-list::-webkit-scrollbar-thumb { background: var(--neon-dim); border-radius: 2px; }
 
 /* ── Token Cards ── */
 .alpha-card {
