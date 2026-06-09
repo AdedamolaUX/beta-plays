@@ -82,7 +82,7 @@ const CopyAddress = ({ address, style = {} }) => {
         onMouseLeave={hideTip}
         style={{
           display: 'inline-flex', alignItems: 'center', gap: 4,
-          fontFamily: 'var(--font-mono)', fontSize: style.fontSize ?? 10, fontWeight: 600,
+          fontFamily: 'var(--font-mono)', fontSize: 10, fontWeight: 600,
           color: copied ? 'var(--neon-green)' : pos ? 'var(--cyan)' : 'var(--text-muted)',
           background: copied
             ? 'rgba(0,255,136,0.08)'
@@ -90,7 +90,7 @@ const CopyAddress = ({ address, style = {} }) => {
           border: `1px solid ${copied
             ? 'rgba(0,255,136,0.3)'
             : pos ? 'rgba(0,212,255,0.25)' : 'rgba(255,255,255,0.08)'}`,
-          borderRadius: 4, padding: style.padding ?? '2px 6px',
+          borderRadius: 4, padding: '2px 6px',
           cursor: 'pointer', userSelect: 'none',
           transition: 'all 0.15s ease',
           letterSpacing: '0.03em',
@@ -1165,63 +1165,88 @@ const AlphaCard = ({ alpha, isSelected, onClick, isWatched, onToggleWatch, isCal
           <div>
             <div style={{ display: 'flex', alignItems: 'center', gap: 4, flexWrap: 'nowrap', overflow: 'hidden' }}>
               <div className="token-name" style={{ flexShrink: 0, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>${alpha.symbol}</div>
-              <CopyAddress address={alpha.address} style={{ fontSize: 9, padding: '1px 3px' }} />
+              <CopyAddress address={alpha.address} />
               {derivative && (
                 <Tooltip text={parentSymbol ? `Derivative of $${parentSymbol}` : 'Derivative token — shares narrative with a parent alpha'}>
-                  <span className="alpha-card-badge">🧬</span>
+                  <span className="badge badge-new" style={{ fontSize: 11, padding: '1px 3px', cursor: 'default' }}>🧬</span>
                 </Tooltip>
               )}
               {alpha.isLegend && (
                 <Tooltip text="Legend — OG token with verified history">
-                  <span className="alpha-card-badge">🏆</span>
+                  <span className="badge badge-verified" style={{ fontSize: 11, padding: '1px 3px', cursor: 'default' }}>🏆</span>
                 </Tooltip>
               )}
               {alpha.isCooling && !alpha.isDumped && (
                 <Tooltip text="Cooling — price action slowing down">
-                  <span className="alpha-card-badge">❄️</span>
+                  <span className="badge badge-weak" style={{ fontSize: 11, padding: '1px 3px', cursor: 'default' }}>❄️</span>
                 </Tooltip>
               )}
               {alpha.isDumped && (
                 <Tooltip text="Dumped — price collapsed 75%+ from peak. Treat as dead unless volume returns.">
-                  <span className="alpha-card-badge" style={{ background: 'rgba(255,68,102,0.15)', borderColor: 'rgba(255,68,102,0.4)', color: 'var(--red)' }}>💀</span>
+                  <span className="badge badge-weak" style={{ fontSize: 11, padding: '1px 3px', background: 'rgba(255,68,102,0.15)', borderColor: 'rgba(255,68,102,0.4)', color: 'var(--red)', cursor: 'default' }}>💀</span>
                 </Tooltip>
               )}
               {alpha.source === 'pumpfun_bonded' && (
                 <Tooltip text="Graduated from PumpFun — bonded token">
-                  <span className="alpha-card-badge">🎓</span>
+                  <span className="badge badge-new" style={{ fontSize: 11, padding: '1px 3px', cursor: 'default' }}>🎓</span>
                 </Tooltip>
               )}
               {alpha.source === 'pumpfun_pre' && (
-                <span className="alpha-card-badge" style={{ background: 'rgba(255,184,0,0.12)', borderColor: 'rgba(255,184,0,0.3)', color: 'var(--amber)' }}>
-                  🔥 {alpha.bondingProgress}%
+                <span className="badge badge-verified" style={{ fontSize: 7, padding: '1px 5px', background: 'rgba(255,184,0,0.12)', borderColor: 'rgba(255,184,0,0.3)', color: 'var(--amber)' }}>
+                  🔥 {alpha.bondingProgress}% bonding
                 </span>
               )}
               {(alpha.source === 'birdeye_trending' || alpha.source === 'dex_gainers') && (
                 <Tooltip text="Organic runner — found via momentum, not paid promotion">
-                  <span className="alpha-card-badge">🦅</span>
+                  <span className="badge badge-organic" style={{ fontSize: 11, padding: '1px 3px', cursor: 'default' }}>🦅</span>
                 </Tooltip>
               )}
               {alpha.source === 'dex_new' && (
                 <Tooltip text="New pair — recently launched token">
-                  <span className="alpha-card-badge">✨</span>
+                  <span className="badge badge-new-pair" style={{ fontSize: 11, padding: '1px 3px', cursor: 'default' }}>✨</span>
                 </Tooltip>
               )}
+              {/* Revival badge — token returned from cooling/dumped state */}
               {alpha.isRevival && (
                 <Tooltip text={
                   alpha.recoveryPct != null
                     ? `Revived Token — ${alpha.recoveryPct}% of peak recovered`
                     : `Revived Token — recovering from cooling`
                 }>
-                  <span className="alpha-card-badge" style={{ animation: 'pulse 2s infinite' }}>🔄</span>
+                  <span style={{
+                    fontSize: 11, padding: '1px 3px', borderRadius: 3,
+                    cursor: 'default', lineHeight: 1,
+                    animation: 'pulse 2s infinite',
+                    display: 'inline-block', flexShrink: 0,
+                  }}>🔄</span>
                 </Tooltip>
               )}
+
+              {/* Re-entry strength badge — how many times token has appeared on the runner feed */}
               {(alpha.runCount || 0) >= 3 && (
                 <Tooltip text={`On runner feed ${alpha.runCount}× — signals strength`}>
-                  <span className="alpha-card-badge" style={{
-                    background: alpha.runCount >= 10 ? 'rgba(0,255,153,0.15)' : alpha.runCount >= 5 ? 'rgba(0,212,255,0.12)' : 'rgba(255,255,255,0.07)',
-                    borderColor: alpha.runCount >= 10 ? 'rgba(0,255,153,0.4)' : alpha.runCount >= 5 ? 'rgba(0,212,255,0.35)' : 'rgba(255,255,255,0.15)',
-                    color: alpha.runCount >= 10 ? 'var(--neon-green)' : alpha.runCount >= 5 ? 'var(--cyan)' : 'var(--text-muted)',
-                  }}>🔄 {alpha.runCount}×</span>
+                  <span style={{
+                    fontFamily:  'var(--font-mono)', fontSize: 9,
+                    padding:     '1px 4px', borderRadius: 3, cursor: 'default',
+                    background:  alpha.runCount >= 10
+                      ? 'rgba(0,255,153,0.15)'
+                      : alpha.runCount >= 5
+                      ? 'rgba(0,212,255,0.12)'
+                      : 'rgba(255,255,255,0.07)',
+                    border: alpha.runCount >= 10
+                      ? '1px solid rgba(0,255,153,0.4)'
+                      : alpha.runCount >= 5
+                      ? '1px solid rgba(0,212,255,0.35)'
+                      : '1px solid rgba(255,255,255,0.15)',
+                    color: alpha.runCount >= 10
+                      ? 'var(--neon-green)'
+                      : alpha.runCount >= 5
+                      ? 'var(--cyan)'
+                      : 'var(--text-muted)',
+                    fontWeight: 700,
+                  }}>
+                    🔄 {alpha.runCount}×
+                  </span>
                 </Tooltip>
               )}
             </div>
