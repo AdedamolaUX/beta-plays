@@ -1213,7 +1213,7 @@ const AlphaCard = ({ alpha, isSelected, onClick, isWatched, onToggleWatch, isCal
                     ? `Revived Token — ${alpha.recoveryPct}% of peak recovered`
                     : `Revived Token — recovering from cooling`
                 }>
-                  <span className="alpha-card-badge" style={{
+                  <span className="alpha-card-badge alpha-badge-desktop-hide" style={{
                     fontSize: 11, padding: '1px 3px', borderRadius: 3,
                     cursor: 'default', lineHeight: 1,
                     animation: 'pulse 2s infinite',
@@ -1225,7 +1225,7 @@ const AlphaCard = ({ alpha, isSelected, onClick, isWatched, onToggleWatch, isCal
               {/* Re-entry strength badge — how many times token has appeared on the runner feed */}
               {(alpha.runCount || 0) >= 3 && (
                 <Tooltip text={`On runner feed ${alpha.runCount}× — signals strength`}>
-                  <span className="alpha-card-badge" style={{
+                  <span className="alpha-card-badge alpha-badge-desktop-hide" style={{
                     fontFamily:  'var(--font-mono)', fontSize: 9,
                     padding:     '1px 4px', borderRadius: 3, cursor: 'default',
                     background:  alpha.runCount >= 10
