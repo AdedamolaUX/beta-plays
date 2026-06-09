@@ -1084,6 +1084,7 @@ const AlphaCard = ({ alpha, isSelected, onClick, isWatched, onToggleWatch, isCal
   const change     = parseFloat(alpha.priceChange24h) || 0
   const isPositive = change >= 0
   const derivative = isDerivative(alpha.symbol)
+  const [symCopied, setSymCopied] = useState(false)
 
   // Read parent symbol from localStorage map — written by useParentAlpha.
   // Uses useState+useEffect (not useMemo) so the card re-renders when the
@@ -1164,8 +1165,28 @@ const AlphaCard = ({ alpha, isSelected, onClick, isWatched, onToggleWatch, isCal
           </div>
           <div>
             <div style={{ display: 'flex', alignItems: 'center', gap: 4, flexWrap: 'nowrap', overflow: 'hidden' }}>
-              <div className="token-name" style={{ flexShrink: 0, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>${alpha.symbol}</div>
-              <CopyAddress address={alpha.address} />
+              <div
+                className="token-name alpha-sym-copy"
+                style={{ flexShrink: 0, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}
+                onClick={e => {
+                  e.stopPropagation()
+                  if (!alpha.address) return
+                  navigator.clipboard.writeText(alpha.address).catch(() => {
+                    const el = document.createElement('textarea')
+                    el.value = alpha.address
+                    document.body.appendChild(el)
+                    el.select()
+                    document.execCommand('copy')
+                    document.body.removeChild(el)
+                  })
+                  setSymCopied(true)
+                  setTimeout(() => setSymCopied(false), 1500)
+                }}
+              >
+                {symCopied
+                  ? <span style={{ color: 'var(--neon-green)', fontSize: 9, fontFamily: 'var(--font-mono)', fontWeight: 700 }}>✓ copied</span>
+                  : `$${alpha.symbol}`}
+              </div>
               {derivative && (
                 <Tooltip text={parentSymbol ? `Derivative of $${parentSymbol}` : 'Derivative token — shares narrative with a parent alpha'}>
                   <span className="badge badge-new" style={{ fontSize: 11, padding: '1px 3px', cursor: 'default' }}>🧬</span>
@@ -1341,8 +1362,7 @@ const AlphaCard = ({ alpha, isSelected, onClick, isWatched, onToggleWatch, isCal
               DEX ↗
             </span>
             </Tooltip>
-            <XSearchButton symbol={alpha.symbol} onClick={e => e.stopPropagation()} />
-          </div>
+            </div>
         </div>
       </div>
       <div className="alpha-card-metrics">
