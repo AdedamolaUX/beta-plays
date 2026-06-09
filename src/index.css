@@ -287,7 +287,7 @@ body {
 
 .navbar-brand { display: flex; align-items: center; gap: 10px; }
 .navbar-brand img { display: none; }
-.navbar-ecosystem { display: none; }
+.navbar-ecosystem { display: none !important; }
 
 .brand-logo {
   width: 32px;

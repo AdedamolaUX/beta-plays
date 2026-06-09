@@ -1165,7 +1165,6 @@ const AlphaCard = ({ alpha, isSelected, onClick, isWatched, onToggleWatch, isCal
           <div>
             <div style={{ display: 'flex', alignItems: 'center', gap: 4, flexWrap: 'nowrap', overflow: 'hidden' }}>
               <div className="token-name" style={{ flexShrink: 0, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>${alpha.symbol}</div>
-              <CopyAddress address={alpha.address} />
               {derivative && (
                 <Tooltip text={parentSymbol ? `Derivative of $${parentSymbol}` : 'Derivative token — shares narrative with a parent alpha'}>
                   <span className="badge badge-new alpha-card-badge alpha-badge-desktop-hide" style={{ fontSize: 11, padding: '1px 3px', cursor: 'default' }}>🧬</span>
