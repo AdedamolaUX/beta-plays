@@ -2586,6 +2586,13 @@ body {
   .alpha-tabs::-webkit-scrollbar,
   .source-filter-row::-webkit-scrollbar { display: none; }
 
+  /* Hide scrollbar on Menu panel */
+  .settings-panel-scroll {
+    scrollbar-width: none;
+    -ms-overflow-style: none;
+  }
+  .settings-panel-scroll::-webkit-scrollbar { display: none; }
+
   /* ── Misc ── */
   .alpha-board { padding: 10px; }
   .beta-panel-actions { flex-wrap: wrap; gap: 6px; }

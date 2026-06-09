@@ -566,7 +566,7 @@ const SettingsPanel = ({ settings, onUpdate, onReset, onClose }) => {
 
   return (
     <div style={overlay} onClick={e => { if (e.target === e.currentTarget) onClose() }}>
-      <div style={panel}>
+      <div style={panel} className="settings-panel-scroll">
         {/* Header */}
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
           <div style={{ fontFamily: 'var(--font-display)', fontSize: 16, fontWeight: 800, color: 'var(--neon-green)' }}>
