@@ -527,6 +527,41 @@ body {
 .alpha-list::-webkit-scrollbar-track { background: transparent; }
 .alpha-list::-webkit-scrollbar-thumb { background: var(--neon-dim); border-radius: 2px; }
 
+/* ── Alpha Card — Option A badge + action classes ── */
+.alpha-badge {
+  display: inline-flex;
+  align-items: center;
+  font-size: 11px;
+  padding: 1px 3px;
+  border-radius: 3px;
+  border: 1px solid rgba(255,255,255,0.12);
+  background: rgba(255,255,255,0.06);
+  cursor: default;
+  line-height: 1;
+  flex-shrink: 0;
+  font-family: var(--font-mono);
+  font-weight: 700;
+}
+
+.alpha-action-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  height: 22px;
+  min-width: 22px;
+  padding: 0 5px;
+  border-radius: 4px;
+  border: 1px solid rgba(255,255,255,0.12);
+  background: rgba(255,255,255,0.06);
+  color: var(--text-muted);
+  font-family: var(--font-mono);
+  font-size: 9px;
+  cursor: pointer;
+  transition: all 0.15s;
+  flex-shrink: 0;
+  line-height: 1;
+}
+
 /* ── Token Cards ── */
 .alpha-card {
   display: flex;
@@ -2492,9 +2527,9 @@ body {
     gap: 6px;
     padding: 10px 12px;
   }
-  /* Metrics: single row of 4 */
+  /* Metrics: single row of 3 (price moved to sub-label) */
   .alpha-card-metrics {
-    grid-template-columns: repeat(4, 1fr);
+    grid-template-columns: repeat(3, 1fr);
     gap: 0;
     border-top: 1px solid var(--border);
     padding-top: 8px;
@@ -2505,37 +2540,8 @@ body {
   .token-icon { width: 32px; height: 32px; font-size: 10px; flex-shrink: 0; }
   .token-name { font-size: 13px; white-space: nowrap; }
   .token-change { font-size: 13px; }
-  .alpha-card-top { gap: 6px; align-items: flex-start; }
-  .alpha-card .token-info { flex-wrap: nowrap; overflow: hidden; gap: 8px; }
-
-  /* Alpha card: name row = ticker + badges + copy all on one line */
-  .alpha-card .token-info > div {
-    display: flex;
-    flex-direction: column;
-    align-items: flex-start;
-    gap: 2px;
-    min-width: 0;
-  }
-  .alpha-card .token-info > div > div:first-child {
-    display: flex;
-    align-items: center;
-    gap: 4px;
-    flex-wrap: nowrap;
-    overflow: visible;
-  }
-  /* CopyAddress row: pull it up into the name row visually */
-  .alpha-card .token-info > div > div:nth-child(2) {
-    display: flex;
-    flex-direction: row;
-    align-items: center;
-    gap: 4px;
-    flex-wrap: nowrap;
-    margin-top: -2px;
-  }
-  /* Hide the second row entirely and inject copy via first row */
-  .alpha-card .token-name {
-    order: 0;
-  }
+  /* Actions row — slightly smaller buttons on mobile */
+  .alpha-action-btn { height: 20px; min-width: 20px; font-size: 8px; }
 
   /* ── Scrollable tabs & filter rows ── */
   /* Hide scrollbar on inline-styled tab row */
