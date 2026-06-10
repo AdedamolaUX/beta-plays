@@ -3076,24 +3076,6 @@ const useBetas = (alpha, parentAlpha = null, options = {}) => {
         console.warn('[Vector8] AI scoring failed:', aiErr.message)
       }
 
-      // ── Append locked placeholders if free AI quota exhausted ───
-      if (!canRunAI && !isStale()) {
-        const lockedBetas = Array.from({ length: 3 }, (_, i) => ({
-          address:          `locked_${i}`,
-          symbol:           '???',
-          name:             'Unlock with Pro',
-          locked:           true,
-          lockedReason:     'ai',
-          signalSources:    ['ai_match'],
-          relationshipType: 'TWIN',
-          aiScore:          null,
-        }))
-        setBetas(prev => {
-          const real = prev.filter(b => !b.locked)
-          return [...real, ...lockedBetas]
-        })
-      }
-
       // ── Persist betas to localStorage ───────────────────────────
       // IMPORTANT: use finalList (the just-computed result), NOT the `betas`
       // state variable. `betas` is a stale closure — it holds the value from
@@ -3150,8 +3132,14 @@ const useBetas = (alpha, parentAlpha = null, options = {}) => {
         }).catch(() => {})
       }
       if (!isStale()) {
-        if (mergedForStorage.length === 0) setError('No beta plays detected yet. Trenches might be cooked.')
-        else setBetas(mergedForStorage)
+        const LOCKED_PLACEHOLDERS = !canRunAI ? Array.from({ length: 3 }, (_, i) => ({
+          address: `locked_${i}`, symbol: '???', name: 'Unlock with Pro',
+          locked: true, lockedReason: 'ai', signalSources: ['ai_match'],
+          relationshipType: 'TWIN', aiScore: null,
+        })) : []
+        if (mergedForStorage.length === 0 && LOCKED_PLACEHOLDERS.length === 0)
+          setError('No beta plays detected yet. Trenches might be cooked.')
+        else setBetas([...mergedForStorage, ...LOCKED_PLACEHOLDERS])
       }
     } catch (err) {
       console.error('Beta detection failed:', err)
