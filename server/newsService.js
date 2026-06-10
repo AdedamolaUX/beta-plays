@@ -86,8 +86,8 @@ const EVENT_KEYWORD_MAP = {
 
 // ─── Normalise articles to { title, description, publishedAt } ────
 const normalise = (title = '', description = '', publishedAt) => ({
-  title:       title.slice(0, 200),
-  description: description.slice(0, 300),
+  title:       (title || '').slice(0, 200),
+  description: (description || '').slice(0, 300),
   publishedAt: publishedAt ? new Date(publishedAt).getTime() : Date.now(),
 })
 
@@ -112,7 +112,7 @@ const fetchCryptoPanic = async () => {
   try {
     const params = { public: 'true', kind: 'news', regions: 'en' }
     if (CRYPTOPANIC_TOKEN) params.auth_token = CRYPTOPANIC_TOKEN
-    const res = await axios.get('https://cryptopanic.com/api/v1/posts/', { params, timeout: 8000 })
+    const res = await axios.get('https://cryptopanic.com/api/free/v1/posts/', { params, timeout: 8000 })
     return (res.data?.results || []).map(item =>
       normalise(item.title, item.body || '', item.published_at)
     )
