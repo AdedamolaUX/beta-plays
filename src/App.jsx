@@ -5133,11 +5133,10 @@ const BetaPanel = ({ alpha, liveAlphas, onListBeta, onOpenDrawer, onSwap, onScro
               <Fragment key={beta.id || i}>
                 {beta.locked ? (
                   <div className="beta-row-locked" onClick={onUpgrade}>
-                    <div className="beta-row-locked-inner">
-                      <span className="beta-row-locked-icon">🔒</span>
-                      <span className="beta-row-locked-label">AI Match Hidden</span>
-                      <span className="beta-row-locked-cta">Unlock Pro →</span>
-                    </div>
+                    <span className="beta-row-locked-icon">▒</span>
+                    <span className="beta-row-locked-sym">$???</span>
+                    <span className="beta-row-locked-label">AI MATCH HIDDEN</span>
+                    <span className="beta-row-locked-cta">[ UNLOCK PRO → ]</span>
                   </div>
                 ) : (
                 <BetaRow

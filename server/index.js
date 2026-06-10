@@ -30,6 +30,7 @@ const db = require('./db')
 const { cacheGet, cacheSet, loadExpansionCache } = require('./db')
 
 const app = express()
+app.set('trust proxy', 1)
 app.use(compression()) // gzip all responses — cuts egress 60-80%
 app.use(cors())
 app.use(express.json({ limit: '10mb' }))

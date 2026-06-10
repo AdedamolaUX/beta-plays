@@ -2957,22 +2957,10 @@ const useBetas = (alpha, parentAlpha = null, options = {}) => {
       if (!isPro && canRunAI) bumpFreeAiCount()
 
       if (!canRunAI) {
-        // Inject locked beta placeholders — 3 cards hinting at AI results
-        const lockedBetas = Array.from({ length: 3 }, (_, i) => ({
-          address:          `locked_${i}`,
-          symbol:           '???',
-          name:             'Unlock with Pro',
-          locked:           true,
-          lockedReason:     'ai',
-          signalSources:    ['ai_match'],
-          relationshipType: 'TWIN',
-          aiScore:          null,
-        }))
-        finalList = [...mergedWithVision, ...lockedBetas]
-        if (!isStale()) {
-          setBetas(finalList)
-          setScanPhase('complete')
-        }
+        // Free quota exhausted — skip AI, use pattern-match list as-is
+        // Locked placeholder cards appended after final sort below
+        finalList = mergedWithVision
+        if (!isStale()) setScanPhase('complete')
       } else try {
         const { results: aiScored, rejectedAddresses } =
           await classifyRelationships(enrichedAlpha, mergedWithVision, relationshipHints)
@@ -3086,6 +3074,24 @@ const useBetas = (alpha, parentAlpha = null, options = {}) => {
         if (!isStale()) setBetas(finalList)
       } catch (aiErr) {
         console.warn('[Vector8] AI scoring failed:', aiErr.message)
+      }
+
+      // ── Append locked placeholders if free AI quota exhausted ───
+      if (!canRunAI && !isStale()) {
+        const lockedBetas = Array.from({ length: 3 }, (_, i) => ({
+          address:          `locked_${i}`,
+          symbol:           '???',
+          name:             'Unlock with Pro',
+          locked:           true,
+          lockedReason:     'ai',
+          signalSources:    ['ai_match'],
+          relationshipType: 'TWIN',
+          aiScore:          null,
+        }))
+        setBetas(prev => {
+          const real = prev.filter(b => !b.locked)
+          return [...real, ...lockedBetas]
+        })
       }
 
       // ── Persist betas to localStorage ───────────────────────────
