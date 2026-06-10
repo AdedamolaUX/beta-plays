@@ -1,25 +1,37 @@
 // ─── News Narrative Service ───────────────────────────────────────
-// Polls NewsAPI every 30 minutes for top headlines.
-// Extracts keywords, maps to lore_map categories via EVENT_KEYWORD_MAP.
-// Returns active event categories with confidence score + headline snippet.
+// Three source pipeline (all free, real-time):
+//   1. RSS feeds     — general narratives (Reuters, BBC, AP)
+//   2. CryptoPanic   — crypto-specific narratives (free public endpoint)
+//   3. NewsAPI       — supplementary, free tier (~24h delayed, still useful for volume)
 //
-// Design goals:
-//   - No hardcoded category pairs — keyword→category mapping only
-//   - A category is "active" when ≥3 headlines in the last 2 hours match it
-//   - Confidence = matched headlines / total recent headlines (capped at 1.0)
-//   - One headline snippet per active category (most recent match)
-//   - Graceful degradation — quota hit or outage → returns stale cache or []
+// Extracts keywords, maps to EVENT_KEYWORD_MAP categories.
+// A category is "active" when ≥2 headlines match it within MAX_HEADLINE_AGE_MS.
+// Confidence = matched headlines / total recent headlines (capped at 1.0).
 //
-// Cache: 30 minutes in-memory. NewsAPI free tier = 100 req/day.
-// 30min polling = 48 req/day — well within limit.
+// Cache: 30 minutes in-memory.
+// NewsAPI free tier = 100 req/day → 48 req/day at 30min polling.
+// RSS + CryptoPanic = unlimited.
 
-const axios = require('axios')
+const axios     = require('axios')
+const RSSParser = require('rss-parser')
+
+const rssParser = new RSSParser({ timeout: 8000 })
 
 const NEWS_API_KEY        = process.env.NEWS_API_KEY
+const CRYPTOPANIC_TOKEN   = process.env.CRYPTOPANIC_API_KEY  // optional — public endpoint works without it
 const CACHE_TTL_MS        = 30 * 60 * 1000
-const MIN_HEADLINES       = 2                      // lowered from 3 — free tier returns fewer recent headlines
-const MAX_HEADLINE_AGE_MS = 6 * 60 * 60 * 1000   // extended from 2h to 6h — free tier headlines are older
+const MIN_HEADLINES       = 2
+const MAX_HEADLINE_AGE_MS = 12 * 60 * 60 * 1000  // 12h — RSS is real-time so 12h is plenty
 
+// ─── RSS Feed Registry ────────────────────────────────────────────
+const RSS_FEEDS = [
+  { url: 'https://feeds.reuters.com/reuters/topNews',             name: 'Reuters'   },
+  { url: 'https://feeds.bbci.co.uk/news/rss.xml',                name: 'BBC'       },
+  { url: 'https://rss.nytimes.com/services/xml/rss/nyt/HomePage.xml', name: 'NYT' },
+  { url: 'https://feeds.skynews.com/feeds/rss/world.xml',        name: 'SkyNews'   },
+]
+
+// ─── Keyword → Category Map ───────────────────────────────────────
 const EVENT_KEYWORD_MAP = {
   space: [
     'nasa', 'spacex', 'rocket launch', 'asteroid', 'artemis', 'moon landing',
@@ -51,7 +63,8 @@ const EVENT_KEYWORD_MAP = {
   crypto: [
     'bitcoin', 'ethereum', 'crypto', 'sec crypto', 'etf approval',
     'federal reserve rate', 'fed rate', 'interest rate cut', 'stablecoin',
-    'coinbase', 'binance', 'blockchain regulation',
+    'coinbase', 'binance', 'blockchain regulation', 'solana', 'defi',
+    'nft', 'web3', 'altcoin', 'memecoin',
   ],
   gaming: [
     'video game', 'gaming', 'esports', 'nintendo', 'playstation',
@@ -71,30 +84,74 @@ const EVENT_KEYWORD_MAP = {
   ],
 }
 
-let cachedResult = null
-let cacheExpiry  = 0
-let isFetching   = false
+// ─── Normalise articles to { title, description, publishedAt } ────
+const normalise = (title = '', description = '', publishedAt) => ({
+  title:       title.slice(0, 200),
+  description: description.slice(0, 300),
+  publishedAt: publishedAt ? new Date(publishedAt).getTime() : Date.now(),
+})
 
-const fetchHeadlines = async () => {
-  const res = await axios.get('https://newsapi.org/v2/top-headlines', {
-    params: { language: 'en', pageSize: 40, apiKey: NEWS_API_KEY },
-    timeout: 8000,
-  })
-  return res.data?.articles || []
+// ─── Source 1: RSS ─────────────────────────────────────────────────
+const fetchRSS = async () => {
+  const results = await Promise.allSettled(
+    RSS_FEEDS.map(feed =>
+      rssParser.parseURL(feed.url).then(parsed =>
+        (parsed.items || []).map(item =>
+          normalise(item.title, item.contentSnippet || item.content, item.pubDate || item.isoDate)
+        )
+      )
+    )
+  )
+  return results
+    .filter(r => r.status === 'fulfilled')
+    .flatMap(r => r.value)
 }
 
-const parseHeadlines = (articles) => {
+// ─── Source 2: CryptoPanic ─────────────────────────────────────────
+const fetchCryptoPanic = async () => {
+  try {
+    const params = { public: 'true', kind: 'news', regions: 'en' }
+    if (CRYPTOPANIC_TOKEN) params.auth_token = CRYPTOPANIC_TOKEN
+    const res = await axios.get('https://cryptopanic.com/api/v1/posts/', { params, timeout: 8000 })
+    return (res.data?.results || []).map(item =>
+      normalise(item.title, item.body || '', item.published_at)
+    )
+  } catch (err) {
+    console.warn('[NewsService] CryptoPanic fetch failed (non-fatal):', err.message)
+    return []
+  }
+}
+
+// ─── Source 3: NewsAPI (supplementary) ────────────────────────────
+const fetchNewsAPI = async () => {
+  if (!NEWS_API_KEY) return []
+  try {
+    const res = await axios.get('https://newsapi.org/v2/top-headlines', {
+      params: { language: 'en', pageSize: 40, apiKey: NEWS_API_KEY },
+      timeout: 8000,
+    })
+    return (res.data?.articles || []).map(a =>
+      normalise(a.title, a.description, a.publishedAt)
+    )
+  } catch (err) {
+    console.warn('[NewsService] NewsAPI fetch failed (non-fatal):', err.message)
+    return []
+  }
+}
+
+// ─── Parse + Score ─────────────────────────────────────────────────
+const parseArticles = (articles) => {
   const now    = Date.now()
-  const recent = articles.filter(a => (now - new Date(a.publishedAt).getTime()) <= MAX_HEADLINE_AGE_MS)
+  const recent = articles.filter(a => (now - a.publishedAt) <= MAX_HEADLINE_AGE_MS)
   const counts   = {}
   const snippets = {}
 
   for (const article of recent) {
-    const text = `${article.title || ''} ${article.description || ''}`.toLowerCase()
+    const text = `${article.title} ${article.description}`.toLowerCase()
     for (const [category, keywords] of Object.entries(EVENT_KEYWORD_MAP)) {
       if (keywords.some(kw => text.includes(kw))) {
-        counts[category] = (counts[category] || 0) + 1
-        if (!snippets[category]) snippets[category] = (article.title || '').slice(0, 120)
+        counts[category]   = (counts[category] || 0) + 1
+        if (!snippets[category]) snippets[category] = article.title.slice(0, 120)
       }
     }
   }
@@ -111,6 +168,22 @@ const parseHeadlines = (articles) => {
     .sort((a, b) => b.confidence - a.confidence)
 }
 
+// ─── Dedup by title (cross-source) ────────────────────────────────
+const dedupArticles = (articles) => {
+  const seen = new Set()
+  return articles.filter(a => {
+    const key = a.title.toLowerCase().slice(0, 60)
+    if (seen.has(key)) return false
+    seen.add(key)
+    return true
+  })
+}
+
+// ─── Cache ─────────────────────────────────────────────────────────
+let cachedResult = null
+let cacheExpiry  = 0
+let isFetching   = false
+
 const getNewsNarratives = async () => {
   const now = Date.now()
   if (cachedResult && now < cacheExpiry) return cachedResult
@@ -121,14 +194,24 @@ const getNewsNarratives = async () => {
     }
     return cachedResult || []
   }
+
   isFetching = true
   try {
-    console.log('[NewsService] Fetching headlines...')
-    const articles = await fetchHeadlines()
-    const active   = parseHeadlines(articles)
-    cachedResult   = active
-    cacheExpiry    = Date.now() + CACHE_TTL_MS
+    console.log('[NewsService] Fetching headlines (RSS + CryptoPanic + NewsAPI)...')
+    const [rssArticles, cryptoArticles, newsApiArticles] = await Promise.all([
+      fetchRSS(),
+      fetchCryptoPanic(),
+      fetchNewsAPI(),
+    ])
+
+    const all    = dedupArticles([...rssArticles, ...cryptoArticles, ...newsApiArticles])
+    const active = parseArticles(all)
+
+    console.log(`[NewsService] Sources: RSS=${rssArticles.length} CryptoPanic=${cryptoArticles.length} NewsAPI=${newsApiArticles.length} → ${all.length} unique`)
     console.log(`[NewsService] ${active.length} active: [${active.map(a => a.category).join(', ')}]`)
+
+    cachedResult = active
+    cacheExpiry  = Date.now() + CACHE_TTL_MS
     return active
   } catch (err) {
     console.warn('[NewsService] Fetch failed (non-fatal):', err.message)
@@ -138,14 +221,13 @@ const getNewsNarratives = async () => {
   }
 }
 
+// ─── Init ──────────────────────────────────────────────────────────
 const init = () => {
-  if (!NEWS_API_KEY) {
-    console.log('[NewsService] No API key — service disabled')
-    return
-  }
+  const sources = ['RSS (Reuters/BBC/NYT/SkyNews)', 'CryptoPanic']
+  if (NEWS_API_KEY) sources.push('NewsAPI')
+  console.log(`[NewsService] Initialised — sources: ${sources.join(', ')} — polling every 30min`)
   getNewsNarratives().catch(() => {})
   setInterval(() => getNewsNarratives().catch(() => {}), CACHE_TTL_MS)
-  console.log('[NewsService] Initialised — polling every 30min')
 }
 
 module.exports = { getNewsNarratives, init }
