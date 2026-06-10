@@ -6,6 +6,7 @@ import { useWalletModal } from '@solana/wallet-adapter-react-ui'
 import useAlphas from './hooks/useAlphas'
 import LEGENDS, { submitNomination, getNominations, syncNominationsFromDB, NOMINATIONS_KEY } from './data/historical_alphas'
 import useBetas, { getSignal, getWavePhase, getMcapRatio } from './hooks/useBetas'
+import useSubscription from './hooks/useSubscription'
 import useParentAlpha from './hooks/useParentAlpha'
 import useNarrativeSzn from './hooks/useNarrativeSzn'
 import useBirdeye from './hooks/useBirdeye'
@@ -3983,6 +3984,98 @@ const SznPanel = ({ szn, onListBeta, onOpenDrawer }) => {
 
 const LISTING_PRICE_SOL = 1
 
+
+// ─── Pro Modal ────────────────────────────────────────────────────
+const ProModal = ({ isPro, subLoading, subError, subSuccess, expiresAt, isAuthed, onClose, onSubscribe, onConnectWallet }) => {
+  const [email, setEmail] = useState('')
+  const [emailFocused, setEmailFocused] = useState(false)
+
+  const handleSubscribe = () => {
+    if (!isAuthed) { onConnectWallet(); return }
+    onSubscribe(email || null)
+  }
+
+  const formatExpiry = (dateStr) => {
+    if (!dateStr) return ''
+    return new Date(dateStr).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
+  }
+
+  return (
+    <div className="pro-modal-overlay" onClick={onClose}>
+      <div className="pro-modal" onClick={e => e.stopPropagation()}>
+        <button className="pro-modal-close" onClick={onClose}>✕</button>
+
+        {isPro ? (
+          <>
+            <div className="pro-modal-badge">⚡ PRO ACTIVE</div>
+            <h2 className="pro-modal-title">You&apos;re on Pro</h2>
+            <p className="pro-modal-sub">Expires {formatExpiry(expiresAt)}</p>
+            <p className="pro-modal-desc">Full signal stack unlocked — AI scoring, Vision, Telegram, Twitter stub.</p>
+            <button className="pro-modal-btn" onClick={onClose}>Close</button>
+          </>
+        ) : subSuccess ? (
+          <>
+            <div className="pro-modal-badge">⚡ ACTIVATED</div>
+            <h2 className="pro-modal-title">Pro Unlocked</h2>
+            <p className="pro-modal-desc">Full signal stack active. Expires {formatExpiry(expiresAt)}.</p>
+            <button className="pro-modal-btn" onClick={onClose}>LFG →</button>
+          </>
+        ) : (
+          <>
+            <div className="pro-modal-badge">🔒 FREE TIER</div>
+            <h2 className="pro-modal-title">Unlock Full Signal Stack</h2>
+
+            <div className="pro-modal-tiers">
+              <div className="pro-tier free">
+                <div className="pro-tier-label">FREE</div>
+                <ul>
+                  <li>✓ Pattern matching (V1/V2/V3/V6/V9)</li>
+                  <li>✓ Telegram signal (V10)</li>
+                  <li>✓ News narratives</li>
+                  <li>✓ 2 AI scans/session</li>
+                </ul>
+              </div>
+              <div className="pro-tier paid">
+                <div className="pro-tier-label">PRO · 0.5 SOL/mo</div>
+                <ul>
+                  <li>⚡ Unlimited AI scoring (V8)</li>
+                  <li>⚡ Logo Vision comparison</li>
+                  <li>⚡ Twitter/X signal (V11)</li>
+                  <li>⚡ All future signals</li>
+                </ul>
+              </div>
+            </div>
+
+            <div className="pro-modal-email">
+              <input
+                type="email"
+                placeholder="Email for renewal reminders (optional)"
+                value={email}
+                onChange={e => setEmail(e.target.value)}
+                onFocus={() => setEmailFocused(true)}
+                onBlur={() => setEmailFocused(false)}
+                className={`pro-modal-email-input ${emailFocused ? 'focused' : ''}`}
+              />
+            </div>
+
+            {subError && <div className="pro-modal-error">{subError}</div>}
+
+            <button
+              className="pro-modal-btn"
+              onClick={handleSubscribe}
+              disabled={subLoading}
+            >
+              {subLoading ? 'Processing...' : isAuthed ? 'Pay 0.5 SOL → Unlock Pro' : 'Connect Wallet to Subscribe'}
+            </button>
+
+            <p className="pro-modal-fine">Payment verified on-chain via Helius. 30-day subscription per wallet.</p>
+          </>
+        )}
+      </div>
+    </div>
+  )
+}
+
 const ListYourBetaModal = ({ prefilledAlpha, authToken, authWallet, isAuthed, liveAlphas, onClose, onSuccess }) => {
   const { sendTransaction, publicKey } = useWallet()
   const BACKEND = typeof BACKEND_URL !== 'undefined' ? BACKEND_URL : import.meta.env.VITE_BACKEND_URL
@@ -4721,9 +4814,9 @@ const BoostModal = ({ beta, alpha, authToken, authWallet, priceSol = 1, onClose,
 
 // ─── Beta Panel ──────────────────────────────────────────────────
 
-const BetaPanel = ({ alpha, liveAlphas, onListBeta, onOpenDrawer, onSwap, onScrollToAlpha, onCustomSearch, customAlphaLoading, customAlphaError, settings = {}, isAuthed, authToken, authWallet, onBoostSuccess }) => {
+const BetaPanel = ({ alpha, liveAlphas, onListBeta, onOpenDrawer, onSwap, onScrollToAlpha, onCustomSearch, customAlphaLoading, customAlphaError, settings = {}, isAuthed, authToken, authWallet, onBoostSuccess, isPro = false, onUpgrade }) => {
   const { parent, loading: parentLoading }               = useParentAlpha(alpha, liveAlphas)
-  const { betas, loading: betasLoading, error, scanPhase, refresh } = useBetas(alpha, parent, { metaSeedEnabled: settings.metaSeedEnabled ?? true })
+  const { betas, loading: betasLoading, error, scanPhase, refresh } = useBetas(alpha, parent, { metaSeedEnabled: settings.metaSeedEnabled ?? true, isPro })
   const { birdeye }                                       = useBirdeye(alpha?.address)
   const [trenchOnly,   setTrenchOnly]   = useState(false)
   const [mcapFilter,   setMcapFilter]   = useState('all')
@@ -5038,6 +5131,15 @@ const BetaPanel = ({ alpha, liveAlphas, onListBeta, onOpenDrawer, onSwap, onScro
             {/* Show betas whenever available — even while loading is still true */}
             {filteredBetas.map((beta, i) => (
               <Fragment key={beta.id || i}>
+                {beta.locked ? (
+                  <div className="beta-row-locked" onClick={onUpgrade}>
+                    <div className="beta-row-locked-inner">
+                      <span className="beta-row-locked-icon">🔒</span>
+                      <span className="beta-row-locked-label">AI Match Hidden</span>
+                      <span className="beta-row-locked-cta">Unlock Pro →</span>
+                    </div>
+                  </div>
+                ) : (
                 <BetaRow
                   beta={beta}
                   alpha={alpha}
@@ -5051,6 +5153,7 @@ const BetaPanel = ({ alpha, liveAlphas, onListBeta, onOpenDrawer, onSwap, onScro
                   boostSlotsAvail={boostSlotsAvail}
                   onBoost={b => setBoostTarget(b)}
                 />
+                )}
                 {i === 2 && panelAd && <AdCard ad={panelAd} />}
               </Fragment>
             ))}
@@ -5680,7 +5783,7 @@ const AppFooter = () => (
 
 export default function App() {
   // ── Wallet auth ──────────────────────────────────────────────────
-  const { publicKey, signMessage, connected } = useWallet()
+  const { publicKey, signMessage, connected, sendTransaction } = useWallet()
   const { setVisible: setWalletModalVisible } = useWalletModal()
   const [showWalletModal, setShowWalletModal] = useState(false)
   const [authToken,    setAuthToken]    = useState(() => localStorage.getItem('betaplays_jwt') || null)
@@ -5741,6 +5844,14 @@ export default function App() {
   }, [])
 
   const { settings, updateSetting, resetSettings } = useSettings()
+
+  // ── Subscription (Pro) state ──────────────────────────────────
+  const {
+    isPro, expiresAt: subExpiresAt, loading: subLoading,
+    subLoading: subPaying, subError, subSuccess,
+    subscribe, checkStatus: checkSubStatus, setSubError, setSubSuccess,
+  } = useSubscription({ authToken, authWallet, isAuthed })
+  const [showProModal, setShowProModal] = useState(false)
 
   // ── Folio state (multi-folio system) ────────────────────────
   const [folioLeaderboard, setFolioLeaderboard] = useState([])
@@ -6046,7 +6157,7 @@ export default function App() {
           <button className="mobile-back-btn" onClick={() => setMobileView('list')}>← RUNNERS</button>
           {isSzn
             ? <SznPanel  szn={selectedAlpha}   onListBeta={() => setShowListModal(selectedAlpha || true)} onOpenDrawer={setDrawerToken} />
-            : <BetaPanel alpha={selectedAlpha} liveAlphas={appLiveAlphas} onListBeta={() => setShowListModal(selectedAlpha || true)} onOpenDrawer={setDrawerToken} onSwap={(t) => openJupiterSwap(t)} onScrollToAlpha={handleScrollToAlpha} onCustomSearch={handleSearchCustomAlpha} customAlphaLoading={customAlphaLoading} customAlphaError={customAlphaError} settings={settings} isAuthed={isAuthed} authToken={authToken} authWallet={authWallet} onBoostSuccess={(boost) => { console.log('[App] Boost confirmed:', boost.token_symbol, 'slot', boost.slot_number) }} />
+            : <BetaPanel alpha={selectedAlpha} liveAlphas={appLiveAlphas} onListBeta={() => setShowListModal(selectedAlpha || true)} onOpenDrawer={setDrawerToken} onSwap={(t) => openJupiterSwap(t)} onScrollToAlpha={handleScrollToAlpha} onCustomSearch={handleSearchCustomAlpha} customAlphaLoading={customAlphaLoading} customAlphaError={customAlphaError} settings={settings} isAuthed={isAuthed} authToken={authToken} authWallet={authWallet} onBoostSuccess={(boost) => { console.log('[App] Boost confirmed:', boost.token_symbol, 'slot', boost.slot_number) }} isPro={isPro} onUpgrade={() => setShowProModal(true)} />
           }
         </div>
       </div>
@@ -6111,6 +6222,20 @@ export default function App() {
           </div>
         </div>,
         document.body
+      )}
+
+      {showProModal && (
+        <ProModal
+          isPro={isPro}
+          subLoading={subPaying}
+          subError={subError}
+          subSuccess={subSuccess}
+          expiresAt={subExpiresAt}
+          isAuthed={isAuthed}
+          onClose={() => { setShowProModal(false); setSubError(null); setSubSuccess(false) }}
+          onSubscribe={(email) => subscribe({ sendTransaction, email })}
+          onConnectWallet={() => { setShowProModal(false); setWalletModalVisible(true) }}
+        />
       )}
 
       {showListModal && (

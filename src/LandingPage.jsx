@@ -108,7 +108,7 @@ const LandingPage = () => {
             { label: 'LOGO VISION',      live: true  },
             { label: 'LORE MAP',         live: true  },
             { label: 'TWITTER / X',      live: false },
-            { label: 'NEWS SIGNALS',     live: false },
+            { label: 'NEWS SIGNALS',     live: true  },
           ].map((s, i) => (
             <div className={`lp-signal-pill ${s.live ? 'live' : 'soon'}`} key={i}>
               <div className="lp-sdot" />
@@ -214,7 +214,7 @@ const LandingPage = () => {
             { id: 'V.02 — LORE',     name: 'Narrative Lore Map', desc: 'Deep meme culture mapping. Dog clusters, frog clusters, degen archetypes — all pre-catalogued.',                                                        soon: false },
             { id: 'V.03 — MORPH',    name: 'Morphology',         desc: 'Ticker variant detection. ETTE, GIRL, LADY, QUEEN, WIFE suffix patterns. Derivative naming caught every time.',                                         soon: false },
             { id: 'V.11 — X',        name: 'Twitter / X Signal', desc: 'Real-time CT groupings from X alpha accounts. Same extraction logic as Telegram — but from the loudest room in crypto.',                               soon: true  },
-            { id: 'V.12 — NEWS',     name: 'News Signals',       desc: 'Crypto news correlation engine. When a narrative hits the press, BetaPlays finds the on-chain plays before the crowd.',                                soon: true  },
+            { id: 'V.12 — NEWS',     name: 'News Signals',       desc: 'Crypto news correlation engine. When a narrative hits the press, BetaPlays finds the on-chain plays before the crowd.',                                soon: false },
           ].map((v, i) => (
             <div className="lp-vec" key={i}>
               <div className="lp-vec-id">{v.id}</div>

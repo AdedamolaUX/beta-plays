@@ -1996,8 +1996,14 @@ const mergeAndScore = (rawResults, alphaSymbol, alphaMcap) => {
 // ─── Main hook ───────────────────────────────────────────────────
 // parentAlpha: if provided, also scans parent's namespace to find siblings
 // Siblings are tagged as RIVAL so they appear in the beta list with correct signal
+// ─── Free AI taste tracking ────────────────────────────────────────
+// Free users get AI scoring for 2 alphas per session.
+// sessionStorage resets on tab close — lightweight, no DB needed.
+const getFreeAiCount  = () => parseInt(sessionStorage.getItem('bp_free_ai') || '0', 10)
+const bumpFreeAiCount = () => sessionStorage.setItem('bp_free_ai', getFreeAiCount() + 1)
+
 const useBetas = (alpha, parentAlpha = null, options = {}) => {
-  const { metaSeedEnabled = true } = options
+  const { metaSeedEnabled = true, isPro = false } = options
   const [betas,     setBetas]     = useState([])
   const [loading,   setLoading]   = useState(false)
   const [error,     setError]     = useState(null)
@@ -2885,7 +2891,7 @@ const useBetas = (alpha, parentAlpha = null, options = {}) => {
       // Skip: lp_pair and og_match candidates — already structurally confirmed.
       // Cap: top 20 by logo availability to manage Gemini quota.
       let mergedWithVision = mergedWithDesc
-      if (enrichedAlpha.logoUrl) {
+      if (enrichedAlpha.logoUrl && isPro) {
         try {
           const visionCandidates = mergedWithDesc
             .filter(b =>
@@ -2942,7 +2948,32 @@ const useBetas = (alpha, parentAlpha = null, options = {}) => {
       // below can always reference it, even if Vector 8 throws or is skipped.
       // Falls back to mergedWithVision (pre-AI candidates) if AI fails entirely.
       let finalList = mergedWithVision  // fallback: use pre-AI list if V8 fails
-      try {
+
+      // ── Freemium gate: V8 AI scoring ─────────────────────────────
+      // Pro users: always run V8.
+      // Free users: run V8 for first 2 alphas this session (taste),
+      //             then inject locked placeholders so they see what they're missing.
+      const canRunAI = isPro || getFreeAiCount() < 2
+      if (!isPro && canRunAI) bumpFreeAiCount()
+
+      if (!canRunAI) {
+        // Inject locked beta placeholders — 3 cards hinting at AI results
+        const lockedBetas = Array.from({ length: 3 }, (_, i) => ({
+          address:          `locked_${i}`,
+          symbol:           '???',
+          name:             'Unlock with Pro',
+          locked:           true,
+          lockedReason:     'ai',
+          signalSources:    ['ai_match'],
+          relationshipType: 'TWIN',
+          aiScore:          null,
+        }))
+        finalList = [...mergedWithVision, ...lockedBetas]
+        if (!isStale()) {
+          setBetas(finalList)
+          setScanPhase('complete')
+        }
+      } else try {
         const { results: aiScored, rejectedAddresses } =
           await classifyRelationships(enrichedAlpha, mergedWithVision, relationshipHints)
 

@@ -4501,6 +4501,160 @@ app.get('/api/ads/pending', requireAuth, async (req, res) => {
 
 // ─── End Display Ads ──────────────────────────────────────────────────────────
 
+// ─── Subscriptions ────────────────────────────────────────────────────────────
+//
+// POST /api/subscriptions/verify  — verify SOL payment, create subscription row
+// GET  /api/subscriptions/status  — check if current wallet has active subscription
+//
+// Subscription: 0.5 SOL / 30 days. Per-wallet. Replay-attack proof via tx_signature UNIQUE.
+// Unlocks: V8 AI scoring, Vision, V11 Twitter stub, V12 News scoring.
+// Free tier: pattern matching + V10 Telegram + News narratives.
+
+const SUB_PRICE_SOL    = 0.5
+const SUB_DURATION_MS  = 30 * 24 * 60 * 60 * 1000  // 30 days
+
+// POST /api/subscriptions/verify
+// Body: { tx_signature, email? }
+// Requires: JWT (wallet connected)
+app.post('/api/subscriptions/verify', requireAuth, async (req, res) => {
+  const { tx_signature, email } = req.body
+  const wallet = req.user.wallet
+
+  if (!tx_signature) {
+    return res.status(400).json({ error: 'tx_signature is required' })
+  }
+
+  try {
+    // 1. Replay attack guard
+    const existing = await db.query(
+      `SELECT id FROM subscriptions WHERE tx_signature = $1`,
+      [tx_signature]
+    )
+    if (existing.rows.length > 0) {
+      return res.status(409).json({ error: 'Transaction already used for a subscription' })
+    }
+
+    // 2. Verify on-chain via Helius
+    const HELIUS_KEY = process.env.HELIUS_API_KEY
+    if (!HELIUS_KEY) return res.status(500).json({ error: 'Helius API key not configured' })
+
+    const heliusRes = await fetch(
+      `https://api.helius.xyz/v0/transactions/?api-key=${HELIUS_KEY}`,
+      {
+        method:  'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body:    JSON.stringify({ transactions: [tx_signature] }),
+      }
+    )
+    if (!heliusRes.ok) {
+      return res.status(502).json({ error: 'Helius verification failed — try again' })
+    }
+    const txData = await heliusRes.json()
+    const tx     = txData?.[0]
+
+    if (!tx) {
+      return res.status(404).json({ error: 'Transaction not found on-chain. It may still be confirming — wait 10s and retry.' })
+    }
+    if (tx.transactionError) {
+      return res.status(400).json({ error: 'Transaction failed on-chain' })
+    }
+
+    // 3. Verify payment: sender = wallet, receiver = treasury, amount >= 0.5 SOL
+    const LAMPORTS_PER_SOL = 1_000_000_000
+    const minLamports      = Math.floor(SUB_PRICE_SOL * LAMPORTS_PER_SOL)
+    const transfers        = tx.nativeTransfers || []
+    const validPayment     = transfers.some(t =>
+      t.fromUserAccount === wallet &&
+      t.toUserAccount   === TREASURY_WALLET &&
+      t.amount          >= minLamports
+    )
+
+    if (!validPayment) {
+      return res.status(400).json({
+        error: `Payment not verified. Expected ≥${SUB_PRICE_SOL} SOL from your wallet to treasury.`
+      })
+    }
+
+    // 4. Check if wallet already has an active subscription — extend it if so
+    const activeSub = await db.query(
+      `SELECT id, expires_at FROM subscriptions
+       WHERE wallet_address = $1 AND expires_at > now()
+       ORDER BY expires_at DESC LIMIT 1`,
+      [wallet]
+    )
+
+    let expiresAt
+    if (activeSub.rows.length > 0) {
+      // Extend from current expiry
+      expiresAt = new Date(new Date(activeSub.rows[0].expires_at).getTime() + SUB_DURATION_MS)
+    } else {
+      // New subscription from now
+      expiresAt = new Date(Date.now() + SUB_DURATION_MS)
+    }
+
+    // 5. Insert subscription row
+    await db.query(
+      `INSERT INTO subscriptions
+         (wallet_address, email, started_at, expires_at, tx_signature, amount_sol)
+       VALUES ($1, $2, now(), $3, $4, $5)`,
+      [wallet, email || null, expiresAt, tx_signature, SUB_PRICE_SOL]
+    )
+
+    console.log(`[Subscription] New sub: ${wallet} → expires ${expiresAt.toISOString()}`)
+
+    return res.json({
+      success:    true,
+      wallet,
+      expires_at: expiresAt.toISOString(),
+      message:    'Subscription activated. Pro features unlocked.',
+    })
+
+  } catch (err) {
+    console.error('[Subscription] verify error:', err.message)
+    return res.status(500).json({ error: 'Internal error verifying subscription' })
+  }
+})
+
+// GET /api/subscriptions/status
+// Returns subscription status for current wallet. No wallet = free tier.
+app.get('/api/subscriptions/status', async (req, res) => {
+  // Works with or without JWT — unauthenticated = free tier
+  let wallet = null
+  const auth = req.headers.authorization
+  if (auth?.startsWith('Bearer ')) {
+    try {
+      const decoded = jwt.verify(auth.slice(7), JWT_SECRET)
+      wallet = decoded.wallet
+    } catch (_) {
+      // Invalid token — treat as unauthenticated
+    }
+  }
+
+  if (!wallet) {
+    return res.json({ isPro: false, wallet: null, expires_at: null, freeAiUsesToday: 0 })
+  }
+
+  try {
+    const result = await db.query(
+      `SELECT expires_at FROM subscriptions
+       WHERE wallet_address = $1 AND expires_at > now()
+       ORDER BY expires_at DESC LIMIT 1`,
+      [wallet]
+    )
+
+    const isPro      = result.rows.length > 0
+    const expires_at = isPro ? result.rows[0].expires_at : null
+
+    return res.json({ isPro, wallet, expires_at })
+
+  } catch (err) {
+    console.error('[Subscription] status error:', err.message)
+    return res.status(500).json({ error: 'Internal error checking subscription' })
+  }
+})
+
+// ─── End Subscriptions ────────────────────────────────────────────────────────
+
 // ─── End Folios ───────────────────────────────────────────────────────────────
 
 
