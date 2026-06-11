@@ -1168,11 +1168,12 @@ const PositioningCard = ({ alpha, isSelected, onClick, isWatched, onToggleWatch 
   )
 }
 
-const AlphaCard = ({ alpha, isSelected, onClick, isWatched, onToggleWatch, isCalled, onFolioCall }) => {
+const AlphaCard = ({ alpha, isSelected, onClick, isWatched, onToggleWatch, isCalled, onFolioCall, priceAlertThreshold, onSetPriceAlert }) => {
   const change     = parseFloat(alpha.priceChange24h) || 0
   const isPositive = change >= 0
   const derivative = isDerivative(alpha.symbol)
   const [symCopied, setSymCopied] = useState(false)
+  const [showAlertPicker, setShowAlertPicker] = useState(false)
   const longPressTimer = useRef(null)
 
   const copyCA = () => {
@@ -1430,6 +1431,58 @@ const AlphaCard = ({ alpha, isSelected, onClick, isWatched, onToggleWatch, isCal
               onMouseLeave={e => { e.currentTarget.style.background = isWatched ? 'rgba(255,184,0,0.12)' : 'rgba(255,255,255,0.06)'; e.currentTarget.style.borderColor = isWatched ? 'rgba(255,184,0,0.4)' : 'rgba(255,255,255,0.12)' }}
             >{isWatched ? '⭐' : '☆'}</button>
             </Tooltip>
+            {isWatched && onSetPriceAlert && (
+              <div style={{ position: 'relative' }}>
+                <Tooltip text={priceAlertThreshold ? `Alert: +${priceAlertThreshold}% — click to change` : 'Set price alert'}>
+                <button
+                  onClick={e => { e.stopPropagation(); setShowAlertPicker(p => !p) }}
+                  style={{
+                    background: priceAlertThreshold ? 'rgba(255,184,0,0.12)' : 'rgba(255,255,255,0.06)',
+                    border: `1px solid ${priceAlertThreshold ? 'rgba(255,184,0,0.4)' : 'rgba(255,255,255,0.12)'}`,
+                    borderRadius: 4, cursor: 'pointer', padding: '1px 5px',
+                    fontSize: 11, lineHeight: 1.6,
+                    color: priceAlertThreshold ? 'var(--amber)' : 'var(--text-muted)',
+                    transition: 'all 0.15s',
+                  }}
+                >🔔{priceAlertThreshold ? `+${priceAlertThreshold}%` : ''}</button>
+                </Tooltip>
+                {showAlertPicker && (
+                  <div
+                    onClick={e => e.stopPropagation()}
+                    style={{
+                      position: 'absolute', top: 26, right: 0, zIndex: 999,
+                      background: 'var(--surface-2)', border: '1px solid var(--border-lit)',
+                      borderRadius: 8, padding: '8px 10px', display: 'flex', flexDirection: 'column', gap: 4,
+                      minWidth: 120, boxShadow: '0 4px 16px rgba(0,0,0,0.4)',
+                    }}
+                  >
+                    <div style={{ fontFamily: 'var(--font-mono)', fontSize: 8, color: 'var(--text-muted)', marginBottom: 2 }}>PRICE ALERT</div>
+                    {[25, 50, 100, 200, 500].map(pct => (
+                      <button key={pct}
+                        onClick={() => { onSetPriceAlert(alpha.address, pct); setShowAlertPicker(false) }}
+                        style={{
+                          background: priceAlertThreshold === pct ? 'rgba(255,184,0,0.15)' : 'transparent',
+                          border: `1px solid ${priceAlertThreshold === pct ? 'rgba(255,184,0,0.5)' : 'var(--border)'}`,
+                          borderRadius: 5, padding: '3px 8px', cursor: 'pointer', textAlign: 'left',
+                          fontFamily: 'var(--font-mono)', fontSize: 10,
+                          color: priceAlertThreshold === pct ? 'var(--amber)' : 'var(--text-secondary)',
+                        }}
+                      >+{pct}%</button>
+                    ))}
+                    {priceAlertThreshold && (
+                      <button
+                        onClick={() => { onSetPriceAlert(alpha.address, null); setShowAlertPicker(false) }}
+                        style={{
+                          background: 'transparent', border: '1px solid rgba(255,80,80,0.3)',
+                          borderRadius: 5, padding: '3px 8px', cursor: 'pointer', textAlign: 'left',
+                          fontFamily: 'var(--font-mono)', fontSize: 10, color: '#ff6060', marginTop: 2,
+                        }}
+                      >✕ Remove alert</button>
+                    )}
+                  </div>
+                )}
+              </div>
+            )}
             {onFolioCall && (
               <Tooltip text={isCalled ? 'Remove from folio' : '🎯 Call it — add to public folio'}>
               <button
@@ -2032,6 +2085,38 @@ const AlphaBoard = ({ selectedAlpha, onSelect, onNewRunners, onLiveAlphas, onSzn
 
   // ── Watchlist helpers ──────────────────────────────────────────
   const watchedAddresses = useMemo(() => new Set(watchlist.map(a => a.address)), [watchlist])
+
+  // ── Price alerts (per-watchlist-token threshold) ─────────────────────────
+  // priceAlerts: { [tokenAddress]: threshold% } — sourced from watchlist rows
+  const [priceAlerts, setPriceAlerts] = useState({})
+
+  // Sync priceAlerts from watchlist on load
+  useEffect(() => {
+    const map = {}
+    for (const t of watchlist) {
+      if (t.price_alert_threshold) map[t.address] = t.price_alert_threshold
+    }
+    setPriceAlerts(map)
+  }, [watchlist])
+
+  const handleSetPriceAlert = useCallback(async (tokenAddress, threshold) => {
+    // Optimistic update
+    setPriceAlerts(prev => {
+      const next = { ...prev }
+      if (threshold === null) delete next[tokenAddress]
+      else next[tokenAddress] = threshold
+      return next
+    })
+    // Persist to Supabase (requires auth)
+    if (!authToken) return
+    try {
+      await fetch(`${BACKEND_URL}/api/watchlist/${tokenAddress}/price-alert`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${authToken}` },
+        body: JSON.stringify({ threshold }),
+      })
+    } catch { /* non-fatal — optimistic state still applied */ }
+  }, [authToken])
 
   const handleToggleWatch = useCallback((alpha) => {
     setWatchlist(prev => {
@@ -2999,6 +3084,8 @@ const AlphaBoard = ({ selectedAlpha, onSelect, onNewRunners, onLiveAlphas, onSzn
                 onToggleWatch={handleToggleWatch}
                 isCalled={folioCallAddrs?.has(alpha.address)}
                 onFolioCall={isAuthed ? onFolioCall : null}
+                priceAlertThreshold={activeTab === 'watch' ? priceAlerts[alpha.address] : undefined}
+                onSetPriceAlert={activeTab === 'watch' && isAuthed ? handleSetPriceAlert : undefined}
               />
             </div>
           )
@@ -5936,6 +6023,7 @@ export default function App() {
             marketCap: r.mcap_at_add,
             watchedAt: new Date(r.added_at).getTime(),
             narrativeTag: r.narrative_tag || null,
+            price_alert_threshold: r.price_alert_threshold || null,
           }))
           saveWatchlistRaw(merged)
           setWatchlist(merged)

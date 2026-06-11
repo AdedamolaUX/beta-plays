@@ -3709,7 +3709,7 @@ app.get('/api/auth/me', requireAuth, async (req, res) => {
 app.get('/api/watchlist', requireAuth, async (req, res) => {
   try {
     const result = await db.query(
-      `SELECT token_address, symbol, name, added_at, price_at_add, logo_url, mcap_at_add, narrative_tag
+      `SELECT token_address, symbol, name, added_at, price_at_add, logo_url, mcap_at_add, narrative_tag, price_alert_threshold
        FROM watchlist WHERE wallet_address = $1 ORDER BY added_at DESC`,
       [req.user.wallet]
     )
@@ -3765,6 +3765,108 @@ app.delete('/api/watchlist/:address', requireAuth, async (req, res) => {
     res.status(500).json({ error: 'DB error' })
   }
 })
+
+// PATCH /api/watchlist/:address/price-alert — set or clear price alert threshold (JWT required)
+// Body: { threshold: 50 } (integer %) or { threshold: null } to clear
+app.patch('/api/watchlist/:address/price-alert', requireAuth, async (req, res) => {
+  const { threshold } = req.body
+  const t = threshold === null || threshold === undefined ? null : parseInt(threshold, 10)
+  if (t !== null && (isNaN(t) || t < 1 || t > 10000)) {
+    return res.status(400).json({ error: 'threshold must be 1–10000 or null' })
+  }
+  try {
+    await db.query(
+      `UPDATE watchlist SET price_alert_threshold = $1 WHERE wallet_address = $2 AND token_address = $3`,
+      [t, req.user.wallet, req.params.address]
+    )
+    res.json({ ok: true, threshold: t })
+  } catch (err) {
+    res.status(500).json({ error: 'DB error' })
+  }
+})
+
+// ─── Price Alert Job ──────────────────────────────────────────────────────────
+// Runs every 5 minutes. Checks current price of watchlist tokens against
+// price_at_add. Fires notification + Telegram DM if threshold crossed.
+// 24h cooldown per token to prevent spam.
+
+async function runPriceAlertCheck () {
+  try {
+    // Fetch all watchlist rows with an active price alert and a known entry price
+    const { rows } = await db.query(
+      `SELECT w.wallet_address, w.token_address, w.symbol, w.price_at_add,
+              w.price_alert_threshold, w.last_price_alert_at
+       FROM watchlist w
+       WHERE w.price_alert_threshold IS NOT NULL
+         AND w.price_at_add IS NOT NULL AND w.price_at_add > 0
+         AND (w.last_price_alert_at IS NULL
+              OR w.last_price_alert_at < now() - INTERVAL '24 hours')`
+    )
+    if (!rows.length) return
+
+    // Batch addresses for DEXScreener (30 per call)
+    const unique = [...new Set(rows.map(r => r.token_address))]
+    const priceMap = {}
+    for (let i = 0; i < unique.length; i += 30) {
+      const batch = unique.slice(i, i + 30)
+      try {
+        const res = await fetch(
+          `https://api.dexscreener.com/tokens/v1/solana/${batch.join(',')}`,
+          { signal: AbortSignal.timeout(8000) }
+        )
+        if (!res.ok) continue
+        const data = await res.json()
+        const pairs = Array.isArray(data) ? data : (data.pairs || data)
+        for (const p of pairs) {
+          if (p?.baseToken?.address && p?.priceUsd) {
+            const addr = p.baseToken.address
+            const price = parseFloat(p.priceUsd)
+            // Keep highest liquidity pair as canonical price
+            if (!priceMap[addr] || (p.liquidity?.usd || 0) > (priceMap[addr].liq || 0)) {
+              priceMap[addr] = { price, liq: p.liquidity?.usd || 0 }
+            }
+          }
+        }
+      } catch { /* non-fatal */ }
+    }
+
+    // Check each row
+    for (const row of rows) {
+      const current = priceMap[row.token_address]?.price
+      if (!current) continue
+      const entryPrice = parseFloat(row.price_at_add)
+      const changePct = ((current - entryPrice) / entryPrice) * 100
+      if (changePct >= row.price_alert_threshold) {
+        const sym = row.symbol || row.token_address.slice(0, 6)
+        const title = `🚀 $${sym} up ${Math.round(changePct)}% from your entry`
+        const body  = `Entry: $${entryPrice.toFixed(6)} → Now: $${current.toFixed(6)}`
+        // Create notification
+        await createNotification(row.wallet_address, 'price_move', title, body, {
+          token_address: row.token_address,
+          symbol: sym,
+          entry_price: entryPrice,
+          current_price: current,
+          change_pct: Math.round(changePct),
+        })
+        // Update last_price_alert_at so it won't fire again for 24h
+        await db.query(
+          `UPDATE watchlist SET last_price_alert_at = now()
+           WHERE wallet_address = $1 AND token_address = $2`,
+          [row.wallet_address, row.token_address]
+        )
+        console.log(`[PriceAlert] $${sym} +${Math.round(changePct)}% for ${row.wallet_address.slice(0, 8)}…`)
+      }
+    }
+  } catch (err) {
+    console.error('[PriceAlert] Job error:', err.message)
+  }
+}
+
+// Start price alert job (every 5 min, first run after 2 min delay)
+setTimeout(() => {
+  runPriceAlertCheck()
+  setInterval(runPriceAlertCheck, 5 * 60 * 1000)
+}, 2 * 60 * 1000)
 
 // Clean up expired nonces every 10 minutes
 setInterval(() => {
