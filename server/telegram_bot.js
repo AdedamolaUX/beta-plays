@@ -59,6 +59,7 @@ async function handleUpdate (update) {
 
     // Upsert alert_settings row with this chat_id
     try {
+      console.log(`[TelegramBot] Linking wallet ${wallet.slice(0, 8)}… to chat ${chatId}`)
       await db.query(
         `INSERT INTO alert_settings (wallet_address, telegram_chat_id)
          VALUES ($1, $2)
@@ -69,9 +70,9 @@ async function handleUpdate (update) {
       await sendMessage(chatId,
         `✅ <b>Linked!</b>\n\nYour wallet <code>${wallet.slice(0, 4)}…${wallet.slice(-4)}</code> is now connected.\n\nYou'll get notified here when:\n• New alpha runners appear\n• Beta plays are found for your watchlist\n• Narratives go active\n• Telegram signals hit\n\nManage alerts inside the app under <b>☰ Menu → Alerts</b>.`
       )
-      console.log(`[TelegramBot] Linked wallet ${wallet.slice(0, 8)}… to chat ${chatId}`)
+      console.log(`[TelegramBot] Successfully linked wallet ${wallet.slice(0, 8)}… to chat ${chatId}`)
     } catch (err) {
-      console.error('[TelegramBot] DB link error:', err.message)
+      console.error('[TelegramBot] DB link error:', err.message, err.stack)
       await sendMessage(chatId, '⚠️ Something went wrong linking your wallet. Please try again.')
     }
     return

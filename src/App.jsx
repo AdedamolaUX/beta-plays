@@ -679,9 +679,13 @@ const SettingsPanel = ({ settings, onUpdate, onReset, onClose, isAuthed, authWal
         </div>
 
         {/* Alerts */}
-        {isAuthed && (
-          <div style={{ borderTop: '1px solid var(--border)', paddingTop: 16 }}>
-            <div style={{ fontFamily: 'var(--font-mono)', fontSize: 9, color: 'var(--text-muted)', letterSpacing: 1, marginBottom: 12 }}>ALERTS</div>
+        <div style={{ borderTop: '1px solid var(--border)', paddingTop: 16 }}>
+          <div style={{ fontFamily: 'var(--font-mono)', fontSize: 9, color: 'var(--text-muted)', letterSpacing: 1, marginBottom: 12 }}>ALERTS</div>
+          {!isAuthed ? (
+            <div style={{ fontFamily: 'var(--font-body)', fontSize: 11, color: 'var(--text-muted)', padding: '8px 0' }}>
+              Connect your wallet to enable alerts.
+            </div>
+          ) : (
             <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
               {[
                 { key: 'new_alpha',        labelText: 'New runners',      sub: 'When a new token enters the live feed'       },
@@ -695,17 +699,17 @@ const SettingsPanel = ({ settings, onUpdate, onReset, onClose, isAuthed, authWal
                     <div style={sublabel}>{sub}</div>
                   </div>
                   <button
-                    onClick={() => alertSettings && saveAlertSettings({ [key]: !alertSettings[key] })}
+                    onClick={() => saveAlertSettings({ [key]: alertSettings?.[key] !== false ? false : true })}
                     style={{
                       width: 36, height: 20, borderRadius: 10, border: 'none', cursor: 'pointer',
-                      background: alertSettings?.[key] ? 'var(--neon-green)' : 'rgba(255,255,255,0.1)',
+                      background: alertSettings?.[key] !== false ? 'var(--neon-green)' : 'rgba(255,255,255,0.1)',
                       position: 'relative', transition: 'background 0.2s', flexShrink: 0,
                     }}
                   >
                     <span style={{
                       position: 'absolute', top: 2, width: 16, height: 16, borderRadius: '50%',
                       background: '#fff', transition: 'left 0.2s',
-                      left: alertSettings?.[key] ? 18 : 2,
+                      left: alertSettings?.[key] !== false ? 18 : 2,
                     }} />
                   </button>
                 </div>
@@ -731,8 +735,8 @@ const SettingsPanel = ({ settings, onUpdate, onReset, onClose, isAuthed, authWal
                 </a>
               </div>
             </div>
-          </div>
-        )}
+          )}
+        </div>
 
         {/* Community */}
         <div style={{ borderTop: '1px solid var(--border)', paddingTop: 16 }}>
@@ -745,6 +749,10 @@ const SettingsPanel = ({ settings, onUpdate, onReset, onClose, isAuthed, authWal
             <a href="https://t.me/betaplays" target="_blank" rel="noreferrer"
               style={{ display: 'flex', alignItems: 'center', gap: 8, color: 'var(--text-secondary)', fontFamily: 'var(--font-display)', fontSize: 11, textDecoration: 'none' }}>
               <span>📡</span><span>t.me/betaplays</span>
+            </a>
+            <a href="https://t.me/betaplaysbot" target="_blank" rel="noreferrer"
+              style={{ display: 'flex', alignItems: 'center', gap: 8, color: 'var(--text-secondary)', fontFamily: 'var(--font-display)', fontSize: 11, textDecoration: 'none' }}>
+              <span>🤖</span><span>@betaplaysbot</span>
             </a>
             <a href="https://github.com/AdedamolaUX/beta-plays" target="_blank" rel="noreferrer"
               style={{ display: 'flex', alignItems: 'center', gap: 8, color: 'var(--text-secondary)', fontFamily: 'var(--font-display)', fontSize: 11, textDecoration: 'none' }}>
