@@ -1997,10 +1997,27 @@ const mergeAndScore = (rawResults, alphaSymbol, alphaMcap) => {
 // parentAlpha: if provided, also scans parent's namespace to find siblings
 // Siblings are tagged as RIVAL so they appear in the beta list with correct signal
 // ─── Free AI taste tracking ────────────────────────────────────────
-// Free users get AI scoring for 2 alphas per session.
-// sessionStorage resets on tab close — lightweight, no DB needed.
-const getFreeAiCount  = () => parseInt(sessionStorage.getItem('bp_free_ai') || '0', 10)
-const bumpFreeAiCount = () => sessionStorage.setItem('bp_free_ai', getFreeAiCount() + 1)
+// Free users get AI scoring for 2 alphas per day (UTC day reset).
+// Using localStorage so the gate persists across tab refreshes — this
+// also helps manage Groq quota by preventing unlimited AI calls per day.
+const AI_GATE_KEY = 'bp_free_ai_v2'
+const getFreeAiData = () => {
+  try {
+    const raw = localStorage.getItem(AI_GATE_KEY)
+    if (!raw) return { count: 0, day: '' }
+    return JSON.parse(raw)
+  } catch { return { count: 0, day: '' } }
+}
+const todayUTC = () => new Date().toISOString().slice(0, 10) // 'YYYY-MM-DD'
+const getFreeAiCount = () => {
+  const data = getFreeAiData()
+  if (data.day !== todayUTC()) return 0 // new day — quota reset
+  return data.count
+}
+const bumpFreeAiCount = () => {
+  const count = getFreeAiCount()
+  localStorage.setItem(AI_GATE_KEY, JSON.stringify({ count: count + 1, day: todayUTC() }))
+}
 
 const useBetas = (alpha, parentAlpha = null, options = {}) => {
   const { metaSeedEnabled = true, isPro = false } = options

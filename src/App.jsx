@@ -5058,14 +5058,17 @@ const BetaPanel = ({ alpha, liveAlphas, onListBeta, onOpenDrawer, onSwap, onScro
   , [activeListings, alpha?.address])
 
   const filteredBetas = useMemo(() => {
-    const filtered = betas.filter(b => {
+    // Separate locked placeholders — they always go last, never sorted
+    const locked   = betas.filter(b => b.locked)
+    const real     = betas.filter(b => !b.locked)
+    const filtered = real.filter(b => {
       if (!mcapFilterFn[mcapFilter](b)) return false
       // Settings gates
       if (settings.hideWeakBetas    && b.signalTier === 'WEAK')                        return false
       if (settings.hideUnclassified && (!b.relationshipType || b.relationshipType === 'SPIN') && !b.aiScore) return false
       return true
     })
-    return [...filtered].sort((a, b) => {
+    const sorted = [...filtered].sort((a, b) => {
       // Boosted always float above everything
       const aBoosted = boostedAddresses.has(a.address) ? 3 : 0
       const bBoosted = boostedAddresses.has(b.address) ? 3 : 0
@@ -5086,6 +5089,8 @@ const BetaPanel = ({ alpha, liveAlphas, onListBeta, onOpenDrawer, onSwap, onScro
       else                          { aVal = parseFloat(a.priceChange24h) || 0; bVal = parseFloat(b.priceChange24h) || 0 }
       return sortDir === 'desc' ? bVal - aVal : aVal - bVal
     })
+    // Locked placeholders always appended after real results
+    return [...sorted, ...locked]
   }, [betas, mcapFilter, sortBy, sortDir, boostedAddresses, listedAddresses])
 
   const trenchCount   = betas.filter(b => (b.marketCap || 0) < 30_000).length
