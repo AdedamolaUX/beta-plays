@@ -2607,8 +2607,9 @@ body {
   /* Hide desktop footer */
   footer { display: none !important; }
 
-  /* Hide ⚙️ settings button — it's in Menu now */
+  /* Hide desktop-only navbar buttons on mobile */
   .navbar-settings-btn { display: none !important; }
+  .navbar-bell-btn { display: none !important; }
 
   /* Bottom nav bar */
   .mobile-bottom-nav {

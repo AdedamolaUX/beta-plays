@@ -833,6 +833,7 @@ const Navbar = ({ onListBeta, onAdvertise, newRunners, liveAlphas, coolingAlphas
         <button
           onClick={onBell}
           title="Notifications"
+          className="navbar-bell-btn"
           style={{
             position: 'relative', background: 'rgba(255,255,255,0.05)',
             border: '1px solid var(--border)', borderRadius: 8, cursor: 'pointer',
