@@ -684,14 +684,14 @@ const SettingsPanel = ({ settings, onUpdate, onReset, onClose, isAuthed, authWal
             <div style={{ fontFamily: 'var(--font-mono)', fontSize: 9, color: 'var(--text-muted)', letterSpacing: 1, marginBottom: 12 }}>ALERTS</div>
             <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
               {[
-                { key: 'new_alpha',        label: 'New runners',      sub: 'When a new token enters the live feed'       },
-                { key: 'new_beta',         label: 'Beta found',       sub: 'When betas found for your watchlist tokens'  },
-                { key: 'narrative_active', label: 'Narratives',       sub: 'When a narrative goes active'                },
-                { key: 'telegram_signal',  label: 'Telegram signals', sub: 'When V10 hits a new signal'                  },
-              ].map(({ key, label, sub }) => (
+                { key: 'new_alpha',        labelText: 'New runners',      sub: 'When a new token enters the live feed'       },
+                { key: 'new_beta',         labelText: 'Beta found',       sub: 'When betas found for your watchlist tokens'  },
+                { key: 'narrative_active', labelText: 'Narratives',       sub: 'When a narrative goes active'                },
+                { key: 'telegram_signal',  labelText: 'Telegram signals', sub: 'When V10 hits a new signal'                  },
+              ].map(({ key, labelText, sub }) => (
                 <div key={key} style={row}>
                   <div>
-                    <div style={label}>{label}</div>
+                    <div style={label}>{labelText}</div>
                     <div style={sublabel}>{sub}</div>
                   </div>
                   <button
@@ -6292,17 +6292,15 @@ export default function App() {
           <span className="mobile-nav-icon">⭐</span>
           <span className="mobile-nav-label">Watchlist</span>
         </button>
-        {isAuthed && (
-          <button className="mobile-nav-btn" onClick={() => { setShowNotifPanel(true) }} style={{ position: 'relative' }}>
-            <span className="mobile-nav-icon" style={{ color: unreadCount > 0 ? 'var(--amber)' : undefined }}>
-              🔔
-              {unreadCount > 0 && (
-                <span style={{ position: 'absolute', top: 6, right: 14, width: 7, height: 7, borderRadius: '50%', background: 'var(--red)', border: '1.5px solid var(--bg-primary)' }} />
-              )}
-            </span>
-            <span className="mobile-nav-label">Alerts</span>
-          </button>
-        )}
+        <button className="mobile-nav-btn" onClick={() => setShowNotifPanel(true)} style={{ position: 'relative' }}>
+          <span className="mobile-nav-icon" style={{ color: unreadCount > 0 ? 'var(--amber)' : undefined }}>
+            🔔
+            {unreadCount > 0 && (
+              <span style={{ position: 'absolute', top: 6, right: 14, width: 7, height: 7, borderRadius: '50%', background: 'var(--red)', border: '1.5px solid var(--bg-primary)' }} />
+            )}
+          </span>
+          <span className="mobile-nav-label">Alerts</span>
+        </button>
         <button className="mobile-nav-btn" onClick={() => setShowSettings(true)}>
           <span className="mobile-nav-icon">☰</span>
           <span className="mobile-nav-label">Menu</span>
@@ -6486,7 +6484,11 @@ export default function App() {
                 <button onClick={() => { setShowNotifPanel(false); markAllRead() }} style={{ background: 'none', border: 'none', color: 'var(--text-muted)', cursor: 'pointer', fontSize: 18 }}>✕</button>
               </div>
             </div>
-            {notifications.length === 0 ? (
+            {!isAuthed ? (
+              <div style={{ padding: 24, textAlign: 'center', color: 'var(--text-muted)', fontFamily: 'var(--font-display)', fontSize: 12 }}>
+                Connect your wallet to receive alerts.
+              </div>
+            ) : notifications.length === 0 ? (
               <div style={{ padding: 24, textAlign: 'center', color: 'var(--text-muted)', fontFamily: 'var(--font-display)', fontSize: 12 }}>
                 No notifications yet.<br />Enable alerts in ☰ Menu.
               </div>
