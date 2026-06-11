@@ -26,6 +26,7 @@ require('dotenv').config({ path: require('path').join(__dirname, '.env') })
 const telegramService = require('./telegramService')
 const twitterService  = require('./twitterService')
 const newsService     = require('./newsService')
+const telegramBot     = require('./telegram_bot')
 const db = require('./db')
 const { cacheGet, cacheSet, loadExpansionCache } = require('./db')
 
@@ -68,6 +69,10 @@ function markGroq70bDailyLimitHit () {
 // PumpFun CDN has chronic 530 outages. We cache the last good response
 // so a CDN blip doesn't wipe out all Vector 4 results mid-session.
 // PumpPortal is used as a live fallback when PumpFun is unavailable.
+// Tracks alpha addresses seen since server start — used to fire new_alpha notifications
+// only for genuinely new arrivals, not the full feed on every report-alphas call.
+const seenAlphaAddresses = new Set()
+
 const pumpFunCache = new Map()  // key: query string → { data, ts }
 const PUMPFUN_CACHE_TTL = 10 * 60 * 1000  // 10 minutes
 
@@ -3218,6 +3223,17 @@ app.post('/api/report-alphas', (req, res) => {
   telegramService.updateKnownAlphas(alphas)
   twitterService.updateKnownAlphas(alphas)
 
+  // Fire new_alpha notifications for tokens we haven't seen before this session
+  for (const alpha of alphas) {
+    if (alpha.address && !seenAlphaAddresses.has(alpha.address)) {
+      seenAlphaAddresses.add(alpha.address)
+      // Only notify if the alpha has real volume (filters out noise on startup)
+      if ((alpha.volume24h || 0) > 1000) {
+        notifyNewAlpha(alpha).catch(() => {})
+      }
+    }
+  }
+
   // Queue uncached tokens for background V0 expansion.
   // QUOTA CAP: max 30 per cycle, sorted by momentum — warmup the most
   // active tokens first. Remaining expand on-demand when user clicks them.
@@ -4658,6 +4674,187 @@ app.get('/api/subscriptions/status', async (req, res) => {
 
 // ─── End Folios ───────────────────────────────────────────────────────────────
 
+// ─── Notifications & Alerts ──────────────────────────────────────────────────
+//
+// Notification types: new_alpha | new_beta | narrative_active | telegram_signal
+//
+// createNotification — internal helper called from trigger points in this file
+// Saves to DB + fires Telegram DM if chat_id linked
+//
+async function createNotification (wallet, type, title, body, metadata = {}) {
+  try {
+    await db.query(
+      `INSERT INTO notifications (wallet_address, type, title, body, metadata)
+       VALUES ($1, $2, $3, $4, $5)`,
+      [wallet, type, title, body, JSON.stringify(metadata)]
+    )
+    // Fire Telegram DM (non-blocking — failures don't affect the main flow)
+    telegramBot.sendAlert(wallet, type, title, body).catch(() => {})
+  } catch (err) {
+    console.error('[Notifications] createNotification error:', err.message)
+  }
+}
+
+// Notify all wallets that have a given alert type enabled
+// Used for broadcast events (new_alpha, narrative_active, telegram_signal)
+async function notifyWalletsForType (type, title, body, metadata = {}) {
+  try {
+    const col = {
+      new_alpha:        'new_alpha',
+      narrative_active: 'narrative_active',
+      telegram_signal:  'telegram_signal',
+    }[type]
+    if (!col) return
+
+    const result = await db.query(
+      `SELECT wallet_address FROM alert_settings WHERE ${col} = true`
+    )
+    for (const row of result.rows) {
+      createNotification(row.wallet_address, type, title, body, metadata)
+        .catch(() => {})
+    }
+  } catch (err) {
+    console.error('[Notifications] notifyWalletsForType error:', err.message)
+  }
+}
+
+// Notify wallets watching a specific token address (new_beta trigger)
+async function notifyWatchersOfToken (tokenAddress, title, body, metadata = {}) {
+  try {
+    const result = await db.query(
+      `SELECT w.wallet_address
+       FROM watchlist w
+       JOIN alert_settings a ON a.wallet_address = w.wallet_address
+       WHERE w.token_address = $1 AND a.new_beta = true`,
+      [tokenAddress]
+    )
+    for (const row of result.rows) {
+      createNotification(row.wallet_address, 'new_beta', title, body, metadata)
+        .catch(() => {})
+    }
+  } catch (err) {
+    console.error('[Notifications] notifyWatchersOfToken error:', err.message)
+  }
+}
+
+// GET /api/notifications — unread + recent notifications for wallet (JWT required)
+app.get('/api/notifications', requireAuth, async (req, res) => {
+  try {
+    const result = await db.query(
+      `SELECT id, type, title, body, metadata, read, created_at
+       FROM notifications
+       WHERE wallet_address = $1
+       ORDER BY created_at DESC
+       LIMIT 50`,
+      [req.user.wallet]
+    )
+    res.json({ notifications: result.rows })
+  } catch (err) {
+    res.status(500).json({ error: 'DB error' })
+  }
+})
+
+// POST /api/notifications/read — mark all as read (JWT required)
+app.post('/api/notifications/read', requireAuth, async (req, res) => {
+  try {
+    await db.query(
+      `UPDATE notifications SET read = true WHERE wallet_address = $1 AND read = false`,
+      [req.user.wallet]
+    )
+    res.json({ ok: true })
+  } catch (err) {
+    res.status(500).json({ error: 'DB error' })
+  }
+})
+
+// GET /api/alerts/settings — get alert preferences (JWT required)
+app.get('/api/alerts/settings', requireAuth, async (req, res) => {
+  try {
+    const result = await db.query(
+      `SELECT new_alpha, new_beta, narrative_active, telegram_signal,
+              price_move, price_threshold, telegram_chat_id
+       FROM alert_settings WHERE wallet_address = $1`,
+      [req.user.wallet]
+    )
+    if (result.rows.length === 0) {
+      // Return defaults — row gets created on first save
+      return res.json({
+        new_alpha: true, new_beta: true, narrative_active: true,
+        telegram_signal: true, price_move: false, price_threshold: 50,
+        telegram_chat_id: null,
+      })
+    }
+    res.json(result.rows[0])
+  } catch (err) {
+    res.status(500).json({ error: 'DB error' })
+  }
+})
+
+// POST /api/alerts/settings — upsert alert preferences (JWT required)
+// Body: any subset of { new_alpha, new_beta, narrative_active, telegram_signal, price_move, price_threshold }
+app.post('/api/alerts/settings', requireAuth, async (req, res) => {
+  const {
+    new_alpha, new_beta, narrative_active, telegram_signal,
+    price_move, price_threshold,
+  } = req.body
+  try {
+    await db.query(
+      `INSERT INTO alert_settings
+         (wallet_address, new_alpha, new_beta, narrative_active, telegram_signal,
+          price_move, price_threshold, updated_at)
+       VALUES ($1,
+         COALESCE($2, true), COALESCE($3, true), COALESCE($4, true),
+         COALESCE($5, true), COALESCE($6, false), COALESCE($7, 50), now())
+       ON CONFLICT (wallet_address) DO UPDATE SET
+         new_alpha        = COALESCE($2, alert_settings.new_alpha),
+         new_beta         = COALESCE($3, alert_settings.new_beta),
+         narrative_active = COALESCE($4, alert_settings.narrative_active),
+         telegram_signal  = COALESCE($5, alert_settings.telegram_signal),
+         price_move       = COALESCE($6, alert_settings.price_move),
+         price_threshold  = COALESCE($7, alert_settings.price_threshold),
+         updated_at       = now()`,
+      [req.user.wallet, new_alpha, new_beta, narrative_active, telegram_signal,
+       price_move, price_threshold ?? null]
+    )
+    res.json({ ok: true })
+  } catch (err) {
+    res.status(500).json({ error: 'DB error' })
+  }
+})
+
+// ─── End Notifications & Alerts ──────────────────────────────────────────────
+
+// ─── Expose notification helpers for trigger points ──────────────────────────
+// Used by report-alphas and beta scan endpoints to fire alerts.
+// notifyNewAlpha — called when a new token enters the live feed
+// notifyNewBeta  — called when betas are found; filters by watchlist
+// notifyNarrativeActive — called when a narrative goes active
+// notifyTelegramSignal  — called when V10 fires a new signal
+
+async function notifyNewAlpha (alpha) {
+  const title = `New runner: $${alpha.symbol}`
+  const body  = `${alpha.name || alpha.symbol} is now live on BetaPlays.`
+  await notifyWalletsForType('new_alpha', title, body, { address: alpha.address, symbol: alpha.symbol })
+}
+
+async function notifyNewBeta (alphaAddress, alphaSymbol, betaSymbol, betaAddress) {
+  const title = `Beta found for $${alphaSymbol}`
+  const body  = `$${betaSymbol} detected as a beta play for $${alphaSymbol}.`
+  await notifyWatchersOfToken(alphaAddress, title, body,
+    { alphaAddress, alphaSymbol, betaAddress, betaSymbol })
+}
+
+async function notifyNarrativeActive (narrative) {
+  const title = `Narrative active: ${narrative}`
+  const body  = `The "${narrative}" narrative is trending on BetaPlays right now.`
+  await notifyWalletsForType('narrative_active', title, body, { narrative })
+}
+
+async function notifyTelegramSignal (alphaSymbol, betaSymbol) {
+  const title = `📡 Telegram signal: $${betaSymbol}`
+  const body  = `$${betaSymbol} spotted alongside $${alphaSymbol} in Telegram alpha calls.`
+  await notifyWalletsForType('telegram_signal', title, body, { alphaSymbol, betaSymbol })
+}
 
 const PORT = process.env.PORT || 3001
 app.listen(PORT, async () => {
@@ -4678,6 +4875,7 @@ app.listen(PORT, async () => {
     console.error('[TwitterService] Init failed:', err.message)
   )
   newsService.init()
+  telegramBot.init()
   console.log('[Warmup] Cache warming driven by live feed via report-alphas')
   console.log('[ProactiveScan] Disabled — re-enable when Groq Developer tier active')
 })

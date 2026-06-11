@@ -7,6 +7,7 @@ import useAlphas from './hooks/useAlphas'
 import LEGENDS, { submitNomination, getNominations, syncNominationsFromDB, NOMINATIONS_KEY } from './data/historical_alphas'
 import useBetas, { getSignal, getWavePhase, getMcapRatio } from './hooks/useBetas'
 import useSubscription from './hooks/useSubscription'
+import useNotifications from './hooks/useNotifications'
 import useParentAlpha from './hooks/useParentAlpha'
 import useNarrativeSzn from './hooks/useNarrativeSzn'
 import useBirdeye from './hooks/useBirdeye'
@@ -510,7 +511,7 @@ const useSettings = () => {
   return { settings, updateSetting, resetSettings }
 }
 
-const SettingsPanel = ({ settings, onUpdate, onReset, onClose }) => {
+const SettingsPanel = ({ settings, onUpdate, onReset, onClose, isAuthed, authWallet, alertSettings, saveAlertSettings }) => {
   const overlay = {
     position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.7)',
     zIndex: 9999, display: 'flex', alignItems: 'center', justifyContent: 'center',
@@ -677,6 +678,62 @@ const SettingsPanel = ({ settings, onUpdate, onReset, onClose }) => {
           </button>
         </div>
 
+        {/* Alerts */}
+        {isAuthed && (
+          <div style={{ borderTop: '1px solid var(--border)', paddingTop: 16 }}>
+            <div style={{ fontFamily: 'var(--font-mono)', fontSize: 9, color: 'var(--text-muted)', letterSpacing: 1, marginBottom: 12 }}>ALERTS</div>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+              {[
+                { key: 'new_alpha',        label: 'New runners',      sub: 'When a new token enters the live feed'       },
+                { key: 'new_beta',         label: 'Beta found',       sub: 'When betas found for your watchlist tokens'  },
+                { key: 'narrative_active', label: 'Narratives',       sub: 'When a narrative goes active'                },
+                { key: 'telegram_signal',  label: 'Telegram signals', sub: 'When V10 hits a new signal'                  },
+              ].map(({ key, label, sub }) => (
+                <div key={key} style={row}>
+                  <div>
+                    <div style={label}>{label}</div>
+                    <div style={sublabel}>{sub}</div>
+                  </div>
+                  <button
+                    onClick={() => alertSettings && saveAlertSettings({ [key]: !alertSettings[key] })}
+                    style={{
+                      width: 36, height: 20, borderRadius: 10, border: 'none', cursor: 'pointer',
+                      background: alertSettings?.[key] ? 'var(--neon-green)' : 'rgba(255,255,255,0.1)',
+                      position: 'relative', transition: 'background 0.2s', flexShrink: 0,
+                    }}
+                  >
+                    <span style={{
+                      position: 'absolute', top: 2, width: 16, height: 16, borderRadius: '50%',
+                      background: '#fff', transition: 'left 0.2s',
+                      left: alertSettings?.[key] ? 18 : 2,
+                    }} />
+                  </button>
+                </div>
+              ))}
+              <div style={row}>
+                <div>
+                  <div style={label}>Telegram bot</div>
+                  <div style={sublabel}>{alertSettings?.telegram_chat_id ? '✅ Linked' : 'Link to receive DMs'}</div>
+                </div>
+                <a
+                  href={alertSettings?.telegram_chat_id ? undefined : `https://t.me/betaplaysbot?start=${authWallet}`}
+                  target="_blank" rel="noreferrer"
+                  style={{
+                    padding: '4px 10px', borderRadius: 6, fontFamily: 'var(--font-display)',
+                    fontSize: 10, fontWeight: 700, textDecoration: 'none',
+                    background: alertSettings?.telegram_chat_id ? 'rgba(57,255,20,0.08)' : 'rgba(0,212,255,0.08)',
+                    border: `1px solid ${alertSettings?.telegram_chat_id ? 'rgba(57,255,20,0.3)' : 'rgba(0,212,255,0.3)'}`,
+                    color: alertSettings?.telegram_chat_id ? 'var(--neon-green)' : 'var(--cyan)',
+                    pointerEvents: alertSettings?.telegram_chat_id ? 'none' : 'auto',
+                  }}
+                >
+                  {alertSettings?.telegram_chat_id ? 'Linked' : '📡 Link'}
+                </a>
+              </div>
+            </div>
+          </div>
+        )}
+
         {/* Community */}
         <div style={{ borderTop: '1px solid var(--border)', paddingTop: 16 }}>
           <div style={{ fontFamily: 'var(--font-mono)', fontSize: 9, color: 'var(--text-muted)', letterSpacing: 1, marginBottom: 12 }}>COMMUNITY</div>
@@ -705,7 +762,7 @@ const SettingsPanel = ({ settings, onUpdate, onReset, onClose }) => {
 
 // ─── Navbar ─────────────────────────────────────────────────────
 
-const Navbar = ({ onListBeta, onAdvertise, newRunners, liveAlphas, coolingAlphas, onSettings, onWalletConnect, onWalletSignIn, onWalletSignOut, isAuthed, isConnected, walletAddress }) => (
+const Navbar = ({ onListBeta, onAdvertise, newRunners, liveAlphas, coolingAlphas, onSettings, onWalletConnect, onWalletSignIn, onWalletSignOut, isAuthed, isConnected, walletAddress, onBell, unreadCount }) => (
   <nav className="navbar">
   <div className="navbar-brand">
     <img
@@ -770,6 +827,27 @@ const Navbar = ({ onListBeta, onAdvertise, newRunners, liveAlphas, coolingAlphas
           onMouseLeave={e => { e.currentTarget.style.borderColor = 'rgba(0,212,255,0.25)'; e.currentTarget.style.color = 'var(--text-secondary)' }}
         >
           🔗 CONNECT
+        </button>
+      )}
+      {isAuthed && (
+        <button
+          onClick={onBell}
+          title="Notifications"
+          style={{
+            position: 'relative', background: 'rgba(255,255,255,0.05)',
+            border: '1px solid var(--border)', borderRadius: 8, cursor: 'pointer',
+            color: unreadCount > 0 ? 'var(--amber)' : 'var(--text-muted)',
+            fontSize: 16, padding: '6px 10px', lineHeight: 1, transition: 'all 0.15s ease',
+          }}
+        >
+          🔔
+          {unreadCount > 0 && (
+            <span style={{
+              position: 'absolute', top: 4, right: 4, width: 8, height: 8,
+              borderRadius: '50%', background: 'var(--red)',
+              border: '1.5px solid var(--bg-primary)',
+            }} />
+          )}
         </button>
       )}
       <button
@@ -5814,19 +5892,46 @@ export default function App() {
       localStorage.setItem('betaplays_wallet', wallet)
       setAuthToken(token)
       setAuthWallet(wallet)
-      // Migrate local watchlist to Supabase on first sign-in — sequential to avoid DB storm
+      // Migrate local watchlist to Supabase (fire-and-forget, cap 20)
       const local = getWatchlistRaw()
       if (local.length > 0) {
-        for (const t of local.slice(0, 20)) { // cap at 20 items
+        for (const t of local.slice(0, 20)) {
           try {
             await fetch(`${BACKEND_URL}/api/watchlist`, {
               method: 'POST',
               headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-              body: JSON.stringify({ token_address: t.address, symbol: t.symbol, name: t.name }),
+              body: JSON.stringify({
+                token_address: t.address, symbol: t.symbol, name: t.name,
+                price_at_add: t.priceUsd || t.price || null,
+                logo_url: t.logoUrl || null,
+                mcap_at_add: t.marketCap || t.mcap || null,
+              }),
             })
           } catch { /* non-fatal */ }
         }
       }
+      // Load canonical watchlist from Supabase — replaces localStorage version
+      try {
+        const wlRes = await fetch(`${BACKEND_URL}/api/watchlist`, {
+          headers: { Authorization: `Bearer ${token}` },
+        })
+        if (wlRes.ok) {
+          const rows = await wlRes.json()
+          // Map DB columns back to the shape the rest of the app expects
+          const merged = rows.map(r => ({
+            address:   r.token_address,
+            symbol:    r.symbol,
+            name:      r.name,
+            logoUrl:   r.logo_url,
+            priceUsd:  r.price_at_add,
+            marketCap: r.mcap_at_add,
+            watchedAt: new Date(r.added_at).getTime(),
+            narrativeTag: r.narrative_tag || null,
+          }))
+          saveWatchlistRaw(merged)
+          setWatchlist(merged)
+        }
+      } catch { /* non-fatal — localStorage version stays */ }
     } catch (err) {
       console.error('[Auth] Sign-in failed:', err.message)
     }
@@ -5851,6 +5956,13 @@ export default function App() {
     subscribe, checkStatus: checkSubStatus, setSubError, setSubSuccess,
   } = useSubscription({ authToken, authWallet, isAuthed })
   const [showProModal, setShowProModal] = useState(false)
+
+  // ── Notifications & Alerts ────────────────────────────────────
+  const {
+    notifications, unreadCount, markAllRead,
+    alertSettings, saveAlertSettings, settingsSaving,
+  } = useNotifications({ authToken, isAuthed })
+  const [showNotifPanel, setShowNotifPanel] = useState(false)
 
   // ── Folio state (multi-folio system) ────────────────────────
   const [folioLeaderboard, setFolioLeaderboard] = useState([])
@@ -6148,7 +6260,7 @@ export default function App() {
 
   return (
     <div className="app-wrapper">
-      <Navbar onListBeta={() => setShowListModal(true)} onAdvertise={() => setShowAdvertiseModal(true)} newRunners={newRunners} liveAlphas={appLiveAlphas} coolingAlphas={appCoolingAlphas} onSettings={() => setShowSettings(true)} onWalletConnect={() => setWalletModalVisible(true)} onWalletSignIn={handleWalletSignIn} onWalletSignOut={handleSignOut} isAuthed={isAuthed} isConnected={connected} walletAddress={authWallet} />
+      <Navbar onListBeta={() => setShowListModal(true)} onAdvertise={() => setShowAdvertiseModal(true)} newRunners={newRunners} liveAlphas={appLiveAlphas} coolingAlphas={appCoolingAlphas} onSettings={() => setShowSettings(true)} onWalletConnect={() => setWalletModalVisible(true)} onWalletSignIn={handleWalletSignIn} onWalletSignOut={handleSignOut} isAuthed={isAuthed} isConnected={connected} walletAddress={authWallet} onBell={() => setShowNotifPanel(true)} unreadCount={unreadCount} />
       <NarrativeTicker liveAlphas={appLiveAlphas} sznCards={appSznCards} />
       <div className={`main-layout${mobileView === 'betas' ? ' mobile-show-betas' : ''}`} style={{ flex: 1, overflow: 'hidden' }}>
         <AlphaBoard selectedAlpha={selectedAlpha} onSelect={handleSelectAlpha} onNewRunners={handleNewRunners} onLiveAlphas={setAppLiveAlphas} onSznCards={setAppSznCards} onCoolingAlphas={setAppCoolingAlphas} onCustomSearch={handleSearchCustomAlpha} customAlphaLoading={customAlphaLoading} onRegisterClearSearch={fn => { clearAlphaBoardSearch.current = fn }} onRegisterSwitchTab={fn => { switchTabRef.current = fn }} alphaListRef={alphaListRef} searchResults={searchResults} onSelectSearchResult={(token) => { if (!token) { setSearchResults([]); return }; setSelectedAlpha(token); setSearchResults([]) }} defaultTab={settings.defaultTab} authToken={authToken} isAuthed={isAuthed} authWallet={authWallet} onFolioCall={handleFolioCall} folioCallAddrs={folioCallAddrs} folioLeaderboard={folioLeaderboard} folioLoading={folioLoading} folioView={folioView} setFolioView={setFolioView} folioSaveMsg={folioSaveMsg} myFolios={myFolios} setMyFolios={setMyFolios} folioSearch={folioSearch} folioSearchRes={folioSearchRes} folioSearching={folioSearching} onSaveFolioName={handleSaveFolioName} onFolioSearch={handleFolioSearch} onFolioLeaderboard={handleFolioLeaderboard} folioTagging={folioTagging} setFolioTagging={setFolioTagging} onFolioTag={handleFolioTag} folioProfile={folioProfile} onCreateFolio={handleCreateFolio} activeFolioId={activeFolioId} setActiveFolioId={setActiveFolioId} />
@@ -6180,6 +6292,17 @@ export default function App() {
           <span className="mobile-nav-icon">⭐</span>
           <span className="mobile-nav-label">Watchlist</span>
         </button>
+        {isAuthed && (
+          <button className="mobile-nav-btn" onClick={() => { setShowNotifPanel(true) }} style={{ position: 'relative' }}>
+            <span className="mobile-nav-icon" style={{ color: unreadCount > 0 ? 'var(--amber)' : undefined }}>
+              🔔
+              {unreadCount > 0 && (
+                <span style={{ position: 'absolute', top: 6, right: 14, width: 7, height: 7, borderRadius: '50%', background: 'var(--red)', border: '1.5px solid var(--bg-primary)' }} />
+              )}
+            </span>
+            <span className="mobile-nav-label">Alerts</span>
+          </button>
+        )}
         <button className="mobile-nav-btn" onClick={() => setShowSettings(true)}>
           <span className="mobile-nav-icon">☰</span>
           <span className="mobile-nav-label">Menu</span>
@@ -6339,12 +6462,69 @@ export default function App() {
       )}
 
       <AppFooter />
+      {/* ── Notifications Panel ──────────────────────────────────── */}
+      {showNotifPanel && (
+        <div
+          onClick={e => { if (e.target === e.currentTarget) { setShowNotifPanel(false); markAllRead() } }}
+          style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.7)', zIndex: 9999, display: 'flex', alignItems: 'flex-start', justifyContent: 'flex-end' }}
+        >
+          <div style={{
+            background: 'var(--surface-2)', border: '1px solid var(--border-lit)', borderRadius: 12,
+            width: 320, maxWidth: '92vw', maxHeight: '80dvh', overflowY: 'auto',
+            margin: '60px 16px 0 0', display: 'flex', flexDirection: 'column',
+          }}>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '14px 16px 10px', borderBottom: '1px solid var(--border)' }}>
+              <span style={{ fontFamily: 'var(--font-display)', fontSize: 13, fontWeight: 800, color: 'var(--neon-green)' }}>
+                🔔 Notifications {unreadCount > 0 && <span style={{ background: 'var(--red)', color: '#fff', borderRadius: 10, fontSize: 10, padding: '1px 6px', marginLeft: 6 }}>{unreadCount}</span>}
+              </span>
+              <div style={{ display: 'flex', gap: 8 }}>
+                {unreadCount > 0 && (
+                  <button onClick={markAllRead} style={{ background: 'none', border: 'none', color: 'var(--cyan)', fontFamily: 'var(--font-display)', fontSize: 10, cursor: 'pointer' }}>
+                    Mark all read
+                  </button>
+                )}
+                <button onClick={() => { setShowNotifPanel(false); markAllRead() }} style={{ background: 'none', border: 'none', color: 'var(--text-muted)', cursor: 'pointer', fontSize: 18 }}>✕</button>
+              </div>
+            </div>
+            {notifications.length === 0 ? (
+              <div style={{ padding: 24, textAlign: 'center', color: 'var(--text-muted)', fontFamily: 'var(--font-display)', fontSize: 12 }}>
+                No notifications yet.<br />Enable alerts in ☰ Menu.
+              </div>
+            ) : (
+              <div style={{ display: 'flex', flexDirection: 'column' }}>
+                {notifications.map(n => (
+                  <div key={n.id} style={{
+                    padding: '12px 16px', borderBottom: '1px solid var(--border)',
+                    background: n.read ? 'transparent' : 'rgba(0,212,255,0.04)',
+                  }}>
+                    <div style={{ display: 'flex', gap: 8, alignItems: 'flex-start' }}>
+                      {!n.read && <span style={{ width: 6, height: 6, borderRadius: '50%', background: 'var(--cyan)', marginTop: 5, flexShrink: 0 }} />}
+                      <div style={{ flex: 1, paddingLeft: n.read ? 14 : 0 }}>
+                        <div style={{ fontFamily: 'var(--font-display)', fontSize: 12, fontWeight: 700, color: 'var(--text-primary)', marginBottom: 2 }}>{n.title}</div>
+                        {n.body && <div style={{ fontFamily: 'var(--font-body)', fontSize: 11, color: 'var(--text-secondary)' }}>{n.body}</div>}
+                        <div style={{ fontFamily: 'var(--font-mono)', fontSize: 9, color: 'var(--text-muted)', marginTop: 4 }}>
+                          {new Date(n.created_at).toLocaleString()}
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
       {showSettings && (
         <SettingsPanel
           settings={settings}
           onUpdate={updateSetting}
           onReset={resetSettings}
           onClose={() => setShowSettings(false)}
+          isAuthed={isAuthed}
+          authWallet={authWallet}
+          alertSettings={alertSettings}
+          saveAlertSettings={saveAlertSettings}
         />
       )}
     </div>
