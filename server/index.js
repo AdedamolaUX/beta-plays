@@ -31,7 +31,7 @@ const db = require('./db')
 const { cacheGet, cacheSet, loadExpansionCache } = require('./db')
 
 const app = express()
-app.set('trust proxy', 1)
+app.set('trust proxy', 1) // Required for correct IP/rate-limiting behind Render's reverse proxy
 app.use(compression()) // gzip all responses — cuts egress 60-80%
 app.use(cors())
 app.use(express.json({ limit: '10mb' }))
@@ -69,9 +69,49 @@ function markGroq70bDailyLimitHit () {
 // PumpFun CDN has chronic 530 outages. We cache the last good response
 // so a CDN blip doesn't wipe out all Vector 4 results mid-session.
 // PumpPortal is used as a live fallback when PumpFun is unavailable.
-// Tracks alpha addresses seen since server start — used to fire new_alpha notifications
+// Tracks alpha addresses seen — used to fire new_alpha notifications
 // only for genuinely new arrivals, not the full feed on every report-alphas call.
-const seenAlphaAddresses = new Set()
+// Daily-reset: prevents re-notifying the full feed on every Render wake-up/restart.
+const _seenAlphaByDay = new Map() // day → Set<address>
+const _todayKey = () => new Date().toISOString().slice(0, 10)
+const hasSeenAlpha = (address) => _seenAlphaByDay.get(_todayKey())?.has(address) ?? false
+const markAlphaSeen = (address) => {
+  const day = _todayKey()
+  if (!_seenAlphaByDay.has(day)) {
+    _seenAlphaByDay.clear() // drop previous day's set
+    _seenAlphaByDay.set(day, new Set())
+  }
+  _seenAlphaByDay.get(day).add(address)
+}
+const seenAlphaAddresses = new Set() // kept for any other references
+
+// ─── L1 in-memory cache for Supabase score/vision/szn reads ──────────────────
+// Sits in front of Supabase cacheGet. Cache hit = zero DB egress.
+// TTLs mirror the Supabase TTLs (score 6h, vision 24h, szn 24h).
+const _l1 = new Map()
+const l1Get = (key) => {
+  const e = _l1.get(key)
+  if (!e || Date.now() > e.exp) { _l1.delete(key); return null }
+  return e.val
+}
+const l1Set = (key, val, ttlHours) =>
+  _l1.set(key, { val, exp: Date.now() + ttlHours * 3600 * 1000 })
+
+// ─── record-betas dedup — skip re-writes for known alpha:beta pairs ───────────
+// Prevents hammering Supabase when same alpha is rescanned (every 90s price refresh
+// triggers record-betas). In-memory Map keyed by 'alphaAddress:betaAddress'.
+// Resets naturally on server restart (Render redeploy). 6h TTL matches score cache.
+const _betaWriteSeen = new Map() // key → expiresAt timestamp
+const BETA_WRITE_TTL = 6 * 60 * 60 * 1000 // 6 hours
+const hasBetaWritten = (alphaAddr, betaAddr) => {
+  const key = `${alphaAddr}:${betaAddr}`
+  const exp = _betaWriteSeen.get(key)
+  if (!exp) return false
+  if (Date.now() > exp) { _betaWriteSeen.delete(key); return false }
+  return true
+}
+const markBetaWritten = (alphaAddr, betaAddr) =>
+  _betaWriteSeen.set(`${alphaAddr}:${betaAddr}`, Date.now() + BETA_WRITE_TTL)
 
 const pumpFunCache = new Map()  // key: query string → { data, ts }
 const PUMPFUN_CACHE_TTL = 10 * 60 * 1000  // 10 minutes
@@ -2981,7 +3021,9 @@ app.post('/api/record-betas', async (req, res) => {
   // Respond immediately — client never waits for this
   res.json({ ok: true, queued: betas.length })
 
-  const valid = betas.filter(b => b.address && b.symbol)
+  // Filter to betas not written in the last 6h — eliminates redundant DB writes
+  // from the 90s price refresh cycle re-triggering record-betas for known pairs.
+  const valid = betas.filter(b => b.address && b.symbol && !hasBetaWritten(alphaAddress, b.address))
   const errors = []
 
   for (const beta of valid) {
@@ -3015,6 +3057,7 @@ app.post('/api/record-betas', async (req, res) => {
           beta.alphaPriceAtDetection  || null,
           beta.betaMcapAtDetection    || null,
         ])
+        markBetaWritten(alphaAddress, beta.address)
       } catch (err) {
         errors.push(beta.address)
       }
@@ -3159,8 +3202,10 @@ app.get('/api/past-runners', async (req, res) => {
 app.get('/api/cache/score', async (req, res) => {
   const { key } = req.query
   if (!key) return res.status(400).json({ error: 'key required' })
+  const l1 = l1Get(`score:${key}`)
+  if (l1) return res.json({ hit: true, data: l1 })
   const value = await cacheGet(`score:${key}`)
-  if (value) return res.json({ hit: true, data: value })
+  if (value) { l1Set(`score:${key}`, value, 6); return res.json({ hit: true, data: value }) }
   return res.json({ hit: false })
 })
 
@@ -3169,8 +3214,8 @@ app.get('/api/cache/score', async (req, res) => {
 app.post('/api/cache/score', async (req, res) => {
   const { key, data } = req.body
   if (!key || !data) return res.status(400).json({ error: 'key and data required' })
-  await cacheSet(`score:${key}`, data, 6)  // 6 hours — beta narrative fit doesn't change
-                                            // meaningfully in minutes. Was 10min (0.167h). 36x improvement.
+  l1Set(`score:${key}`, data, 6)
+  await cacheSet(`score:${key}`, data, 6)  // 6 hours
   return res.json({ ok: true })
 })
 
@@ -3178,8 +3223,10 @@ app.post('/api/cache/score', async (req, res) => {
 app.get('/api/cache/vision', async (req, res) => {
   const { key } = req.query
   if (!key) return res.status(400).json({ error: 'key required' })
+  const l1 = l1Get(`vision:${key}`)
+  if (l1) return res.json({ hit: true, data: l1 })
   const value = await cacheGet(`vision:${key}`)
-  if (value) return res.json({ hit: true, data: value })
+  if (value) { l1Set(`vision:${key}`, value, 24); return res.json({ hit: true, data: value }) }
   return res.json({ hit: false })
 })
 
@@ -3188,7 +3235,8 @@ app.get('/api/cache/vision', async (req, res) => {
 app.post('/api/cache/vision', async (req, res) => {
   const { key, data } = req.body
   if (!key || !data) return res.status(400).json({ error: 'key and data required' })
-  await cacheSet(`vision:${key}`, data, 24)  // 24 hours — matches old betaplays_vision_cache_v1 TTL
+  l1Set(`vision:${key}`, data, 24)
+  await cacheSet(`vision:${key}`, data, 24)  // 24 hours
   return res.json({ ok: true })
 })
 
@@ -3196,8 +3244,10 @@ app.post('/api/cache/vision', async (req, res) => {
 app.get('/api/cache/szn', async (req, res) => {
   const { key } = req.query
   if (!key) return res.status(400).json({ error: 'key required' })
+  const l1 = l1Get(`szn:${key}`)
+  if (l1) return res.json({ hit: true, data: l1 })
   const value = await cacheGet(`szn:${key}`)
-  if (value) return res.json({ hit: true, data: value })
+  if (value) { l1Set(`szn:${key}`, value, 24); return res.json({ hit: true, data: value }) }
   return res.json({ hit: false })
 })
 
@@ -3206,7 +3256,8 @@ app.get('/api/cache/szn', async (req, res) => {
 app.post('/api/cache/szn', async (req, res) => {
   const { key, data } = req.body
   if (!key || !data) return res.status(400).json({ error: 'key and data required' })
-  await cacheSet(`szn:${key}`, data, 24)  // 24 hours — matches old betaplays_szn_cache_v1 TTL
+  l1Set(`szn:${key}`, data, 24)
+  await cacheSet(`szn:${key}`, data, 24)  // 24 hours
   return res.json({ ok: true })
 })
 
@@ -3225,8 +3276,8 @@ app.post('/api/report-alphas', (req, res) => {
 
   // Fire new_alpha notifications for tokens we haven't seen before this session
   for (const alpha of alphas) {
-    if (alpha.address && !seenAlphaAddresses.has(alpha.address)) {
-      seenAlphaAddresses.add(alpha.address)
+    if (alpha.address && !hasSeenAlpha(alpha.address)) {
+      markAlphaSeen(alpha.address)
       // Only notify if the alpha has real volume (filters out noise on startup)
       if ((alpha.volume24h || 0) > 1000) {
         notifyNewAlpha(alpha).catch(() => {})
@@ -4147,6 +4198,21 @@ app.patch('/api/folio/settings', requireAuth, async (req, res) => {
 // Max 3 active boost slots across the entire alpha feed at any time.
 // Each boost lasts 24 hours. Payment verified on-chain via Helius.
 
+// ─── In-memory cache for boosts / listings / ads active responses ─────────────
+// Eliminates redundant DB round-trips from UptimeRobot pings + frontend polling.
+// TTL: 2 minutes. Invalidated immediately on any successful purchase.
+const _activeCache = new Map()
+const ACTIVE_CACHE_TTL = 2 * 60 * 1000
+const activeCache = {
+  get: (key) => {
+    const e = _activeCache.get(key)
+    if (!e || Date.now() > e.expiresAt) { _activeCache.delete(key); return null }
+    return e.data
+  },
+  set: (key, data) => _activeCache.set(key, { data, expiresAt: Date.now() + ACTIVE_CACHE_TTL }),
+  del: (key) => _activeCache.delete(key),
+}
+
 const TREASURY_WALLET  = process.env.TREASURY_WALLET || '7LbtGZTToXYQ8FRnwBy6TfLMi4nMw2ge523mimwTSJUk'
 const BOOST_PRICE_SOL  = parseFloat(process.env.BOOST_PRICE_SOL || '1')
 const BOOST_MAX_SLOTS  = 3
@@ -4163,8 +4229,9 @@ async function expireBoosts () {
 
 // GET /api/boosts/active — returns active boosts + slot availability
 app.get('/api/boosts/active', async (req, res) => {
+  const cached = activeCache.get('boosts')
+  if (cached) return res.json(cached)
   try {
-    await expireBoosts()
     const result = await db.query(`
       SELECT id, token_address, token_symbol, token_name, logo_url,
              parent_alpha_address, slot_number, starts_at, expires_at
@@ -4175,14 +4242,16 @@ app.get('/api/boosts/active', async (req, res) => {
     const activeBoosts = result.rows
     const usedSlots    = activeBoosts.map(b => b.slot_number)
     const freeSlots    = [1, 2, 3].filter(s => !usedSlots.includes(s))
-    res.json({
+    const data = {
       boosts:     activeBoosts,
       slotsUsed:  usedSlots.length,
       slotsFree:  freeSlots.length,
       slotsAvail: freeSlots,
       priceSol:   BOOST_PRICE_SOL,
       treasury:   TREASURY_WALLET,
-    })
+    }
+    activeCache.set('boosts', data)
+    res.json(data)
   } catch (err) {
     console.error('[Boosts] Active error:', err.message)
     res.status(500).json({ error: err.message })
@@ -4278,6 +4347,7 @@ app.post('/api/boosts/verify', requireAuth, async (req, res) => {
       expiresAt,
     ])
 
+    activeCache.del('boosts')
     console.log(`[Boosts] New boost: ${token_symbol || token_address} → slot ${nextSlot} by ${req.user.wallet}`)
     res.json({ ok: true, boost: insertResult.rows[0] })
 
@@ -4328,8 +4398,9 @@ async function expireListings () {
 
 // GET /api/listings/active — returns active listings + per-alpha slot availability
 app.get('/api/listings/active', async (req, res) => {
+  const cached = activeCache.get('listings')
+  if (cached) return res.json(cached)
   try {
-    await expireListings()
     const result = await db.query(`
       SELECT id, token_address, token_symbol, token_name, logo_url,
              target_alpha_address, slot_number, starts_at, expires_at
@@ -4338,21 +4409,20 @@ app.get('/api/listings/active', async (req, res) => {
       ORDER BY target_alpha_address, slot_number ASC
     `)
     const listings = result.rows
-
-    // Group by alpha so frontend can check per-card slot availability
     const byAlpha = {}
     for (const l of listings) {
       if (!byAlpha[l.target_alpha_address]) byAlpha[l.target_alpha_address] = []
       byAlpha[l.target_alpha_address].push(l)
     }
-
-    res.json({
+    const data = {
       listings,
       byAlpha,
       priceSol:  LISTED_PRICE_SOL,
       maxSlots:  LISTED_MAX_SLOTS,
       treasury:  TREASURY_WALLET,
-    })
+    }
+    activeCache.set('listings', data)
+    res.json(data)
   } catch (err) {
     console.error('[Listed] Active error:', err.message)
     res.status(500).json({ error: err.message })
@@ -4450,6 +4520,7 @@ app.post('/api/listings/verify', requireAuth, async (req, res) => {
       expiresAt,
     ])
 
+    activeCache.del('listings')
     console.log(`[Listed] New listing: ${token_symbol || token_address} → under ${target_alpha_address} slot ${nextSlot} by ${req.user.wallet}`)
     res.json({ ok: true, listing: insertResult.rows[0] })
 
@@ -4499,15 +4570,18 @@ async function expireAds () {
 
 // GET /api/ads/active — returns all active approved ads (public, no auth)
 app.get('/api/ads/active', async (req, res) => {
+  const cached = activeCache.get('ads')
+  if (cached) return res.json(cached)
   try {
-    await expireAds()
     const result = await db.query(`
       SELECT id, project_name, tagline, logo_url, cta_text, cta_url, category
       FROM ads
       WHERE is_active = TRUE AND approved = TRUE
       ORDER BY starts_at ASC
     `)
-    res.json({ ads: result.rows, count: result.rows.length, maxSlots: AD_MAX_SLOTS })
+    const data = { ads: result.rows, count: result.rows.length, maxSlots: AD_MAX_SLOTS }
+    activeCache.set('ads', data)
+    res.json(data)
   } catch (err) {
     console.error('[Ads] Active error:', err.message)
     res.status(500).json({ error: err.message })
@@ -4957,6 +5031,23 @@ async function notifyTelegramSignal (alphaSymbol, betaSymbol) {
   const body  = `$${betaSymbol} spotted alongside $${alphaSymbol} in Telegram alpha calls.`
   await notifyWalletsForType('telegram_signal', title, body, { alphaSymbol, betaSymbol })
 }
+
+// ─── Shared expire interval — boosts / listings / ads ──────────────────────
+// Runs every 5 min to mark expired paid placements inactive.
+// Removes the need to run expiry on every GET request.
+// Cache is cleared after each run so the next GET pulls fresh data.
+setInterval(async () => {
+  try {
+    await expireBoosts()
+    await expireListings()
+    await expireAds()
+    activeCache.del('boosts')
+    activeCache.del('listings')
+    activeCache.del('ads')
+  } catch (err) {
+    console.warn('[Expire] Scheduled expire error (non-fatal):', err.message)
+  }
+}, 5 * 60 * 1000)
 
 const PORT = process.env.PORT || 3001
 app.listen(PORT, async () => {
