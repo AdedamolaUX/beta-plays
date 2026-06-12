@@ -339,6 +339,13 @@ const LandingPage = () => {
           <div className="lp-cta-text">
             <h2>READY TO FIND<br />YOUR BETA?</h2>
             <p>FREE TO EXPLORE · SOLANA · NO SIGNUP · FULL SIGNAL STACK UNLOCKABLE</p>
+            <p style={{ marginTop: 10, fontSize: '0.75em', opacity: 0.7 }}>
+              Get alpha alerts on Telegram →{" "}
+              <a href="https://t.me/betaplaysbot" target="_blank" rel="noreferrer"
+                style={{ color: 'var(--lp-cyan)', textDecoration: 'none', fontWeight: 700 }}>
+                @betaplaysbot
+              </a>
+            </p>
           </div>
           <button className="lp-btn-large" onClick={() => navigate('/app')}>
             LAUNCH APP →
@@ -370,7 +377,8 @@ const LandingPage = () => {
             <div className="lp-footer-col">
               <h4>COMMUNITY</h4>
               <a href="https://twitter.com/betaplaysai" target="_blank" rel="noreferrer">Twitter / X</a>
-              <a href="https://t.me/betaplays" target="_blank" rel="noreferrer">Telegram</a>
+              <a href="https://t.me/betaplays" target="_blank" rel="noreferrer">Telegram Channel</a>
+              <a href="https://t.me/betaplaysbot" target="_blank" rel="noreferrer">🤖 Telegram Bot (Alerts)</a>
               <a href="https://github.com/AdedamolaUX/beta-plays" target="_blank" rel="noreferrer">GitHub</a>
             </div>
             <div className="lp-footer-col">
