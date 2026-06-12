@@ -562,10 +562,12 @@ const isDumped = (alpha) => {
 //   3. no_txns      — txns24h < 5 (higher bar than betas)
 //   4. low_liq      — liquidity < $2K (higher bar — alphas need real pools)
 //   5. abandoned    — age > 14 days AND vol < $10K (shorter window than betas)
+//   6. dex_missing  — DEX returned no pair for 2+ consecutive refresh cycles
 //
 // Returns { isDead, signals, signalCount }
 // isDumped tokens are NOT auto-dead — they go to cooling. isDead = truly
 // inactive tokens that should be removed from cooling too.
+// Threshold: 2 signals (was 3) — delisted/ghost tokens were surviving at 2.
 const isDeadAlpha = (alpha) => {
   const signals   = []
   const change24h = parseFloat(alpha.priceChange24h) || 0
@@ -574,14 +576,18 @@ const isDeadAlpha = (alpha) => {
   const liq       = alpha.liquidity  || 0
   const ageMs     = Date.now() - (alpha.firstSeen || Date.now())
   const ageDays   = ageMs / 86400000
+  const now       = Date.now()
 
   if (isDumped(alpha))                               signals.push('dumped')
   if (vol24h    <  1_000)                            signals.push('no_volume')
   if (txns24h   <  5)                                signals.push('no_txns')
   if (liq       <  2_000)                            signals.push('low_liq')
   if (ageDays   >  14 && vol24h < 10_000)            signals.push('abandoned')
+  // dex_missing: DEX returned no pair on 2+ consecutive refresh cycles (≥10 min gap)
+  if (alpha.dexMissingAt && (now - alpha.dexMissingAt) > 10 * 60_000)
+                                                     signals.push('dex_missing')
 
-  const isDead = signals.length >= 3
+  const isDead = signals.length >= 2
   if (isDead) {
     console.log(
       `[DeadAlpha] ☠️  $${alpha.symbol} — dead (${signals.length}/5: ${signals.join(', ')})`
@@ -854,13 +860,36 @@ const refreshHistoricalPrices = async () => {
           // ── Dead token detection ───────────────────────────────
           // If DEX returns no pairs for this address, the token has been
           // delisted (rugged, liquidity fully removed, or abandoned).
-          // Mark it dead so the UI removes it from the live feed.
-          // We also catch tokens that technically have a pair but with
-          // effectively zero activity — these are ghost tokens with
-          // fake or frozen mcap (e.g. $MAX with $118M mcap, 2 txns total).
-          // If DEX returns no pair for this token, just skip — don't update price.
-          // Token will naturally age out via the 30-day TTL.
-          if (!pair) return
+          // Stamp dexMissingAt on first miss. On 2nd consecutive miss (≥10 min later)
+          // isDeadAlpha will fire the dex_missing signal and evict the token.
+          if (!pair) {
+            if (!existing[token.address]?.dexMissingAt) {
+              existing[token.address] = {
+                ...existing[token.address],
+                dexMissingAt: now,
+              }
+              console.log(`[PriceRefresh] ⚠️  No DEX pair for $${token.symbol} — stamping dexMissingAt`)
+            }
+            return
+          }
+          // Token found on DEX — clear any previous missing stamp
+          if (existing[token.address]?.dexMissingAt) {
+            existing[token.address] = { ...existing[token.address], dexMissingAt: null }
+          }
+
+          // Ghost token guard: pair exists but volume is effectively zero.
+          // DEXScreener sometimes preserves stale h24 % from before a token
+          // went dark — a 5000% gain with $0 volume is not a real runner.
+          const pairVol24h = pair.volume?.h24 || 0
+          const pairLiq    = pair.liquidity?.usd || 0
+          if (pairVol24h < 50 && pairLiq < 500) {
+            // Treat like a missing pair — stamp dexMissingAt and skip price update
+            if (!existing[token.address]?.dexMissingAt) {
+              existing[token.address] = { ...existing[token.address], dexMissingAt: now }
+              console.log(`[PriceRefresh] 👻 Ghost token $${token.symbol} — vol $${pairVol24h} liq $${pairLiq} — stamping dexMissingAt`)
+            }
+            return
+          }
 
           const safePriceChange = Math.min(
             Math.max(parseFloat(pair.priceChange?.h24 || 0), -100),
