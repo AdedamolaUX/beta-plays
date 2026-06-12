@@ -1485,24 +1485,58 @@ const useAlphas = () => {
           const freshStored   = JSON.parse(localStorage.getItem(STORAGE_KEY) || '{}')
 
           const patched = prev.map(a => {
-            const isStuck = (a.marketCap || 0) <= 50_000 && parseFloat(a.priceChange24h || 0) === 0
             const stored  = freshStored[a.address]
+            const isStuck = (a.marketCap || 0) <= 50_000 && parseFloat(a.priceChange24h || 0) === 0
             const hasGood = stored?.priceRefreshedAt && (stored.marketCap || 0) > 50_000
+
+            // ── Sync dexMissingAt from localStorage into React state ──
+            // refreshHistoricalPrices writes dexMissingAt to localStorage but
+            // never patches it back into liveAlphas state. isDeadAlpha reads
+            // from the alpha object — so without this sync the dex_missing
+            // signal never fires and dead tokens never evict.
+            let merged = a
+            if (stored?.dexMissingAt && !a.dexMissingAt) {
+              merged = { ...a, dexMissingAt: stored.dexMissingAt }
+            } else if (stored && stored.dexMissingAt === null && a.dexMissingAt) {
+              // Token found again on DEX — clear the stamp
+              merged = { ...a, dexMissingAt: null }
+            }
+
             if (isStuck && hasGood) {
               console.log(`[AlphaRefresh] ✅ $${a.symbol}: $${(a.marketCap||0).toLocaleString()} → $${(stored.marketCap||0).toLocaleString()} | 24h: ${stored.priceChange24h}%`)
-              return { ...a, ...stored, momentumScore: getMomentumScore({ ...a, ...stored }) }
+              return { ...merged, ...stored, momentumScore: getMomentumScore({ ...merged, ...stored }) }
             }
-            return a
+            return merged
           })
 
-          const freshAddrs = new Set(patched.map(a => a.address))
+          // ── Evict dead tokens from live state ────────────────────
+          // Now that dexMissingAt is synced into each alpha object,
+          // isDeadAlpha can fire correctly. Filter dead tokens out here
+          // so they disappear from the feed without waiting for a full
+          // fetch cycle. Also delete from localStorage so they don't
+          // resurface on the next load.
+          const alive = patched.filter(a => {
+            const { isDead } = isDeadAlpha(a)
+            if (isDead) {
+              console.log(`[AlphaEvict] 💀 Removing $${a.symbol} from live feed — dead`)
+              // Delete from localStorage so it doesn't come back
+              try {
+                const ls = JSON.parse(localStorage.getItem(STORAGE_KEY) || '{}')
+                delete ls[a.address]
+                localStorage.setItem(STORAGE_KEY, JSON.stringify(ls))
+              } catch { /* silent */ }
+            }
+            return !isDead
+          })
+
+          const freshAddrs = new Set(alive.map(a => a.address))
 
           // Only add historical tokens that aren't already in the list —
           // never drop tokens the main fetch already placed there.
           const addedHistorical = freshHistLive.filter(a => !freshAddrs.has(a.address))
 
           return [
-            ...patched,
+            ...alive,
             ...addedHistorical,
           ].sort((a, b) => (b.momentumScore || 0) - (a.momentumScore || 0)).slice(0, 100)
         })
