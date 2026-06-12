@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
 import axios from 'axios'
-import { getSearchTerms, getConcepts, generateTickerVariants, detectCategory, NARRATIVE_CATEGORIES, areCategoriesCompatible, inferCategoryFromTerms } from '../data/lore_map'
+import { getSearchTerms, getConcepts, generateTickerVariants, NARRATIVE_CATEGORIES, areCategoriesCompatible, inferCategoryFromTerms } from '../data/lore_map'
 import classifyRelationships from './useAIBetaScoring'
 import { compareLogos, shouldRunVision } from './useImageAnalysis'
 
@@ -1102,13 +1102,38 @@ export const getMcapRatio = (alphaMcap, betaMcap) => {
 }
 
 // ─── OG / RIVAL / SPIN classifier ───────────────────────────────
-const classifyTokens = (betas) => {
+const classifyTokens = (betas, alphaSymbol = '') => {
+  const alphaUpper = alphaSymbol.toUpperCase()
   const groups = {}
   betas.forEach((b) => {
     const sym = b.symbol.toUpperCase()
+    // Never group a beta whose symbol matches the alpha symbol itself —
+    // those are og_match candidates, not PVP rivals of each other.
+    // Also skip classification for betas that share a symbol but whose
+    // ONLY signals are weak cross-alpha paths (keyword/lore/description alone).
+    // Without at least one strong signal or 2+ signals, we can't confirm
+    // they're competing for the same narrative as this alpha.
+    const srcs = new Set(b.signalSources || [])
+    const STRONG = new Set(['lp_pair','og_match','morphology','telegram_signal','desc_match','ai_match','visual_match'])
+    const hasStrongSignal = [...srcs].some(s => STRONG.has(s))
+    const hasConvergence  = [...srcs].filter(s => s !== 'sibling').length >= 2
+    if (!hasStrongSignal && !hasConvergence) {
+      // Weak solo signal — don't classify, just pass through
+      return
+    }
     if (!groups[sym]) groups[sym] = []
     groups[sym].push(b)
   })
+
+  // Pass-through for unclassified (weak signal) betas
+  const unclassified = betas.filter(b => {
+    const srcs = new Set(b.signalSources || [])
+    const STRONG = new Set(['lp_pair','og_match','morphology','telegram_signal','desc_match','ai_match','visual_match'])
+    const hasStrongSignal = [...srcs].some(s => STRONG.has(s))
+    const hasConvergence  = [...srcs].filter(s => s !== 'sibling').length >= 2
+    return !hasStrongSignal && !hasConvergence
+  }).map(b => ({ ...b, tokenClass: null }))
+
   const classified = []
   Object.values(groups).forEach((group) => {
     if (group.length === 1) { classified.push({ ...group[0], tokenClass: null }); return }
@@ -1122,7 +1147,7 @@ const classifyTokens = (betas) => {
       classified.push({ ...token, tokenClass: isRival ? 'RIVAL' : 'SPIN' })
     })
   })
-  return classified
+  return [...classified, ...unclassified]
 }
 
 // ─── Signal scoring ──────────────────────────────────────────────
@@ -1959,7 +1984,7 @@ const mergeAndScore = (rawResults, alphaSymbol, alphaMcap) => {
   // and another had it on pairAddress (different pool). classifyTokens then
   // assigns OG/RIVAL to both, and React throws duplicate key warnings.
   // This dedup keeps the highest-ranked entry for each contract address.
-  const classified = classifyTokens(deduped)
+  const classified = classifyTokens(deduped, alphaSymbol)
     .map(b => ({ ...b, mcapRatio: getMcapRatio(alphaMcap, b.marketCap), betaRank: computeBetaRank(b) }))
     .sort((a, b) => {
       const aIsLP = a.signalSources?.includes('lp_pair') ? 1 : 0
@@ -2211,23 +2236,29 @@ const useBetas = (alpha, parentAlpha = null, options = {}) => {
       }
 
       // ── Category-aware search seeding ────────────────────────────
-      // Architecture: AI-first, hardcoded maps as fallback only.
+      // GUARDRAILS (tightened):
       //
-      // Priority order:
-      //   1. V0A category (AI-inferred) — handles ANY token, known or future
-      //   2. EMOJI_CONCEPT_MAP — catches emoji tokens when V0A was cached/failed
-      //   3. detectCategory() keyword/regex — catches CT variants, known slang
+      // CategorySeeds: only fires when the alpha's own symbol or name
+      //   DIRECTLY contains the category trigger — not via decomposition
+      //   of sub-words or thematic compatibility inference.
+      //   Cap: 3 seeds max when AI unavailable, 6 when AI available.
+      //   Emoji sibling search: only fires when alpha symbol contains
+      //   an actual emoji character (not inferred from category).
       //
-      // V0A category is the permanent fix. It doesn't need hardcoded lists.
-      // When V0A says "emoji" for $ROCKET, we search the emoji universe.
-      // When V0A says "internet_culture" for $LOL, we search reaction tokens.
-      // No code change needed for future narratives — AI handles them.
+      // MetaSeed: disabled entirely when AI is unavailable.
+      //   It injects terms from a different narrative — without AI scoring
+      //   the results, those hits have no filter and pollute the list.
+      //
+      // canRunAI is computed before the search phase — clean gate.
+
+      // Determine AI availability BEFORE seeding so MetaSeed can check it
+      const canRunAI = isPro || getFreeAiCount() < 2
 
       let categorySeeds = []
 
-      // ── EMOJI_CONCEPT_MAP + EMOJI_TEXT_MAP ───────────────────────
-      // Used by Layer 1 (emoji tokens) and by the "emoji" category path.
-      // Defined once here so both the V0A path and the fallback path share them.
+      // ── EMOJI_CONCEPT_MAP ─────────────────────────────────────────
+      // Used ONLY for emoji-ticker alphas (symbol contains actual emoji char).
+      // Not used for category inference — anchored to alpha identity only.
       const EMOJI_CONCEPT_MAP = {
         rocket:    { emoji: '🚀', related: ['moon','launch','blast','orbit','nasa','mars','space'], siblingEmojis: ['🌙','🔥','💀','⚡','👽'] },
         skull:     { emoji: '💀', related: ['dead','death','rip','ghost','bones','dark'],           siblingEmojis: ['🔥','💀','⚡','🌙','💩'] },
@@ -2258,16 +2289,6 @@ const useBetas = (alpha, parentAlpha = null, options = {}) => {
         '🤡': ['clown','joker','honk'],
       }
 
-      // Internet culture / reaction tokens — their own meta-universe.
-      // These run alongside ANY narrative when degens pile into meme phrases.
-      // V0A returns "internet_culture" for tokens like $LOL $LMAO $GG $WAGMI.
-      const INTERNET_CULTURE_SEEDS = [
-        'lol','lmao','gg','wagmi','ngmi','cope','seethe','fud','rekt','wen',
-        'ser','fren','gm','gn','vibes','based','chad','wojak','npc','touch grass',
-        'probably nothing','this is fine','have fun staying poor',
-      ]
-
-      // Helper: build emoji universe seeds from a concept name
       const buildEmojiSeeds = (conceptName) => {
         const match = EMOJI_CONCEPT_MAP[conceptName]
         if (!match) return []
@@ -2278,152 +2299,62 @@ const useBetas = (alpha, parentAlpha = null, options = {}) => {
         return [...related, emoji, ...siblingEmojis, ...siblingTextNames]
       }
 
-      // ── Layer 0: V0A categories (AI-first, multi-category, future-proof) ──
-      // v0Category is now an ARRAY — a token can belong to multiple universes.
-      // $ChibiElon → ["anime","elon"] | $RocketPepe → ["emoji","frogs"]
-      // We seed from ALL detected categories, not just the dominant one.
-      // Each category's seeds are added additively to the pool.
+      // ── CategorySeeds — STRICT identity anchor required ──────────
+      // Only fires when alpha symbol or name DIRECTLY contains the
+      // category trigger word. No decomposition, no compatibility inference.
+      // Cap: 3 seeds when AI unavailable, 6 when AI available.
       //
-      // detectedCat is still a SINGLE string — used by MetaSeed complement logic.
-      // We pick the most specific / primary category for that purpose.
-      let detectedCat = null
+      // Emoji sibling search: only fires when alpha symbol contains
+      // an actual emoji character — not inferred from text category.
+      const SEED_CAP = canRunAI ? 6 : 3
+
+      // Rule: V0A category seeds only when the category keyword is
+      // literally present in the alpha's symbol or name.
+      const symLower  = enrichedAlpha.symbol.toLowerCase()
+      const nameLower = (enrichedAlpha.name || '').toLowerCase()
+      const alphaIdentity = `${symLower} ${nameLower}`
 
       if (v0Category.length > 0) {
         console.log(`[CategorySeed] $${enrichedAlpha.symbol} → V0A categories: [${v0Category.join(', ')}]`)
-        detectedCat = v0Category[0]  // primary category for MetaSeed complement
-
         for (const cat of v0Category) {
-          if (cat === 'emoji') {
-            // Emoji category — find the matching concept and build full emoji seeds
-            const symLower = enrichedAlpha.symbol.toLowerCase()
-            const nameLower = (enrichedAlpha.name || '').toLowerCase()
-            const conceptMatch = Object.keys(EMOJI_CONCEPT_MAP).find(concept =>
-              symLower === concept || symLower.includes(concept) || nameLower.includes(concept)
-            )
-            if (conceptMatch) {
-              const emojiSeeds = buildEmojiSeeds(conceptMatch)
-              categorySeeds = [...categorySeeds, ...emojiSeeds.filter(k => !categorySeeds.includes(k))]
-              console.log(`[CategorySeed] $${enrichedAlpha.symbol} → emoji "${conceptMatch}" → ${emojiSeeds.length} seeds`)
-            } else {
-              // V0A says emoji but no specific concept — seed all emoji tickers
-              const allEmoji = Object.values(EMOJI_CONCEPT_MAP).map(v => v.emoji)
-              categorySeeds = [...categorySeeds, ...allEmoji.filter(k => !categorySeeds.includes(k))]
-              console.log(`[CategorySeed] $${enrichedAlpha.symbol} → emoji (generic) → all emoji tickers`)
-            }
-
-          } else if (cat === 'internet_culture') {
-            const icSeeds = INTERNET_CULTURE_SEEDS.filter(k => isValidSearchTerm(k) && !categorySeeds.includes(k))
-            categorySeeds = [...categorySeeds, ...icSeeds]
-            console.log(`[CategorySeed] $${enrichedAlpha.symbol} → internet_culture → ${icSeeds.length} seeds`)
-
-          } else if (NARRATIVE_CATEGORIES[cat]) {
-            // Known named category — pull from NARRATIVE_CATEGORIES keyword list
+          if (NARRATIVE_CATEGORIES[cat]) {
             const catKeywords = NARRATIVE_CATEGORIES[cat].keywords || []
-            const catSeeds = catKeywords
-              .filter(k => !v0SearchTerms.includes(k) && !categorySeeds.includes(k) && isValidSearchTerm(k))
-              .slice(0, 10)
-            if (catSeeds.length > 0) {
-              categorySeeds = [...categorySeeds, ...catSeeds]
-              console.log(`[CategorySeed] $${enrichedAlpha.symbol} → "${cat}" (known) → ${catSeeds.length} seeds`)
+            // STRICT: only add a category keyword if it appears in the alpha's identity
+            const anchoredSeeds = catKeywords
+              .filter(k =>
+                alphaIdentity.includes(k.toLowerCase()) &&
+                !v0SearchTerms.includes(k) &&
+                !categorySeeds.includes(k) &&
+                isValidSearchTerm(k)
+              )
+              .slice(0, SEED_CAP)
+            if (anchoredSeeds.length > 0) {
+              categorySeeds = [...categorySeeds, ...anchoredSeeds]
+              console.log(`[CategorySeed] $${enrichedAlpha.symbol} → "${cat}" anchored seeds: [${anchoredSeeds.join(', ')}]`)
+            } else {
+              console.log(`[CategorySeed] $${enrichedAlpha.symbol} → "${cat}" — no seeds pass identity anchor, skipping`)
             }
-
-          } else {
-            // Novel category V0A invented — its searchTerms already cover this universe
-            console.log(`[CategorySeed] $${enrichedAlpha.symbol} → "${cat}" (novel — V0A searchTerms carry it)`)
           }
         }
       }
 
-      // ── Layer 1: Symbol decomposition category detection (Approach B) ──────
-      // Structural fallback that works even when V0A fails, AND adds categories
-      // V0A may have missed when a compound name spans multiple known universes.
-      //
-      // How it works:
-      //   1. Decompose symbol/name into component words (CamelCase, compound, space-split)
-      //   2. Run detectCategory() on EACH component independently
-      //   3. Any category not already covered by V0A gets seeded additively
-      //
-      // $ChibiElon → components ["chibi","elon"] → detectCategory("chibi")="anime",
-      //              detectCategory("elon")="elon" → both seeded even if V0A only saw one
-      // $TrumpPepe → ["trump","pepe"] → "political" + "frogs" both seeded
-      // $SpaceDog  → ["space","dog"]  → "space" + "dogs" both seeded
-      //
-      // This is purely additive — never overrides V0A, never removes existing seeds.
-      try {
-        const sym  = enrichedAlpha.symbol
-        const name = enrichedAlpha.name || ''
-
-        // Extract component words from the compound symbol/name
-        // Handles: CamelCase (ChibiElon→Chibi,Elon), ALL_CAPS (TRUMPPEPE→try splits),
-        // space-separated (Trump Pepe→Trump,Pepe), known prefix/suffix stripping
-        const componentWords = new Set()
-
-        // CamelCase split: ChibiElon → ["Chibi","Elon"]
-        const camelParts = sym.replace(/([A-Z][a-z]+)/g, ' $1').trim().split(/\s+/).filter(p => p.length >= 3)
-        camelParts.forEach(p => componentWords.add(p.toLowerCase()))
-
-        // Space-split from name: "Chibi Elon" → ["chibi","elon"]
-        name.toLowerCase().split(/\s+/).filter(w => w.length >= 3).forEach(w => componentWords.add(w))
-
-        // Dictionary-based split for all-caps: TRUMPPEPE → try every cut point
-        // reuse COMPOUND_ROOTS from the existing decomposition logic
-        const symUpper = sym.toUpperCase()
-        if (symUpper.length >= 6) {
-          for (let i = 3; i <= symUpper.length - 3; i++) {
-            const left  = symUpper.slice(0, i).toLowerCase()
-            const right = symUpper.slice(i).toLowerCase()
-            if (left.length >= 3)  componentWords.add(left)
-            if (right.length >= 3) componentWords.add(right)
-          }
-        }
-
-        // Run detectCategory on each component independently
-        const decomposedCats = new Set()
-        for (const word of componentWords) {
-          const wordCat = detectCategory(word, word, '')
-          if (wordCat) decomposedCats.add(wordCat)
-        }
-
-        // Also run on full symbol+name as normal
-        const fullCat = detectCategory(sym, name, enrichedAlpha.description || '')
-        if (fullCat) decomposedCats.add(fullCat)
-
-        // Seed from any category not already handled by V0A
-        const alreadyHandled = new Set(v0Category)
-        for (const dCat of decomposedCats) {
-          if (!detectedCat) detectedCat = dCat  // set primary if V0A was silent
-          if (NARRATIVE_CATEGORIES[dCat]) {
-            const catKeywords = NARRATIVE_CATEGORIES[dCat].keywords || []
-            const newSeeds = catKeywords
-              .filter(k => !v0SearchTerms.includes(k) && !categorySeeds.includes(k) && isValidSearchTerm(k))
-              .slice(0, 8)
-            if (newSeeds.length > 0) {
-              categorySeeds = [...categorySeeds, ...newSeeds]
-              const isNew = !alreadyHandled.has(dCat)
-              console.log(`[CategorySeed] $${enrichedAlpha.symbol} → decomposed "${dCat}" → ${newSeeds.length} ${isNew ? 'new' : 'additive'} seeds`)
-            }
-          }
-        }
-      } catch (decompErr) {
-        console.warn('[CategorySeed] Decomposition detection failed (non-fatal):', decompErr.message)
-      }
-
-      // ── Layer 2: Emoji concept check (always runs, additive) ─────────
-      // Even if V0A returned categories, check if the symbol/name contains
-      // an emoji concept that wasn't in the V0A list.
-      // This catches e.g. $RocketPepe where V0A returned ["frogs"] but missed "emoji".
-      {
+      // ── Emoji sibling search — emoji tickers only ─────────────────
+      // Only fires when the alpha symbol literally contains an emoji char.
+      // $🚀 → search emoji siblings. $ROCKET → no emoji seeding (text only).
+      const EMOJI_REGEX = /\p{Emoji}/u
+      const symbolHasEmoji = EMOJI_REGEX.test(enrichedAlpha.symbol)
+      if (symbolHasEmoji) {
         const symLowerEmoji = enrichedAlpha.symbol.toLowerCase()
-        const nameLowerEmoji = (enrichedAlpha.name || '').toLowerCase()
-        const emojiConceptMatch = Object.keys(EMOJI_CONCEPT_MAP).find(concept =>
-          symLowerEmoji === concept || symLowerEmoji.includes(concept) || nameLowerEmoji.includes(concept)
+        const conceptMatch = Object.keys(EMOJI_CONCEPT_MAP).find(concept =>
+          symLowerEmoji.includes(concept) ||
+          Object.keys(EMOJI_TEXT_MAP).some(e => symLowerEmoji.includes(e) && EMOJI_CONCEPT_MAP[concept]?.emoji === e)
         )
-        if (emojiConceptMatch && !v0Category.includes('emoji')) {
-          const emojiSeeds = buildEmojiSeeds(emojiConceptMatch)
+        if (conceptMatch) {
+          const emojiSeeds = buildEmojiSeeds(conceptMatch).slice(0, SEED_CAP)
           const newEmojiSeeds = emojiSeeds.filter(k => !categorySeeds.includes(k))
           if (newEmojiSeeds.length > 0) {
             categorySeeds = [...categorySeeds, ...newEmojiSeeds]
-            console.log(`[CategorySeed] $${enrichedAlpha.symbol} → emoji concept "${emojiConceptMatch}" (structural) → ${newEmojiSeeds.length} seeds`)
+            console.log(`[CategorySeed] $${enrichedAlpha.symbol} → emoji ticker "${conceptMatch}" → ${newEmojiSeeds.length} sibling seeds`)
           }
         }
       }
@@ -2432,22 +2363,13 @@ const useBetas = (alpha, parentAlpha = null, options = {}) => {
       let allV0Terms = [...new Set([...v0SearchTerms, ...categorySeeds])]
 
       // ── CT suffix variant expansion (subject-scoped) ────────────
-      // Degens construct token names by appending CT suffixes to narrative SUBJECTS.
-      // Only terms tagged TWIN or UNIVERSE in relationshipHints are subjects —
-      // concrete entities degens actually name tokens after.
-      //
-      // TWIN/UNIVERSE = subjects (rat, naruto, pepe, gorilla) → expand with wif/inu/cat
-      // COUNTER/SECTOR/ECHO = abstracts/orgs/symptoms (cdc, fever, outbreak) → NO expansion
-      //
-      // This prevents $VIRUSWIF, $FEVERWIF, $CDCWIF from entering the search pool
-      // while still generating $RATWIF, $RATPEPE, $BABYRAT for genuine subject terms.
-      // Generated variants are search-only — never affect scoring or signals.
-      const CT_SUFFIXES  = ['wif', 'inu', 'cat', 'pepe', 'sol']
-      const CT_PREFIXES  = ['baby', 'evil', 'dark', 'mini']
-      const SUBJECT_TYPES = new Set(['TWIN', 'UNIVERSE', 'ECHO'])  // ECHO included — derivatives are subjects too
+      // Anchored to V0A relationshipHints TWIN/UNIVERSE/ECHO subjects only.
+      // These come from the alpha's own identity — not category maps.
+      const CT_SUFFIXES   = ['wif', 'inu', 'cat', 'pepe', 'sol']
+      const CT_PREFIXES   = ['baby', 'evil', 'dark', 'mini']
+      const SUBJECT_TYPES = new Set(['TWIN', 'UNIVERSE', 'ECHO'])
       const GENERIC_SKIP  = new Set(['coin','token','sol','the','and','wif','inu','cat','pepe','dog','moon','pump'])
 
-      // Build subject term set from relationshipHints
       const subjectTerms = new Set(
         Object.entries(relationshipHints)
           .filter(([, type]) => SUBJECT_TYPES.has(type))
@@ -2457,9 +2379,9 @@ const useBetas = (alpha, parentAlpha = null, options = {}) => {
       const ctVariants = new Set()
       for (const term of subjectTerms) {
         const t = term.toLowerCase().trim()
-        if (t.length < 3 || t.length > 9)        continue  // too short or too long
-        if (t.includes(' ') || t.includes('-'))   continue  // compounds don't work as CT prefixes
-        if (GENERIC_SKIP.has(t))                  continue  // skip noise generators
+        if (t.length < 3 || t.length > 9)        continue
+        if (t.includes(' ') || t.includes('-'))   continue
+        if (GENERIC_SKIP.has(t))                  continue
         for (const suffix of CT_SUFFIXES) {
           if (!t.endsWith(suffix)) ctVariants.add(`${t}${suffix}`)
         }
@@ -2468,7 +2390,7 @@ const useBetas = (alpha, parentAlpha = null, options = {}) => {
         }
       }
 
-      const ctVariantList = [...ctVariants].slice(0, 12)  // hard cap — quality over quantity
+      const ctVariantList = [...ctVariants].slice(0, 12)
       if (ctVariantList.length > 0) {
         allV0Terms = [...new Set([...allV0Terms, ...ctVariantList])]
         console.log(`[CTSuffix] ${ctVariantList.length} subject variants from ${subjectTerms.size} subjects: [${ctVariantList.slice(0,6).join(', ')}]`)
@@ -2476,35 +2398,16 @@ const useBetas = (alpha, parentAlpha = null, options = {}) => {
         console.log('[CTSuffix] No TWIN/UNIVERSE/ECHO terms in hints — skipping suffix expansion')
       }
 
-      // ── Active narrative meta seeding ─────────────────────────────
-      // Reads the SZN cache to find what narrative dominates the live feed.
-      // Skipped entirely when metaSeedEnabled = false (user preference).
-      // Compatibility is determined by CATEGORY_TRAITS overlap (lore_map.js) —
-      // no hardcoded pairs. Adding new categories to CATEGORY_TRAITS is all
-      // that's needed to keep injection correct as new metas emerge.
-      //
-      // Complement logic:
-      //   - Token has NO detected category AND terms can't infer one → BLOCKED
-      //     (no identity = no basis for deciding compatibility)
-      //   - Token HAS a category (detected or inferred from terms):
-      //       same as dominant → BLOCKED (already in narrative, no injection needed)
-      //       compatible via trait overlap (≥2 shared traits) → INJECT
-      //       incompatible → BLOCKED
-      //
-      // Null fallthrough fix: when V0A category detection fails (e.g. Japanese-named
-      // tokens), we attempt to infer the category from V0 search terms before
-      // reaching MetaSeed. This prevents humor/unrelated metas from injecting
-      // into tokens like $Sasuke just because their name didn't match Latin keywords.
-      //
-      // Zero API cost — reads localStorage only.
-      if (metaSeedEnabled) try {
-        // Attempt category inference from terms if V0A detection returned null
-        let resolvedTokenCat = detectedCat
-        if (!resolvedTokenCat && v0SearchTerms.length > 0) {
-          resolvedTokenCat = inferCategoryFromTerms(v0SearchTerms)
-          if (resolvedTokenCat) {
-            console.log(`[MetaSeed] Inferred category "${resolvedTokenCat}" from V0 terms (V0A returned null)`)
-          }
+      // ── MetaSeed — disabled when AI unavailable ───────────────────
+      // Injects terms from the active dominant narrative into compatible alphas.
+      // Speculative by nature — results have no quality filter without AI scoring.
+      // Gate: canRunAI must be true. MetaSeed runs in the term-building phase
+      // (before DEX search), so this check correctly prevents unscored hits.
+      if (canRunAI && metaSeedEnabled) try {
+        let detectedCat = v0Category[0] || null
+        if (!detectedCat && v0SearchTerms.length > 0) {
+          detectedCat = inferCategoryFromTerms(v0SearchTerms)
+          if (detectedCat) console.log(`[MetaSeed] Inferred category "${detectedCat}" from V0 terms`)
         }
 
         const sznRaw = localStorage.getItem('betaplays_szn_cache_v1')
@@ -2512,9 +2415,7 @@ const useBetas = (alpha, parentAlpha = null, options = {}) => {
           const sznCache = JSON.parse(sznRaw)
           const categoryCounts = {}
           Object.values(sznCache).forEach(entry => {
-            if (entry?.category) {
-              categoryCounts[entry.category] = (categoryCounts[entry.category] || 0) + 1
-            }
+            if (entry?.category) categoryCounts[entry.category] = (categoryCounts[entry.category] || 0) + 1
           })
           const dominant = Object.entries(categoryCounts)
             .sort((a, b) => b[1] - a[1])
@@ -2522,26 +2423,23 @@ const useBetas = (alpha, parentAlpha = null, options = {}) => {
 
           if (dominant) {
             const [dominantCat, dominantCount] = dominant
-
-            // Gate: token must have own identity terms
             const hasOwnTerms = v0SearchTerms.length > 0 || descKeywords.length > 0 || categorySeeds.length > 0
             if (!hasOwnTerms) {
-              console.log(`[MetaSeed] Skipped — no own identity terms, refusing narrative injection`)
-            } else if (!resolvedTokenCat) {
-              // Can't determine token category even after term inference — too risky to inject
-              console.log(`[MetaSeed] Blocked — token category unknown even after term inference`)
-            } else if (dominantCat === resolvedTokenCat) {
-              console.log(`[MetaSeed] Skipped — token already in dominant category "${dominantCat}"`)
-            } else if (areCategoriesCompatible(resolvedTokenCat, dominantCat)) {
+              console.log(`[MetaSeed] Skipped — no own identity terms`)
+            } else if (!detectedCat) {
+              console.log(`[MetaSeed] Blocked — token category unknown`)
+            } else if (dominantCat === detectedCat) {
+              console.log(`[MetaSeed] Skipped — already in dominant category "${dominantCat}"`)
+            } else if (areCategoriesCompatible(detectedCat, dominantCat)) {
               const metaSeeds = (NARRATIVE_CATEGORIES[dominantCat]?.keywords || [])
                 .filter(k => !allV0Terms.includes(k) && isValidSearchTerm(k))
                 .slice(0, 6)
               if (metaSeeds.length > 0) {
-                console.log(`[MetaSeed] Active narrative "${dominantCat}" (${dominantCount} runners) → compatible with "${resolvedTokenCat}" → seeds: [${metaSeeds.join(', ')}]`)
+                console.log(`[MetaSeed] "${dominantCat}" (${dominantCount} runners) compatible with "${detectedCat}" → [${metaSeeds.join(', ')}]`)
                 allV0Terms = [...new Set([...allV0Terms, ...metaSeeds])]
               }
             } else {
-              console.log(`[MetaSeed] Blocked — "${resolvedTokenCat}" and "${dominantCat}" share <2 traits (incompatible)`)
+              console.log(`[MetaSeed] Blocked — "${detectedCat}" and "${dominantCat}" incompatible`)
             }
           }
         }
@@ -2970,13 +2868,36 @@ const useBetas = (alpha, parentAlpha = null, options = {}) => {
       // Pro users: always run V8.
       // Free users: run V8 for first 2 alphas this session (taste),
       //             then inject locked placeholders so they see what they're missing.
-      const canRunAI = isPro || getFreeAiCount() < 2
+      // canRunAI declared earlier (before seeding phase) — reused here.
       if (!isPro && canRunAI) bumpFreeAiCount()
 
       if (!canRunAI) {
-        // Free quota exhausted — skip AI, use pattern-match list as-is
-        // Locked placeholder cards appended after final sort below
-        finalList = mergedWithVision
+        // ── Pre-AI quality gate ───────────────────────────────────
+        // Without AI scoring, keyword/lore/description single-signal hits
+        // have no filter. Apply a structural quality gate before showing results:
+        //
+        // A beta passes if ANY of these is true:
+        //   1. Has a structurally strong signal (lp_pair, og_match, morphology,
+        //      telegram_signal, desc_match) — these are anchored to alpha identity
+        //   2. Has 2+ distinct signals — convergence is itself evidence
+        //
+        // Lone keyword / lore / description / pumpfun signals are held back.
+        // They're search-wide terms that return anything containing that word.
+        // Without AI there's nothing to confirm the relationship.
+        const STRONG_SIGNALS = new Set(['lp_pair','og_match','morphology','telegram_signal','twitter_signal','desc_match','sibling_stored'])
+
+        const gated = mergedWithVision.filter(b => {
+          const srcs = new Set(b.signalSources || [])
+          if (srcs.has('lp_pair') || srcs.has('og_match')) return true
+          if ([...srcs].some(s => STRONG_SIGNALS.has(s))) return true
+          const meaningfulSrcs = [...srcs].filter(s => s !== 'sibling')
+          if (meaningfulSrcs.length >= 2) return true
+          console.log(`[PreAIGate] ⛔ Held $${b.symbol} — weak solo signal [${[...srcs].join(',')}] (no AI available)`)
+          return false
+        })
+
+        console.log(`[PreAIGate] ${mergedWithVision.length} candidates → ${gated.length} passed quality gate (AI unavailable)`)
+        finalList = gated
         if (!isStale()) setScanPhase('complete')
       } else try {
         const { results: aiScored, rejectedAddresses } =
