@@ -858,37 +858,32 @@ const refreshHistoricalPrices = async () => {
           const pair = bestPair[token.address]
 
           // ── Dead token detection ───────────────────────────────
-          // If DEX returns no pairs for this address, the token has been
-          // delisted (rugged, liquidity fully removed, or abandoned).
-          // Stamp dexMissingAt on first miss. On 2nd consecutive miss (≥10 min later)
-          // isDeadAlpha will fire the dex_missing signal and evict the token.
+          // If DEX returns no pairs for this address, the token is gone —
+          // delisted, rugged, or liquidity fully removed.
+          // IMMEDIATE eviction: delete from localStorage now. No second-chance
+          // cycle needed — if DEX has nothing, there's nothing to trade.
+          // Stale liq/vol/mcap in the stored object was misleading isDeadAlpha
+          // into thinking the token was healthy.
           if (!pair) {
-            if (!existing[token.address]?.dexMissingAt) {
-              existing[token.address] = {
-                ...existing[token.address],
-                dexMissingAt: now,
-              }
-              console.log(`[PriceRefresh] ⚠️  No DEX pair for $${token.symbol} — stamping dexMissingAt`)
-            }
+            console.log(`[PriceRefresh] ☠️  No DEX pair for $${token.symbol} — evicting immediately`)
+            delete existing[token.address]
             return
           }
-          // Token found on DEX — clear any previous missing stamp
-          if (existing[token.address]?.dexMissingAt) {
-            existing[token.address] = { ...existing[token.address], dexMissingAt: null }
-          }
 
-          // Ghost token guard: pair exists but volume is effectively zero.
-          // DEXScreener sometimes preserves stale h24 % from before a token
-          // went dark — a 5000% gain with $0 volume is not a real runner.
+          // Ghost token guard: pair exists but effectively dead —
+          // volume < $50 AND liquidity < $500. DEXScreener preserves stale
+          // h24 % from before the token went dark. Evict immediately.
           const pairVol24h = pair.volume?.h24 || 0
           const pairLiq    = pair.liquidity?.usd || 0
           if (pairVol24h < 50 && pairLiq < 500) {
-            // Treat like a missing pair — stamp dexMissingAt and skip price update
-            if (!existing[token.address]?.dexMissingAt) {
-              existing[token.address] = { ...existing[token.address], dexMissingAt: now }
-              console.log(`[PriceRefresh] 👻 Ghost token $${token.symbol} — vol $${pairVol24h} liq $${pairLiq} — stamping dexMissingAt`)
-            }
+            console.log(`[PriceRefresh] 👻 Ghost $${token.symbol} — vol $${pairVol24h} liq $${pairLiq} — evicting`)
+            delete existing[token.address]
             return
+          }
+
+          // Token found on DEX with real activity — clear any previous missing stamp
+          if (existing[token.address]?.dexMissingAt) {
+            existing[token.address] = { ...existing[token.address], dexMissingAt: null }
           }
 
           const safePriceChange = Math.min(
@@ -1510,23 +1505,17 @@ const useAlphas = () => {
           })
 
           // ── Evict dead tokens from live state ────────────────────
-          // Now that dexMissingAt is synced into each alpha object,
-          // isDeadAlpha can fire correctly. Filter dead tokens out here
-          // so they disappear from the feed without waiting for a full
-          // fetch cycle. Also delete from localStorage so they don't
-          // resurface on the next load.
+          // refreshHistoricalPrices now deletes dead tokens from localStorage
+          // immediately (no DEX pair or ghost = delete existing[address]).
+          // freshStored reflects the post-eviction state — any address
+          // absent from freshStored was just deleted. Filter liveAlphas
+          // to match so the UI clears immediately without a full refetch.
           const alive = patched.filter(a => {
-            const { isDead } = isDeadAlpha(a)
-            if (isDead) {
-              console.log(`[AlphaEvict] 💀 Removing $${a.symbol} from live feed — dead`)
-              // Delete from localStorage so it doesn't come back
-              try {
-                const ls = JSON.parse(localStorage.getItem(STORAGE_KEY) || '{}')
-                delete ls[a.address]
-                localStorage.setItem(STORAGE_KEY, JSON.stringify(ls))
-              } catch { /* silent */ }
+            const stillExists = !!freshStored[a.address]
+            if (!stillExists) {
+              console.log(`[AlphaEvict] 💀 $${a.symbol} evicted — no longer on DEX`)
             }
-            return !isDead
+            return stillExists
           })
 
           const freshAddrs = new Set(alive.map(a => a.address))
