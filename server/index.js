@@ -3297,10 +3297,11 @@ app.post('/api/report-alphas', (req, res) => {
     ((a.volume24h || 0) * Math.abs(parseFloat(a.priceChange24h) || 0))
   )
 
-  // Cap warmup at the actual number of live tokens — no point warming more
-  // slots than there are tokens on the feed. Floor at 10 (cold start), ceil
-  // at 50 (quota protection). Was hardcoded at 30 regardless of feed size.
-  const WARMUP_CAP = Math.min(Math.max(alphas.length, 10), 50)
+  // Hard cap at 8 — warmup only the top movers by momentum.
+  // V0 expansion costs 1 Groq call each. With 100 live alphas the old
+  // cap of 50 was burning half the daily Groq quota on warmup alone.
+  // Users expand the rest on-demand when they click an alpha.
+  const WARMUP_CAP = 8
   for (const alpha of sortedAlphas) {
     if (queued >= WARMUP_CAP) break
     if (!alpha.address || !alpha.symbol) continue
