@@ -1047,7 +1047,7 @@ const fetchLPPairBetas = async (alpha) => {
 
   try {
     const res = await DEX_QUEUE.get(
-      `${DEXSCREENER_BASE}/latest/dex/search?q=${alpha.address}`
+      `${DEXSCREENER_BASE}/latest/dex/tokens/${alpha.address}`
     )
 
     const pairs = res.data?.pairs || []
@@ -1363,40 +1363,45 @@ const expandTickerForSearch = (symbol) => {
 // Vector 8 runs last because it is the most expensive signal (AI quota).
 //
 // Returns: array of { address, matchType, matchedTerms }
+// Generic words stripped before keyword overlap counting —
+// these appear in almost every token description and carry no signal.
+const DESC_GENERIC_WORDS = new Set([
+  'sol','solana','meme','memecoin','coin','token','the','a','an','is','on',
+  'of','to','and','in','for','with','this','that','are','was','has','have',
+  'its','our','your','from','just','like','crypto','defi','web3','based',
+])
+
 const scoreDescriptionMatch = (betas, alphaSymbol, alphaName, alphaKeywords) => {
   if (!betas?.length) return []
 
-  // Build alpha reference set: symbol variants + name words + keywords
-  const alphaRefs = new Set([
-    alphaSymbol.toLowerCase(),
-    alphaName.toLowerCase(),
-    ...(alphaKeywords || []).map(k => k.toLowerCase()),
-  ])
+  const alphaSymLow  = alphaSymbol.toLowerCase()
+  const alphaNameLow = alphaName.toLowerCase()
+  const dollarSymbol = `$${alphaSymLow}`
 
-  // Also check for $ prefixed symbol mentions (devs often write "$PIPPIN")
-  const dollarSymbol = `$${alphaSymbol.toLowerCase()}`
+  // Strip generics from keyword list before overlap check
+  const cleanKeywords = (alphaKeywords || [])
+    .map(k => k.toLowerCase())
+    .filter(k => k.length >= 5 && !DESC_GENERIC_WORDS.has(k))
 
   const matches = []
   betas.forEach(b => {
     const desc = (b.description || '').toLowerCase()
-    if (!desc || desc.length < 5) return
+    if (!desc || desc.length < 10) return
 
     const matchedTerms = []
 
-    // Check 1: explicit alpha symbol/name in description (strongest)
+    // Check 1: explicit alpha symbol/name in description (strongest signal)
     // e.g. "the dog version of $PIPPIN" or "sister token to TRUMP"
     if (desc.includes(dollarSymbol)) {
       matchedTerms.push(dollarSymbol)
-    } else if (desc.includes(alphaSymbol.toLowerCase()) && alphaSymbol.length >= 3) {
-      matchedTerms.push(alphaSymbol.toLowerCase())
-    } else if (alphaName.length >= 4 && desc.includes(alphaName.toLowerCase())) {
-      matchedTerms.push(alphaName.toLowerCase())
+    } else if (alphaSymLow.length >= 3 && desc.includes(alphaSymLow)) {
+      matchedTerms.push(alphaSymLow)
+    } else if (alphaNameLow.length >= 4 && desc.includes(alphaNameLow)) {
+      matchedTerms.push(alphaNameLow)
     }
 
-    // Check 2: keyword overlap — at least 2 alpha keywords found in description
-    // Requiring 2+ prevents single common-word false positives
-    const keywordHits = (alphaKeywords || [])
-      .filter(k => k.length >= 4 && desc.includes(k.toLowerCase()))
+    // Check 2: keyword overlap — 2+ specific (non-generic) alpha keywords in description
+    const keywordHits = cleanKeywords.filter(k => desc.includes(k))
     if (keywordHits.length >= 2) {
       keywordHits.forEach(k => matchedTerms.push(k))
     }
@@ -1404,12 +1409,12 @@ const scoreDescriptionMatch = (betas, alphaSymbol, alphaName, alphaKeywords) => 
     if (matchedTerms.length > 0) {
       const isExplicit = matchedTerms.some(t =>
         t === dollarSymbol ||
-        t === alphaSymbol.toLowerCase() ||
-        t === alphaName.toLowerCase()
+        t === alphaSymLow  ||
+        t === alphaNameLow
       )
       matches.push({
-        address:     b.address,
-        matchType:   isExplicit ? 'explicit' : 'keyword_overlap',
+        address:      b.address,
+        matchType:    isExplicit ? 'explicit' : 'keyword_overlap',
         matchedTerms: [...new Set(matchedTerms)],
       })
     }
@@ -2882,31 +2887,59 @@ const useBetas = (alpha, parentAlpha = null, options = {}) => {
       if (!isPro && canRunAI) bumpFreeAiCount()
 
       if (!canRunAI) {
-        // ── Pre-AI quality gate ───────────────────────────────────
-        // Without AI scoring, keyword/lore/description single-signal hits
-        // have no filter. Apply a structural quality gate before showing results:
+        // ── Pre-AI quality gate — Weighted Convergence ────────────
+        // Replaces binary 2-signal count with weighted scoring.
+        // keyword+lore (2+1=3) no longer passes the same as keyword+telegram (2+6=8).
         //
-        // A beta passes if ANY of these is true:
-        //   1. Has a structurally strong signal (lp_pair, og_match, morphology,
-        //      telegram_signal, desc_match) — these are anchored to alpha identity
-        //   2. Has 2+ distinct signals — convergence is itself evidence
+        // desc_match splits by matchType:
+        //   explicit (dev named the alpha in their own description) → 7
+        //   keyword_overlap (2+ shared narrative keywords)          → 3
         //
-        // Lone keyword / lore / description / pumpfun signals are held back.
-        // They're search-wide terms that return anything containing that word.
-        // Without AI there's nothing to confirm the relationship.
-        const STRONG_SIGNALS = new Set(['lp_pair','og_match','morphology','telegram_signal','twitter_signal','desc_match','sibling_stored'])
+        // Threshold: 6. Auto-pass: lp_pair or og_match (weight ≥ 10).
+        const SIGNAL_WEIGHTS = {
+          lp_pair:          10,
+          og_match:         10,
+          sibling_stored:    8,
+          telegram_signal:   6,
+          twitter_signal:    6,
+          // desc_match split by matchType — see below
+          visual_match:      4,
+          morphology:        4,
+          pumpfun:           2,
+          keyword:           2,
+          lore:              1,
+          description:       1,
+        }
+        const PREAI_THRESHOLD = 6
+
+        const getDescMatchWeight = (b) => {
+          if (!(b.signalSources || []).includes('desc_match')) return 0
+          return b.descMatchType === 'explicit' ? 7 : 3
+        }
 
         const gated = mergedWithVision.filter(b => {
           const srcs = new Set(b.signalSources || [])
+
+          // Auto-pass: on-chain structural proof
           if (srcs.has('lp_pair') || srcs.has('og_match')) return true
-          if ([...srcs].some(s => STRONG_SIGNALS.has(s))) return true
-          const meaningfulSrcs = [...srcs].filter(s => s !== 'sibling')
-          if (meaningfulSrcs.length >= 2) return true
-          console.log(`[PreAIGate] ⛔ Held $${b.symbol} — weak solo signal [${[...srcs].join(',')}] (no AI available)`)
+
+          // Sum weights across all signals present
+          let score = 0
+          for (const sig of srcs) {
+            if (sig === 'desc_match') {
+              score += getDescMatchWeight(b)
+            } else {
+              score += SIGNAL_WEIGHTS[sig] || 0
+            }
+          }
+
+          if (score >= PREAI_THRESHOLD) return true
+
+          console.log(`[PreAIGate] ⛔ Held $${b.symbol} — score ${score}/${PREAI_THRESHOLD} [${[...srcs].join(',')}]`)
           return false
         })
 
-        console.log(`[PreAIGate] ${mergedWithVision.length} candidates → ${gated.length} passed quality gate (AI unavailable)`)
+        console.log(`[PreAIGate] ${mergedWithVision.length} candidates → ${gated.length} passed (weighted convergence, threshold ${PREAI_THRESHOLD})`)
         finalList = gated
         if (!isStale()) setScanPhase('complete')
       } else try {
