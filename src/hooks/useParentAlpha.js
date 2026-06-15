@@ -213,6 +213,57 @@ const NAME_STOP = new Set([
   'will', 'just', 'play', 'game', 'coin', 'token', 'every',
 ])
 
+// ─── Infrastructure/stablecoin blocklist ─────────────────────────
+// These tokens should never be identified as a parent alpha.
+// They are base-layer infrastructure, not narrative runners.
+const PARENT_BLOCKLIST = new Set([
+  'So11111111111111111111111111111111111111112',   // SOL
+  'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v', // USDC
+  'Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB', // USDT
+  'mSoLzYCxHdYgdzU16g5QSh3i5K3z3KZK7ytfqcJm7So',  // mSOL
+  'bSo13r4TkiE4KumL71LsHTPpL2euBYLFx6h9HP3piy1',  // bSOL
+  'DezXAZ8z7PnrnRJjz3wXBoRgixCa6xjnB7YaB1pPB263', // BONK
+  'JUPyiwrYJFskUPiHa7hkeR8VUtAeFoSYbKedZNsDvCN',  // JUP
+  '4k3Dyjzvzp8eMZWUXbBCjEvwSkkk59S5iCNLY3QrkX6R', // RAY
+  'HZ1JovNiVvGrGNiiYvEozEVgZ58xaU3RKwX8eACQBCt3', // PYTH
+  'jtojtomepa8bdya7p3afruyv91fdfkdrjqhmpua3bef',   // JTO
+  'WENWENvqqNya429ubCdR81ZmD69brwQaaBYY6p3LCpk',   // WEN
+])
+
+// ─── Naming anchor check ──────────────────────────────────────────
+// Before scoring, candidate must share a naming element with the runner.
+// Uses extractRootCandidates first (strips BABY/MINI/etc prefixes and
+// COIN/INU/etc suffixes). Falls back to raw substring check.
+// Prevents pure ratio matches with zero naming relationship.
+const hasNamingAnchor = (runnerSymbol, candidateSymbol, candidateName) => {
+  const rSym  = runnerSymbol.toUpperCase()
+  const cSym  = candidateSymbol.toUpperCase()
+  const cName = (candidateName || '').toUpperCase()
+
+  // Direct substring either way
+  if (rSym.includes(cSym) && cSym.length >= 3) return true
+  if (cSym.includes(rSym) && rSym.length >= 3) return true
+
+  // Root candidates of the runner — strip BABY, MINI, INU etc
+  const runnerRoots = extractRootCandidates(rSym)
+  for (const root of runnerRoots) {
+    if (root.length < 3) continue
+    if (cSym === root) return true
+    if (cSym.includes(root)) return true
+    if (cName.split(/\s+/).some(w => w === root)) return true
+  }
+
+  // Root candidates of the candidate — catch $PEAKYCHU → $PIKACHU
+  const candidateRoots = extractRootCandidates(cSym)
+  for (const root of candidateRoots) {
+    if (root.length < 3) continue
+    if (rSym === root) return true
+    if (rSym.includes(root)) return true
+  }
+
+  return false
+}
+
 // ─── Main hook ───────────────────────────────────────────────────
 // Parent detection confidence tiers (score boosts):
 //
@@ -318,9 +369,22 @@ const useParentAlpha = (alpha, liveAlphas = []) => {
 
         pairs
           .filter(p => {
-            const cSym  = p.baseToken?.symbol?.toUpperCase() || ''
-            const cMcap = p.marketCap || p.fdv || 0
-            const cLiq  = p.liquidity?.usd || 0
+            const cSym     = p.baseToken?.symbol?.toUpperCase() || ''
+            const cAddr    = p.baseToken?.address || ''
+            const cMcap    = p.marketCap || p.fdv || 0
+            const cLiq     = p.liquidity?.usd || 0
+
+            // Never treat infrastructure/stablecoin tokens as parents
+            if (PARENT_BLOCKLIST.has(cAddr)) return false
+
+            // Naming anchor: runner and candidate must share a root word.
+            // Rejects pure ratio matches with zero naming relationship.
+            if (!hasNamingAnchor(symbol, cSym, p.baseToken?.name || '')) {
+              if (cLiq > 5_000) {
+                console.log(`[ParentFilter] ⛔ No naming anchor — $${symbol} vs $${cSym}`)
+              }
+              return false
+            }
 
             // ── Dynamic liquidity health check ────────────────────
             // A single fixed ratio fails at scale — 0.1% sounds fine but
@@ -429,11 +493,11 @@ const useParentAlpha = (alpha, liveAlphas = []) => {
       // We tokenise, strip stop words, and compare as sets.
       // Jaccard overlap of 0 with score < HIGH_CONFIDENCE_FLOOR → reject.
       //
-      // HIGH_CONFIDENCE_FLOOR (1.10): requires baseSim=1.0 + at least one
+      // HIGH_CONFIDENCE_FLOOR (1.30): requires baseSim=1.0 + meaningful boosts
       // non-zero boost (desc match, momentum, or mcap). Pure symbol-pattern
       // wins with no semantic evidence won't clear this bar.
 
-      const HIGH_CONFIDENCE_FLOOR = 1.10
+      const HIGH_CONFIDENCE_FLOOR = 1.30
 
       const tokenise = (str = '') =>
         str
