@@ -165,29 +165,29 @@ const LORE_MAP = {
   // ── Food narrative ──
   BURGER: { terms: ['burger','mcdonalds','bigmac','fries','wendys'], concepts: ['burger','food','fast-food'], category: 'food', universe: 'fast-food' },
   PIZZA:  { terms: ['pizza','pepperoni','dominos','slice'], concepts: ['pizza','food'], category: 'food', universe: 'food' },
-  RAMEN:  { terms: ['ramen','noodle','soup','anime','japan'], concepts: ['ramen','food','japan'], category: 'food', universe: 'food' },
+  RAMEN:  { terms: ['ramen','noodle','soup'], concepts: ['ramen','food','japan'], category: 'food', universe: 'food' },
 
   // ── Sports narrative ──
   RONALDO:{ terms: ['ronaldo','messi','soccer','football','cr7','siuuu'], concepts: ['ronaldo','soccer','sports'], category: 'sports', universe: 'soccer' },
-  MESSI:  { terms: ['messi','ronaldo','soccer','football','goat'], concepts: ['messi','soccer','sports'], category: 'sports', universe: 'soccer' },
+  MESSI:  { terms: ['messi','ronaldo','soccer','football'], concepts: ['messi','soccer','sports'], category: 'sports', universe: 'soccer' },
 
   // ── Meme formats ──
   WOJAK:  { terms: ['wojak','pepe','chad','npc','meme'], concepts: ['wojak','meme','feels'], category: 'memes', universe: 'wojak' },
-  CHAD:   { terms: ['chad','virgin','gigachad','sigma','alpha'], concepts: ['chad','meme','sigma'], category: 'memes', universe: 'chad' },
-  NPC:    { terms: ['npc','wojak','bot','sheep','normie'], concepts: ['npc','meme','social'], category: 'memes', universe: 'wojak' },
+  CHAD:   { terms: ['chad','virgin','gigachad','sigma'], concepts: ['chad','meme','sigma'], category: 'memes', universe: 'chad' },
+  NPC:    { terms: ['npc','wojak','normie'], concepts: ['npc','meme','social'], category: 'memes', universe: 'wojak' },
 
   // ── Toilet humor / gas / fart narrative ─────────────────────────
   // Massive degen category — any gas/fart/poop token triggers this universe
   FART:      { terms: ['fart','poop','burp','stink','flatulence','toot','methane','gas','toilet','skunk'], concepts: ['fart','gas','humor','toilet'], category: 'humor', universe: 'toilet-humor' },
   POOP:      { terms: ['poop','fart','burp','stink','toilet','shit','crap','dung','turd','brown'], concepts: ['poop','fart','humor','toilet'], category: 'humor', universe: 'toilet-humor' },
-  METHANE:   { terms: ['fart','cow','poop','burp','stink','beef','barn','flatulence','bovine','oxygen','gas'], concepts: ['methane','fart','cow','gas'], category: 'humor', universe: 'toilet-humor' },
-  GAS:       { terms: ['fart','fuel','petrol','gwei','fee','stink','smell','air','exhaust','nitro'], concepts: ['gas','fart','fuel','crypto'], category: 'humor', universe: 'gas-narrative' },
+  METHANE:   { terms: ['fart','cow','poop','burp','stink','beef','barn','flatulence','gas'], concepts: ['methane','fart','cow','gas'], category: 'humor', universe: 'toilet-humor' },
+  GAS:       { terms: ['fart','fuel','petrol','gwei','fee','stink','nitro'], concepts: ['gas','fart','fuel','crypto'], category: 'humor', universe: 'gas-narrative' },
   STINK:     { terms: ['stink','fart','smell','skunk','odor','poop','burp','rotten'], concepts: ['stink','fart','smell'], category: 'humor', universe: 'toilet-humor' },
 
   // ── Farm / livestock narrative ────────────────────────────────────
   COW:       { terms: ['cow','bull','beef','dairy','milk','barn','farm','cattle','bovine','moo','steak','udder','calf'], concepts: ['cow','farm','animal'], category: 'animals', universe: 'farm' },
   BULL:      { terms: ['bull','cow','beef','steak','horns','cattle','matador','bear','bison'], concepts: ['bull','farm','animal','finance'], category: 'animals', universe: 'farm' },
-  FARM:      { terms: ['farm','barn','cow','pig','chicken','sheep','horse','goat','rooster','tractor','harvest'], concepts: ['farm','animal','rural'], category: 'animals', universe: 'farm' },
+  FARM:      { terms: ['farm','barn','cow','pig','horse','goat','rooster','tractor'], concepts: ['farm','animal','rural'], category: 'animals', universe: 'farm' },
   PIG:       { terms: ['pig','pork','bacon','oink','ham','piggy','boar','swine','farm'], concepts: ['pig','farm','animal'], category: 'animals', universe: 'farm' },
 
   // ── Internet humor / emotion ─────────────────────────────────────
@@ -197,8 +197,8 @@ const LORE_MAP = {
   COPE:   { terms: ['cope','seethe','mald','cringe','ratio','skill','issue'], concepts: ['cope','internet','slang'], category: 'memes', universe: 'internet-slang' },
   SEETHE: { terms: ['seethe','cope','mald','cringe','rent','free'], concepts: ['seethe','cope','internet'], category: 'memes', universe: 'internet-slang' },
   GG:     { terms: ['gg','wp','ez','noob','rekt','frag','gg2ez'], concepts: ['gg','gaming','internet'], category: 'gaming', universe: 'gaming-slang' },
-  WAGMI:  { terms: ['wagmi','ngmi','gm','gn','wen','ser','fren','anon','degen'], concepts: ['wagmi','crypto','slang'], category: 'crypto', universe: 'crypto-slang' },
-  NGMI:   { terms: ['ngmi','wagmi','rekt','rug','dump','cope'], concepts: ['ngmi','crypto','slang'], category: 'crypto', universe: 'crypto-slang' },
+  WAGMI:  { terms: ['wagmi','ngmi','gm','gn','wen'], concepts: ['wagmi','crypto','slang'], category: 'crypto', universe: 'crypto-slang' },
+  NGMI:   { terms: ['ngmi','wagmi','rekt','rug','dump'], concepts: ['ngmi','crypto','slang'], category: 'crypto', universe: 'crypto-slang' },
 
   // ── Chinese cultural narrative ───────────────────────────────────
   // 摸鱼 (Moyu) = Chinese internet slang for "slacking off at work" — massive meme
@@ -241,12 +241,12 @@ const LORE_MAP = {
   // the carrier animal, the pharma response, the symptoms, the antagonists.
   // These lore entries surface those derivative tokens correctly.
   HANTA:    { terms: ['rat','mouse','rodent','deermouse','virus','hantavirus','fever','lung','outbreak','vaccine','pfizer','cdc','who','hazmat','biohazard','ratwif','ratcat','viruswif','mask'], concepts: ['hanta','virus','rodent','disease'], category: 'horror', universe: 'disease-narrative' },
-  VIRUS:    { terms: ['covid','plague','outbreak','pandemic','infected','pathogen','bacteria','germ','sick','disease','hanta','ebola','flu','contagion','vaccine','pfizer','moderna','cdc'], concepts: ['virus','disease','outbreak'], category: 'horror', universe: 'disease-narrative' },
+  VIRUS:    { terms: ['covid','plague','outbreak','pandemic','infected','pathogen','bacteria','germ','disease','hanta','ebola','flu','contagion','vaccine','pfizer','moderna','cdc'], concepts: ['virus','disease','outbreak'], category: 'horror', universe: 'disease-narrative' },
   PLAGUE:   { terms: ['blackdeath','rat','flea','medieval','death','skull','pandemic','epidemic','infected','pox','cholera','pestilence','biohazard'], concepts: ['plague','death','disease'], category: 'horror', universe: 'disease-narrative' },
   EBOLA:    { terms: ['virus','outbreak','africa','fever','hemorrhagic','infected','quarantine','biohazard','hazmat','cdc','who','vaccine'], concepts: ['ebola','virus','disease'], category: 'horror', universe: 'disease-narrative' },
   COVID:    { terms: ['corona','pandemic','vaccine','pfizer','moderna','astrazeneca','mrna','lockdown','mask','variant','delta','omicron','bat','wuhan','cdc','who'], concepts: ['covid','corona','pandemic'], category: 'horror', universe: 'disease-narrative' },
-  ZOMBIE:   { terms: ['undead','walker','dead','brain','apocalypse','infected','horde','shambler','ghoul','necro','rotten','corpse','revive'], concepts: ['zombie','undead','horror'], category: 'horror', universe: 'zombie-apocalypse' },
-  SKULL:    { terms: ['bones','death','dead','grim','reaper','crossbones','skeleton','undead','zombie','ghost','pirate','cursed'], concepts: ['skull','death','horror'], category: 'horror', universe: 'dark-narrative' },
+  ZOMBIE:   { terms: ['undead','walker','dead','brain','apocalypse','infected','horde','shambler','ghoul','necro','rotten','corpse'], concepts: ['zombie','undead','horror'], category: 'horror', universe: 'zombie-apocalypse' },
+  SKULL:    { terms: ['bones','death','dead','grim','reaper','crossbones','skeleton','undead','zombie','pirate','cursed'], concepts: ['skull','death','horror'], category: 'horror', universe: 'dark-narrative' },
   // Pharma / vaccine tokens that spawn from disease narratives
   PFIZER:   { terms: ['vaccine','mrna','moderna','astrazeneca','jab','shot','pharma','drug','antiviral','covid','hanta','virus','cdc','who','fauci'], concepts: ['pfizer','vaccine','pharma'], category: 'pharma', universe: 'disease-narrative' },
   VACCINE:  { terms: ['pfizer','moderna','jab','shot','mrna','antiviral','pharma','immunity','booster','cdc','fauci','mandate'], concepts: ['vaccine','pharma','jab'], category: 'pharma', universe: 'disease-narrative' },

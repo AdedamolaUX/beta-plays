@@ -1480,6 +1480,12 @@ const fetchDEXSearchBetas = async (alpha, descKeywords = [], extraTerms = [], vi
     try {
       const res  = await DEX_QUEUE.get(`${DEXSCREENER_BASE}/latest/dex/search?q=${encodeURIComponent(term)}`)
       const srcs = Array.from(termSources.get(term))
+      // V1 relevance filter: keyword/description terms must literally appear
+      // in the beta's symbol or name. Lore, visual, and counter terms are
+      // concept-based (not literal) — they bypass this check intentionally.
+      const isLiteralSourceOnly = srcs.every(s => s === 'keyword' || s === 'description')
+      const termLower = term.toLowerCase()
+
       const hits = (res.data?.pairs || [])
         .filter(p =>
           p.chainId === 'solana' &&
@@ -1487,7 +1493,11 @@ const fetchDEXSearchBetas = async (alpha, descKeywords = [], extraTerms = [], vi
           isHealthyBetaLiquidity(p) &&
           isActiveBeta(p) &&
           p.baseToken?.address !== alpha.address &&
-          !['SOL','USDC','USDT'].includes(p.baseToken?.symbol)
+          !['SOL','USDC','USDT'].includes(p.baseToken?.symbol) &&
+          (!isLiteralSourceOnly || (
+            p.baseToken?.symbol?.toLowerCase().includes(termLower) ||
+            p.baseToken?.name?.toLowerCase().includes(termLower)
+          ))
         )
       if (hits.length > 0) {
         console.log(`  [V1+V2] "${term}" [${srcs.join('+')}] → ${hits.length} hits: [${hits.slice(0,5).map(p => '$'+p.baseToken?.symbol).join(', ')}${hits.length > 5 ? '...' : ''}]`)
