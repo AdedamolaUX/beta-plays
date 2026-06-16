@@ -4989,8 +4989,19 @@ const BoostModal = ({ beta, alpha, authToken, authWallet, priceSol = 1, onClose,
 // ─── Beta Panel ──────────────────────────────────────────────────
 
 const BetaPanel = ({ alpha, liveAlphas, onListBeta, onOpenDrawer, onSwap, onScrollToAlpha, onCustomSearch, customAlphaLoading, customAlphaError, settings = {}, isAuthed, authToken, authWallet, onBoostSuccess, isPro = false, onUpgrade }) => {
-  const { parent, loading: parentLoading }               = useParentAlpha(alpha, liveAlphas)
-  const { betas, loading: betasLoading, error, scanPhase, refresh } = useBetas(alpha, parent, { metaSeedEnabled: settings.metaSeedEnabled ?? true, isPro })
+  const [resolvedDescription, setResolvedDescription_PA] = useState(null)
+  const { parent, loading: parentLoading }               = useParentAlpha(alpha, liveAlphas, resolvedDescription)
+  const { betas, loading: betasLoading, error, scanPhase, refresh, resolvedDescription: betasResolvedDesc } = useBetas(alpha, parent, { metaSeedEnabled: settings.metaSeedEnabled ?? true, isPro })
+
+  // Sync resolvedDescription from useBetas into local state for useParentAlpha.
+  // Reset on alpha change so stale descriptions don't bleed across tokens.
+  useEffect(() => {
+    setResolvedDescription_PA(null)
+  }, [alpha?.address])
+
+  useEffect(() => {
+    if (betasResolvedDesc) setResolvedDescription_PA(betasResolvedDesc)
+  }, [betasResolvedDesc])
   const { birdeye }                                       = useBirdeye(alpha?.address)
   const [trenchOnly,   setTrenchOnly]   = useState(false)
   const [mcapFilter,   setMcapFilter]   = useState('all')

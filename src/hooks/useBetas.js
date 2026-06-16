@@ -2061,10 +2061,11 @@ const bumpFreeAiCount = () => {
 
 const useBetas = (alpha, parentAlpha = null, options = {}) => {
   const { metaSeedEnabled = true, isPro = false } = options
-  const [betas,     setBetas]     = useState([])
-  const [loading,   setLoading]   = useState(false)
-  const [error,     setError]     = useState(null)
-  const [scanPhase, setScanPhase] = useState(null)
+  const [betas,               setBetas]               = useState([])
+  const [loading,             setLoading]             = useState(false)
+  const [error,               setError]               = useState(null)
+  const [scanPhase,           setScanPhase]           = useState(null)
+  const [resolvedDescription, setResolvedDescription] = useState(null)
   // scanPhase: null | 'expanding' | 'searching' | 'scoring' | 'complete'
   // Race condition guard — each fetch gets a unique ID.
   // ── Alpha address signature system ───────────────────────────────
@@ -2091,6 +2092,7 @@ const useBetas = (alpha, parentAlpha = null, options = {}) => {
       activeAlphaRef.current = newAddress
       setBetas([])
       setScanPhase(null)
+      setResolvedDescription(null)
       console.log(`[BetaPanel] Switched → ${newAddress ? `$${alpha.symbol}` : 'none'} — cleared`)
     }
   }, [alpha?.address])
@@ -2212,6 +2214,9 @@ const useBetas = (alpha, parentAlpha = null, options = {}) => {
       const enrichedAlpha = alphaDescription
         ? { ...alpha, description: alphaDescription }
         : alpha
+
+      // Expose resolved description so useParentAlpha can use it
+      if (alphaDescription) setResolvedDescription(alphaDescription)
 
       // ── Vector 0: AI concept expansion ───────────────────────────
       // Runs first — generates semantically targeted search terms.
@@ -3255,7 +3260,7 @@ const useBetas = (alpha, parentAlpha = null, options = {}) => {
     return () => clearInterval(interval)
   }, [alpha?.address, loading])
 
-  return { betas, loading, error, scanPhase, refresh: fetchBetas }
+  return { betas, loading, error, scanPhase, refresh: fetchBetas, resolvedDescription }
 }
 
 export default useBetas
