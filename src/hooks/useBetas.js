@@ -2251,6 +2251,34 @@ const useBetas = (alpha, parentAlpha = null, options = {}) => {
         )
         if (v0SearchTerms.length) console.log(`  [V0] search: [${v0SearchTerms.join(', ')}]`)
         if (v0VisualTerms.length) console.log(`  [V0] visual (vision only): [${v0VisualTerms.join(', ')}]`)
+
+        // ── V0 stale-cache fix ────────────────────────────────────
+        // If server cache was built when description was empty, it returns
+        // 0 search terms. Now that we have a resolved description, force
+        // a fresh expansion so the description informs term generation.
+        if (expansion.fromCache && v0SearchTerms.length === 0 && alphaDescription) {
+          console.log(`[Vector0] Stale cache (0 terms, desc now available) — forcing re-expansion for $${enrichedAlpha.symbol}`)
+          try {
+            const freshExpansion = await axios.post(`${BACKEND_URL}/api/expand-alpha`, {
+              address:      enrichedAlpha.address,
+              symbol:       enrichedAlpha.symbol,
+              name:         enrichedAlpha.name     || '',
+              description:  alphaDescription,
+              logoUrl:      enrichedAlpha.logoUrl  || null,
+              marketCap:    enrichedAlpha.marketCap || 0,
+              forceRefresh: true,
+            }, { timeout: 45000 })
+            const freshData = freshExpansion.data || {}
+            v0SearchTerms     = expandSearchTerms(freshData.searchTerms || [])
+            v0VisualTerms     = freshData.visualTerms    || []
+            v0VisualCounters  = freshData.visualCounters || []
+            relationshipHints = freshData.relationshipHints || {}
+            v0Category        = freshData.categories || []
+            console.log(`[Vector0] Re-expansion done → ${v0SearchTerms.length} search terms`)
+          } catch (reErr) {
+            console.warn('[Vector0] Re-expansion failed (non-fatal):', reErr.message)
+          }
+        }
       } catch (v0Err) {
         console.warn('[Vector0] Expansion failed (non-fatal — continuing without):', v0Err.message)
       }
