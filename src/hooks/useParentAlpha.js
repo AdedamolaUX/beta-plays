@@ -206,11 +206,28 @@ const formatParent = (pair) => ({
 
 // ─── Stop words ───────────────────────────────────────────────────
 const NAME_STOP = new Set([
+  // Derivative prefixes/suffixes — valid in symbol context but not as parent queries
   'the', 'a', 'an', 'of', 'dark', 'evil', 'mean', 'baby', 'mini',
   'based', 'super', 'real', 'og', 'little', 'big', 'bad', 'mad',
   'wild', 'holy', 'ghost', 'shadow', 'alter', 'turbo', 'chad',
   'fat', 'first', 'new', 'this', 'that', 'with', 'from', 'have',
   'will', 'just', 'play', 'game', 'coin', 'token', 'every',
+  // Common English verbs — appear in descriptions, never token names
+  'tired', 'needed', 'looking', 'meet', 'meets', 'came', 'come',
+  'runs', 'running', 'goes', 'going', 'gets', 'getting', 'make',
+  'makes', 'made', 'take', 'takes', 'took', 'said', 'says', 'know',
+  'knew', 'want', 'wanted', 'love', 'loved', 'hate', 'hated',
+  'find', 'found', 'look', 'looked', 'feel', 'feels', 'felt',
+  'call', 'calls', 'called', 'show', 'shows', 'showed',
+  // Common English nouns/adjectives — generic, not token-specific
+  'peace', 'hope', 'time', 'life', 'world', 'home', 'hand', 'away',
+  'long', 'good', 'great', 'best', 'only', 'even', 'back', 'down',
+  'over', 'also', 'into', 'than', 'then', 'when', 'your', 'they',
+  'them', 'their', 'were', 'been', 'being', 'more', 'some', 'very',
+  'here', 'there', 'which', 'after', 'before', 'about', 'between',
+  // Crypto/project generic terms
+  'pump', 'moon', 'gem', 'alpha', 'beta', 'degen', 'based', 'sent',
+  'community', 'ecosystem', 'protocol', 'platform', 'launch',
 ])
 
 // ─── Infrastructure/stablecoin blocklist ─────────────────────────
@@ -346,7 +363,7 @@ const useParentAlpha = (alpha, liveAlphas = [], resolvedDescription = null) => {
 
     // ── Step 3: Score boost per tier ──────────────────────────────
     const getBoost = (query) => {
-      if (descTickerQueries.has(query)) return 0.40
+      if (descTickerQueries.has(query)) return 0.55  // explicit $TICKER in description — highest confidence
       if (descWordQueries.has(query))   return 0.25
       if (nameQueries.has(query))       return 0.10
       return 0
