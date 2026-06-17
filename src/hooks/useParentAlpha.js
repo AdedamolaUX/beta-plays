@@ -283,7 +283,7 @@ const hasNamingAnchor = (runnerSymbol, candidateSymbol, candidateName) => {
 // active meta — regardless of TRUMP's larger mcap.
 // mcapBoost kept but demoted to tiebreaker (max +0.05).
 
-const useParentAlpha = (alpha, liveAlphas = [], resolvedDescription = null) => {
+const useParentAlpha = (alpha, liveAlphas = []) => {
   const [parent,  setParent]  = useState(null)
   const [loading, setLoading] = useState(false)
 
@@ -298,11 +298,8 @@ const useParentAlpha = (alpha, liveAlphas = [], resolvedDescription = null) => {
     // Build live address set inside callback — always fresh
     const liveAddressSet = new Set((liveAlphas || []).map(a => a.address).filter(Boolean))
 
-    // ── Step 1: Get description (use pre-resolved if available) ──
-    // resolvedDescription comes from useBetas which runs Birdeye + 3 fallbacks.
-    // This is more reliable than fetchDescription (DEXScreener-only).
-    const description = resolvedDescription || await fetchDescription(alpha)
-    if (resolvedDescription) console.log(`[ParentSearch] Using pre-resolved description for $${alpha.symbol}: "${resolvedDescription.slice(0, 60)}..."`)
+    // ── Step 1: Get description (fetch if missing) ────────────────
+    const description = await fetchDescription(alpha)
 
     // ── Step 2: Build tiered query sets ──────────────────────────
     const symbolQueries     = new Set(extractRootCandidates(symbol))
@@ -382,7 +379,10 @@ const useParentAlpha = (alpha, liveAlphas = [], resolvedDescription = null) => {
 
             // Naming anchor: runner and candidate must share a root word.
             // Rejects pure ratio matches with zero naming relationship.
-            if (!hasNamingAnchor(symbol, cSym, p.baseToken?.name || '')) {
+            // BYPASS: desc-sourced queries already have semantic justification
+            // — the description explicitly named this token. No symbol overlap needed.
+            const isDescSourced = descTickerQueries.has(q) || descWordQueries.has(q)
+            if (!isDescSourced && !hasNamingAnchor(symbol, cSym, p.baseToken?.name || '')) {
               if (cLiq > 5_000) {
                 console.log(`[ParentFilter] ⛔ No naming anchor — $${symbol} vs $${cSym}`)
               }
@@ -577,7 +577,7 @@ const useParentAlpha = (alpha, liveAlphas = [], resolvedDescription = null) => {
     } finally {
       setLoading(false)
     }
-  }, [alpha?.id, resolvedDescription])
+  }, [alpha?.id])
 
   useEffect(() => { findParent() }, [findParent])
 
