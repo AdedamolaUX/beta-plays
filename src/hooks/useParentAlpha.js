@@ -283,7 +283,7 @@ const hasNamingAnchor = (runnerSymbol, candidateSymbol, candidateName) => {
 // active meta — regardless of TRUMP's larger mcap.
 // mcapBoost kept but demoted to tiebreaker (max +0.05).
 
-const useParentAlpha = (alpha, liveAlphas = []) => {
+const useParentAlpha = (alpha, liveAlphas = [], resolvedDescription = null) => {
   const [parent,  setParent]  = useState(null)
   const [loading, setLoading] = useState(false)
 
@@ -298,8 +298,11 @@ const useParentAlpha = (alpha, liveAlphas = []) => {
     // Build live address set inside callback — always fresh
     const liveAddressSet = new Set((liveAlphas || []).map(a => a.address).filter(Boolean))
 
-    // ── Step 1: Get description (fetch if missing) ────────────────
-    const description = await fetchDescription(alpha)
+    // ── Step 1: Get description (use pre-resolved if available) ──
+    // resolvedDescription comes from useBetas (Birdeye + 3 fallbacks) — more
+    // reliable than fetchDescription (DEXScreener-only).
+    const description = resolvedDescription || await fetchDescription(alpha)
+    if (resolvedDescription) console.log(`[ParentSearch] Using pre-resolved description for $${alpha.symbol}: "${resolvedDescription.slice(0, 60)}..."`)
 
     // ── Step 2: Build tiered query sets ──────────────────────────
     const symbolQueries     = new Set(extractRootCandidates(symbol))
@@ -577,7 +580,7 @@ const useParentAlpha = (alpha, liveAlphas = []) => {
     } finally {
       setLoading(false)
     }
-  }, [alpha?.id])
+  }, [alpha?.id, resolvedDescription])
 
   useEffect(() => { findParent() }, [findParent])
 
