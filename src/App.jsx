@@ -5094,6 +5094,11 @@ const BetaPanel = ({ alpha, liveAlphas, onListBeta, onOpenDrawer, onSwap, onScro
       const aLP = a.signalSources?.includes('lp_pair') ? 1 : 0
       const bLP = b.signalSources?.includes('lp_pair') ? 1 : 0
       if (bLP !== aLP) return bLP - aLP
+      // Deprioritise: 2+ not_beta flags AND 0 hits → sink to bottom of organic
+      const flags = getFlags()
+      const aDep = (flags[a.address]?.not_beta || 0) >= 2 ? 1 : 0
+      const bDep = (flags[b.address]?.not_beta || 0) >= 2 ? 1 : 0
+      if (bDep !== aDep) return aDep - bDep
       let aVal, bVal
       if (sortBy === 'mcap')        { aVal = a.marketCap  || 0; bVal = b.marketCap  || 0 }
       else if (sortBy === 'volume') { aVal = a.volume24h  || 0; bVal = b.volume24h  || 0 }
