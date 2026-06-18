@@ -2944,7 +2944,9 @@ const useBetas = (alpha, parentAlpha = null, options = {}) => {
           lore:              1,
           description:       1,
         }
-        const PREAI_THRESHOLD = 6
+        // Free users: threshold 4 (morphology or double-keyword passes; single weak signal blocked)
+        // Pro users never hit this gate — they go through AI scoring instead.
+        const PREAI_THRESHOLD = 4
 
         const getDescMatchWeight = (b) => {
           if (!(b.signalSources || []).includes('desc_match')) return 0
