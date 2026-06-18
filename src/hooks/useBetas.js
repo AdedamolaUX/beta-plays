@@ -1207,6 +1207,7 @@ export const getSignal = (beta) => {
 //   R1 = SPIN, unclassified
 
 const SIGNAL_TIER_MAP = {
+  direct_derivative: 5,
   lp_pair:     5,
   og_match:    4,  // exact same ticker — highest non-structural signal
   morphology:  4,
@@ -2803,7 +2804,63 @@ const useBetas = (alpha, parentAlpha = null, options = {}) => {
       }
 
       // Merge siblings into the list — they'll be sorted by change% like everything else
-      const mergedWithSiblings = [...merged, ...siblingResults]
+      // ── Direct Derivatives: reverse parent map lookup ─────────────
+      // When scanning alpha X, find all tokens whose confirmed parent IS X.
+      // These are guaranteed betas — the parent relationship was already
+      // validated when the child was scanned previously.
+      const mergedAddrsForDerivs = new Set(merged.map(b => b.address))
+      const derivChildAddrs = Object.entries(cachedParentMap)
+        .filter(([childAddr, parent]) =>
+          parent.address === enrichedAlpha.address &&
+          childAddr !== enrichedAlpha.address &&
+          !mergedAddrsForDerivs.has(childAddr)
+        )
+        .map(([childAddr]) => childAddr)
+
+      let directDerivResults = []
+      if (derivChildAddrs.length > 0) {
+        console.log(`[DirectDeriv] Found ${derivChildAddrs.length} child(ren) of $${enrichedAlpha.symbol} in parent map`)
+        try {
+          const res   = await DEX_QUEUE.get(`${DEXSCREENER_BASE}/latest/dex/tokens/${derivChildAddrs.join(',')}`)
+          const pairs = res.data?.pairs || []
+          const bestPair = {}
+          pairs
+            .filter(p => p.chainId === 'solana')
+            .forEach(p => {
+              const addr = p.baseToken?.address
+              if (!addr) return
+              const prev = bestPair[addr]
+              if (!prev || (p.volume?.h24 || 0) > (prev.volume?.h24 || 0)) bestPair[addr] = p
+            })
+          directDerivResults = derivChildAddrs
+            .map(addr => {
+              const pair = bestPair[addr]
+              if (!pair) return null
+              return {
+                address:        addr,
+                symbol:         pair.baseToken?.symbol || addr.slice(0, 8),
+                name:           pair.baseToken?.name   || '',
+                priceUsd:       pair.priceUsd,
+                priceChange24h: pair.priceChange?.h24 ?? 0,
+                volume24h:      pair.volume?.h24       || 0,
+                marketCap:      pair.marketCap || pair.fdv || 0,
+                liquidity:      pair.liquidity?.usd    || 0,
+                logoUrl:        pair.info?.imageUrl    || null,
+                dexUrl:         `https://dexscreener.com/solana/${addr}`,
+                signalSources:  ['direct_derivative'],
+                priceRefreshedAt: Date.now(),
+              }
+            })
+            .filter(Boolean)
+          directDerivResults.forEach(b =>
+            console.log(`[DirectDeriv] ✅ $${b.symbol} confirmed child of $${enrichedAlpha.symbol}`)
+          )
+        } catch (err) {
+          console.warn(`[DirectDeriv] DEX fetch failed (non-fatal):`, err.message)
+        }
+      }
+
+      const mergedWithSiblings = [...merged, ...siblingResults, ...directDerivResults]
         .sort((a, b) => {
           const aIsLP  = a.signalSources?.includes('lp_pair') ? 1 : 0
           const bIsLP  = b.signalSources?.includes('lp_pair') ? 1 : 0
@@ -2933,6 +2990,7 @@ const useBetas = (alpha, parentAlpha = null, options = {}) => {
         const SIGNAL_WEIGHTS = {
           lp_pair:          10,
           og_match:         10,
+          direct_derivative: 10,
           sibling_stored:    8,
           telegram_signal:   6,
           twitter_signal:    6,
