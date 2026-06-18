@@ -11,6 +11,7 @@ import useNotifications from './hooks/useNotifications'
 import useParentAlpha from './hooks/useParentAlpha'
 import useNarrativeSzn from './hooks/useNarrativeSzn'
 import useBirdeye from './hooks/useBirdeye'
+import { recordHit, recordMiss } from './hooks/useBetaFeedback'
 import './index.css'
 
 const BACKEND_URL = import.meta.env.VITE_BACKEND_URL || 'http://localhost:3001'
@@ -2124,6 +2125,7 @@ const AlphaBoard = ({ selectedAlpha, onSelect, onNewRunners, onLiveAlphas, onSzn
       const next = isWatched
         ? prev.filter(a => a.address !== alpha.address)
         : [{ ...alpha, watchedAt: Date.now() }, ...prev]
+      if (!isWatched) recordHit(alpha.address)
       saveWatchlistRaw(next)
       // Sync to Supabase if authed
       if (isAuthed && authToken) {
@@ -2441,7 +2443,42 @@ const AlphaBoard = ({ selectedAlpha, onSelect, onNewRunners, onLiveAlphas, onSzn
 
   const isEmpty = !loading && displayList.length === 0
 
+  // History tab removed — use Past Runners tab instead
 
+  useEffect(() => {
+    const liveSet = new Set(liveAlphas.map(a => a.address))
+
+    const fetchHistory = async () => {
+      try {
+        const res = await fetch(`${BACKEND_URL}/api/history?days=7`)
+        if (!res.ok) throw new Error('history api failed')
+        const { tokens } = await res.json()
+        if (Array.isArray(tokens) && tokens.length > 0) {
+          const filtered = tokens
+            .filter(a => a && a.symbol && a.address && !liveSet.has(a.address))
+            .sort((a, b) => new Date(b.lastSeen || 0) - new Date(a.lastSeen || 0))
+            .slice(0, 50)
+          setHistoryAlphas(filtered)
+          return
+        }
+      } catch { /* fall through to localStorage */ }
+
+      // Fallback: localStorage (works offline, pre-DB data)
+      try {
+        const seen = JSON.parse(localStorage.getItem('betaplays_seen_alphas') || '{}')
+        const cutoff = Date.now() - 7 * 24 * 60 * 60 * 1000
+        const filtered = Object.values(seen)
+          .filter(a => a && typeof a === 'object' && a.symbol && a.address &&
+            !liveSet.has(a.address) &&
+            ((a.lastSeen && a.lastSeen > cutoff) || (a.timestamp && a.timestamp > cutoff)))
+          .sort((a, b) => (b.lastSeen || b.timestamp || 0) - (a.lastSeen || a.timestamp || 0))
+          .slice(0, 50)
+        setHistoryAlphas(filtered)
+      } catch { setHistoryAlphas([]) }
+    }
+
+    fetchHistory()
+  }, [liveAlphas])
 
   // ── Past Runners tab — historical alpha runners with beta performance ──
   const [pastRunners,        setPastRunners]        = useState([])
@@ -5500,6 +5537,7 @@ const FlagButton = ({ address, symbol }) => {
     setVoted(true)
     setVotedType(flagType)
     setOpen(false)
+    if (flagType === 'not_beta') recordMiss(address)
   }
 
   const total = counts
@@ -5884,6 +5922,7 @@ const TokenDrawer = ({ token, alpha, onClose, onSwap }) => {
             }}
             onMouseEnter={e => e.currentTarget.style.background = 'rgba(0,212,255,0.1)'}
             onMouseLeave={e => e.currentTarget.style.background = 'none'}
+            onClick={() => { if (label === 'DEXScreener') recordHit(token.address) }}
             >{label} ↗</a>
           ))}
           <a

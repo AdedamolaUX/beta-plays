@@ -3,6 +3,7 @@ import axios from 'axios'
 import { getSearchTerms, getConcepts, generateTickerVariants, NARRATIVE_CATEGORIES, areCategoriesCompatible, inferCategoryFromTerms } from '../data/lore_map'
 import classifyRelationships from './useAIBetaScoring'
 import { compareLogos, shouldRunVision } from './useImageAnalysis'
+import { isDeprioritised } from './useBetaFeedback'
 
 const DEXSCREENER_BASE = 'https://api.dexscreener.com'
 const BACKEND_URL      = import.meta.env.VITE_BACKEND_URL || 'http://localhost:3001'
@@ -3076,6 +3077,9 @@ const useBetas = (alpha, parentAlpha = null, options = {}) => {
             const aIsLP = a.signalSources?.includes('lp_pair') ? 1 : 0
             const bIsLP = b.signalSources?.includes('lp_pair') ? 1 : 0
             if (bIsLP !== aIsLP) return bIsLP - aIsLP
+            const aDep = isDeprioritised(a.address) ? 1 : 0
+            const bDep = isDeprioritised(b.address) ? 1 : 0
+            if (bDep !== aDep) return aDep - bDep
             return b.betaRank - a.betaRank
           })
           .slice(0, 40)
