@@ -456,6 +456,8 @@ ANALYSIS (work through each step):
    CONCEPT_EMOTION  — abstract feeling, internet reaction, philosophical concept
    CT_SLANG         — degen slang, CT-native term, crypto culture reference
    OTHER            — everything else
+   If no description is available, classify from symbol and name alone — a recognisable
+   person name (e.g. "Neymar", "Trump", "Messi") is sufficient for PERSON_* classification.
    State your classification before proceeding. This determines which expansion steps apply.
 
 1. SYMBOL: Synonyms, antonyms, word family, semantic cluster of the raw ticker word.
@@ -591,7 +593,7 @@ ALSO VERIFY before outputting:
    "things" or "crypto" or "misc" are too vague — always drill down.
 
 Respond ONLY with valid JSON, no markdown:
-{"searchTerms":["term1","term2"],"relationshipHints":{"term1":"TWIN","term2":"COUNTER"},"category":"space"}`
+{"universe":"PERSON_ATHLETE","searchTerms":["term1","term2"],"relationshipHints":{"term1":"TWIN","term2":"COUNTER"},"category":"football"}`
 }
 
 // Vector 0B: Image expansion via Groq vision (called when Gemini quota exhausted)
@@ -1009,6 +1011,7 @@ const expandTokenToCache = async (token) => {
   }
 
   if (textResult) {
+    console.log(`[Vector0] $${token.symbol} universe: ${textResult.universe || 'unclassified'} → ${(textResult.searchTerms||[]).length} search terms: [${(textResult.searchTerms||[]).slice(0,8).join(', ')}]`)
     const cacheData = {
       searchTerms:       textResult.searchTerms       || [],
       relationshipHints: textResult.relationshipHints || {},
