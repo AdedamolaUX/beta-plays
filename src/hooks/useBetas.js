@@ -200,7 +200,7 @@ const fetchAlphaExpansion = async (alpha, { skipVision = false } = {}) => {
   // If server returned a cached result but we suspect the prompt has been updated
   // (indicated by a PROMPT_VERSION mismatch), force a fresh expansion.
   // This prevents stale cached expansions from bleeding old terms after prompt fixes.
-  const PROMPT_VERSION = 'v7'  // Bump this whenever the expansion prompt changes
+  const PROMPT_VERSION = 'v8'  // Bump this whenever the expansion prompt changes
   const data = res.data || {}
   if (data.fromCache && data.promptVersion && data.promptVersion !== PROMPT_VERSION) {
     console.log(`[Vector0] Prompt version mismatch for $${alpha.symbol} — forcing refresh`)

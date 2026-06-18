@@ -186,35 +186,33 @@ RELATIONSHIP TYPES — pick the best fit:
   SPIN      = loose or weak derivative — include if score ≥ 0.45, exclude below
 
 For each candidate:
-1. Read the description carefully — it often reveals the exact narrative intent
-   ("the laughter token" for $LOL confirms TWIN for other emotion/humor tokens)
+1. GROUND TRUTH — before scoring, state in one line what this candidate token actually is.
+   Use the description first. If no description, infer from name and symbol.
+   If you cannot identify what it is, assign REJECT immediately.
 
-2. Apply the 60-SECOND APE TEST before scoring:
+2. Apply the 60-SECOND APE TEST:
    Would a degen scrolling CT right now, seeing the alpha pump, IMMEDIATELY think
    of this candidate and ape it without needing to research the connection?
-   - YES, instantly obvious → 0.8–1.0
-   - YES, after a second of thought → 0.6–0.79
-   - MAYBE, only if they know the lore deeply → 0.45–0.59 (SPIN)
-   - NO, they would not connect these → 0.0–0.44 (reject)
+
+3. Assign a TIER — pick exactly one:
+   STRONG    — CT connects this instantly. Obvious to any degen. No research needed.
+               (Score mapped to 0.80)
+   PLAUSIBLE — Clear link but requires knowing the lore. Weaker play.
+               (Score mapped to 0.52, relationshipType becomes SPIN unless already classified)
+   REJECT    — CT would not connect these when the alpha pumps.
+               (Score mapped to 0.10)
+   If a VISUAL SIGNAL is present: REJECT → PLAUSIBLE, PLAUSIBLE → STRONG.
 
    KEY DISTINCTION — quality over connection:
-   A token can be narratively connected but NOT a quality beta.
-   "Both are meme tokens on Solana" = connected but NOT a beta (0.1).
-   "This is the rat token and the alpha is a virus token — rats carry viruses" = quality beta (0.8).
-   Score for DEGEN URGENCY, not academic correctness.
+   "Both are meme tokens on Solana" = REJECT.
+   "Rats carry viruses — rat token when virus alpha pumps" = STRONG.
+   Judge DEGEN URGENCY, not academic correctness.
 
-3. Score 0.0–1.0:
-   0.8–1.0  Instant — CT would ape this immediately, connection is obvious to any degen
-   0.6–0.79 Strong — clear thematic link, degen would notice within seconds
-   0.45–0.59 Plausible — same space, weaker link, include as SPIN
-   0.0–0.44 Reject — CT would not connect these when the alpha pumps
-   If a VISUAL SIGNAL is present, raise score by +0.2 (STRONG) or +0.1 (MODERATE)
-
-4. One-sentence reason — write it like a degen explaining to a friend why they're aping:
+4. One-sentence reason — degen voice, must reference your ground truth from step 1.
+   If description confirmed the connection, cite it explicitly.
    BAD: "Meme concept alignment with similar thematic elements"
-   GOOD: "Rats carry hantavirus — $RAT is the obvious play when $HANTA pumps"
+   GOOD: "Rats carry hantavirus — obvious play when the virus alpha pumps"
    GOOD: "Wojak is Pepe's eternal counterpart — always runs when Pepe runs"
-   GOOD: "Same Naruto universe — Sakura always follows Sasuke on CT"
 
 CT NAMING PATTERN AWARENESS:
 Degens construct token names by combining narrative elements with CT suffixes/prefixes.
@@ -281,7 +279,7 @@ Alpha = $SASUKE (Naruto anime):
   $NINJA → 0.55 SECTOR — related theme but not specifically Naruto
 
 Respond ONLY with a JSON array, no markdown:
-[{"index":0,"score":0.92,"relationshipType":"TWIN","reason":"LMAO is the direct escalation of LOL — same humor/laughter narrative"},{"index":1,"score":0.1,"relationshipType":"UNRELATED","reason":"Internet slang token, alpha is a character token — cross-universe, no connection"}]`
+[{"index":0,"tier":"STRONG","relationshipType":"TWIN","reason":"LMAO is the direct escalation of LOL — same humor/laughter narrative"},{"index":1,"tier":"REJECT","relationshipType":"UNRELATED","reason":"Internet slang token, alpha is a character token — cross-universe, no connection"}]`
 }
 
 // ─── Call backend /api/score-betas ───────────────────────────────
@@ -332,6 +330,9 @@ const processBatch = async (alpha, batch, batchNum, relationshipHints) => {
     return false
   }
 
+  // Map tier labels from prompt to fixed scores
+  const TIER_SCORES = { STRONG: 0.80, PLAUSIBLE: 0.52, REJECT: 0.10 }
+
   const classified      = []
   const rejectedInBatch = []
 
@@ -340,17 +341,19 @@ const processBatch = async (alpha, batch, batchNum, relationshipHints) => {
   results.forEach(r => {
     const candidate = batch[r.index]
     if (!candidate) return
-    const pass = r.score >= MIN_SCORE && !isHallucination(r.reason)
-    if (!pass && r.score >= MIN_SCORE) {
+    // Support both new tier format and legacy score format
+    const score = r.tier ? (TIER_SCORES[r.tier] ?? 0.10) : (r.score ?? 0.10)
+    const pass = score >= MIN_SCORE && !isHallucination(r.reason)
+    if (!pass && score >= MIN_SCORE) {
       console.log(`  🚫 $${candidate.symbol} — blocked hallucination: "${r.reason}"`)
     }
     console.log(
-      `  ${pass ? '✅' : '❌'} $${candidate.symbol} — score: ${r.score} | type: ${r.relationshipType} | ${r.reason}`
+      `  ${pass ? '✅' : '❌'} $${candidate.symbol} — tier: ${r.tier || 'legacy'} score: ${score} | type: ${r.relationshipType} | ${r.reason}`
     )
     if (pass) {
       classified.push({
         ...candidate,
-        aiScore:          r.score,
+        aiScore:          score,
         relationshipType: r.relationshipType || 'SPIN',
         aiReason:         r.reason,
         signalSources:    [...(candidate.signalSources || []), 'ai_match'],

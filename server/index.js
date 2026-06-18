@@ -444,6 +444,20 @@ All terms must come from THIS token only. Examples below show reasoning style on
 
 ANALYSIS (work through each step):
 
+0. CLASSIFY UNIVERSE — read symbol + name + description, assign the single best-fit universe.
+   If two clearly apply (e.g. a politician who is also a CT meme), assign both.
+   Universes:
+   PERSON_ATHLETE   — real sportsperson (footballer, basketball player, athlete)
+   PERSON_POLITICAL — politician, president, world leader
+   PERSON_CELEBRITY — musician, actor, influencer, internet personality
+   ANIME_CHARACTER  — character from a specific anime or manga series
+   ANIMAL           — real or meme animal
+   DISEASE_THREAT   — virus, bacteria, medical condition, biological threat
+   CONCEPT_EMOTION  — abstract feeling, internet reaction, philosophical concept
+   CT_SLANG         — degen slang, CT-native term, crypto culture reference
+   OTHER            — everything else
+   State your classification before proceeding. This determines which expansion steps apply.
+
 1. SYMBOL: Synonyms, antonyms, word family, semantic cluster of the raw ticker word.
    If it belongs to a set (colors, emotions, directions, quantities) — complete the entire set.
 
@@ -484,7 +498,19 @@ ANALYSIS (work through each step):
    What competing tokens or rival concepts exist in the same space?
    (zen → tao, buddha, monk as SECTOR rivals / ape → bayc, bored as UNIVERSE)
 
-7b. DISEASE / HORROR / THREAT EXPANSION — if the token references a disease, virus,
+7b. PERSON / ATHLETE / CELEBRITY EXPANSION — if the token references a real or fictional person
+    (athlete, politician, musician, actor, anime character, historical figure):
+    A. TEAMMATES / ALLIES: Who plays alongside, works with, or is associated with this person?
+       Search their team, squad, band, crew, or political party members.
+    B. RIVALS / OPPONENTS: Who is their famous rival, enemy, or counterpart?
+       These are COUNTER tokens — they run because this person runs.
+    C. CLUBS / TEAMS / ORGANISATIONS: What teams, clubs, or organisations are they famous for?
+    D. COUNTRY / NATIONALITY: What country or region do they represent?
+    E. SIGNATURE TRAITS: What are they famous for? Skills, nicknames, controversies, moments.
+    F. FAMILY / RELATIONSHIPS: Famous family members, partners, mentors, disciples.
+    Mark rivals as COUNTER, teammates/clubs/country as UNIVERSE or ECHO, traits as TWIN.
+
+7c. DISEASE / HORROR / THREAT EXPANSION — if the token references a disease, virus,
     biological threat, horror concept, or real-world danger event:
     A. CARRIERS & VECTORS: What animals or organisms carry/spread this?
        (hantavirus → rat, mouse, rodent, deer mouse / rabies → bat, dog, wolf)
@@ -988,7 +1014,7 @@ const expandTokenToCache = async (token) => {
       relationshipHints: textResult.relationshipHints || {},
       detectedCategory:  textResult.category          || null,
       visualTerms: [], visualCounters: [], visualHints: {}, mood: null,
-      promptVersion: 'v7',
+      promptVersion: 'v8',
     }
     expansionCache.set(token.address, { data: cacheData, timestamp: Date.now(), mcap: token.marketCap || 0 })
     // Persist to Supabase — survives server restarts (6h TTL matches in-memory TTL)
