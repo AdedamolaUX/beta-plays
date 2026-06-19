@@ -3,7 +3,6 @@ import axios from 'axios'
 import { getSearchTerms, getConcepts, generateTickerVariants, NARRATIVE_CATEGORIES, areCategoriesCompatible, inferCategoryFromTerms } from '../data/lore_map'
 import classifyRelationships from './useAIBetaScoring'
 import { compareLogos, shouldRunVision } from './useImageAnalysis'
-import { extractRootCandidates } from './useParentAlpha'
 
 
 const DEXSCREENER_BASE = 'https://api.dexscreener.com'
@@ -2833,42 +2832,14 @@ const useBetas = (alpha, parentAlpha = null, options = {}) => {
               const prev = bestPair[addr]
               if (!prev || (p.volume?.h24 || 0) > (prev.volume?.h24 || 0)) bestPair[addr] = p
             })
-          const parentSym  = enrichedAlpha.symbol.toUpperCase()
-          const parentRoots = extractRootCandidates(parentSym)
-
-          // Scan-time anchor check: validates root/unknown sourceType entries.
-          // Desc-sourced entries trusted unconditionally — relationship was
-          // confirmed via description match, not naming overlap.
-          const passesAnchor = (sourceType, childSym, childName) => {
-            if (sourceType === 'desc') return true
-            const cSym  = (childSym  || '').toUpperCase()
-            const cName = (childName || '').toUpperCase()
-            if (cSym.includes(parentSym)  && parentSym.length >= 3) return true
-            if (parentSym.includes(cSym)  && cSym.length    >= 3) return true
-            for (const root of parentRoots) {
-              if (root.length < 3) continue
-              if (cSym.includes(root)) return true
-              if (cName.split(/\s+/).some(w => w.toUpperCase() === root)) return true
-            }
-            if (cName.includes(parentSym) && parentSym.length >= 3) return true
-            return false
-          }
-
           directDerivResults = derivChildAddrs
             .map(addr => {
               const pair = bestPair[addr]
               if (!pair) return null
-              const childSym    = pair.baseToken?.symbol || ''
-              const childName   = pair.baseToken?.name   || ''
-              const sourceType  = cachedParentMap[addr]?.sourceType || 'root'
-              if (!passesAnchor(sourceType, childSym, childName)) {
-                console.log(`[DirectDeriv] ⚠️ $${childSym} filtered — no anchor with $${enrichedAlpha.symbol} (sourceType: ${sourceType})`)
-                return null
-              }
               return {
                 address:        addr,
-                symbol:         childSym || addr.slice(0, 8),
-                name:           childName,
+                symbol:         pair.baseToken?.symbol || addr.slice(0, 8),
+                name:           pair.baseToken?.name   || '',
                 priceUsd:       pair.priceUsd,
                 priceChange24h: pair.priceChange?.h24 ?? 0,
                 volume24h:      pair.volume?.h24       || 0,

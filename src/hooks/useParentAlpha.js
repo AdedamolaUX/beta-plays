@@ -6,7 +6,7 @@ const STORAGE_KEY      = 'betaplays_seen_alphas'
 const BACKEND_URL      = import.meta.env.VITE_BACKEND_URL || 'http://localhost:3001'
 
 // ─── Save parent to localStorage + Supabase ──────────────────────
-const saveParentToHistory = (parent, derivative, isDescSourced = false) => {
+const saveParentToHistory = (parent, derivative) => {
   try {
     // Keep localStorage write — fast local session cache
     const existing = JSON.parse(localStorage.getItem(STORAGE_KEY) || '{}')
@@ -20,7 +20,7 @@ const saveParentToHistory = (parent, derivative, isDescSourced = false) => {
     localStorage.setItem(STORAGE_KEY, JSON.stringify(existing))
 
     const parentMap = JSON.parse(localStorage.getItem('betaplays_parent_map') || '{}')
-    parentMap[derivative.address] = { symbol: parent.symbol, address: parent.address, sourceType: isDescSourced ? 'desc' : 'root' }
+    parentMap[derivative.address] = { symbol: parent.symbol, address: parent.address }
     localStorage.setItem('betaplays_parent_map', JSON.stringify(parentMap))
 
     const change = parseFloat(parent.priceChange24h) || 0
@@ -341,28 +341,6 @@ const useParentAlpha = (alpha, liveAlphas = [], resolvedDescription = null) => {
       const tickerMatches = description.match(/\$([A-Za-z]{2,12})/g) || []
       tickerMatches.forEach(t => descTickerQueries.add(t.replace('$', '').toUpperCase()))
 
-      // Tier 1b: capitalised proper nouns in description — treated as ticker queries.
-      // Catches token names like "Jotchua" that appear in descriptions without a $
-      // prefix. Only words capitalised mid-sentence (not after . or sentence-start)
-      // or ANY capitalised word that passes NAME_STOP — conservative but catches
-      // genuine token names reliably.
-      // "Jotchua was tired of looking at you" → JOTCHUA → descTickerQueries
-      const COMMON_SENTENCE_STARTERS = new Set([
-        'the','this','that','these','those','he','she','it','they','we',
-        'his','her','its','our','their','what','when','where','who','how',
-        'all','both','each','some','any','few','more','most','other','such',
-      ])
-      const properNouns = description.match(/\b([A-Z][a-z]{2,}[a-zA-Z0-9]*)\b/g) || []
-      properNouns
-        .map(w => w.toUpperCase())
-        .filter(w =>
-          w.length >= 4 &&
-          !NAME_STOP.has(w.toLowerCase()) &&
-          !COMMON_SENTENCE_STARTERS.has(w.toLowerCase())
-        )
-        .slice(0, 5)
-        .forEach(w => descTickerQueries.add(w))
-
       // Tier 2: meaningful nouns from description
       // min length 4 catches tokens like "gork", "frog", "pepe" etc.
       description
@@ -400,9 +378,8 @@ const useParentAlpha = (alpha, liveAlphas = [], resolvedDescription = null) => {
         )
       )
 
-      let bestMatch  = null
-      let bestScore  = 0
-      let bestIsDesc = false
+      let bestMatch = null
+      let bestScore = 0
 
       searches.forEach((result) => {
         if (result.status !== 'fulfilled') return
@@ -517,9 +494,8 @@ const useParentAlpha = (alpha, liveAlphas = [], resolvedDescription = null) => {
             const totalScore     = baseSim + boost + momentumBoost + mcapTiebreaker
 
             if (baseSim >= minBase && totalScore > bestScore) {
-              bestScore  = totalScore
-              bestMatch  = p
-              bestIsDesc = isDescSourced
+              bestScore = totalScore
+              bestMatch = p
               console.log(
                 `[ParentSearch] Candidate $${cSym}: baseSim=${baseSim.toFixed(2)} ` +
                 `descBoost=${boost} momentum=${momentumBoost} isLive=${isLiveNow} ` +
@@ -613,7 +589,7 @@ const useParentAlpha = (alpha, liveAlphas = [], resolvedDescription = null) => {
         `${foundParent ? '$' + foundParent.symbol : 'none'} (score ${bestScore.toFixed(2)})`
       )
       setParent(foundParent)
-      if (foundParent) saveParentToHistory(foundParent, alpha, bestIsDesc)
+      if (foundParent) saveParentToHistory(foundParent, alpha)
 
     } catch (err) {
       console.warn('Parent alpha lookup failed:', err.message)
