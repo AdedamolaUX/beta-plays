@@ -341,6 +341,28 @@ const useParentAlpha = (alpha, liveAlphas = [], resolvedDescription = null) => {
       const tickerMatches = description.match(/\$([A-Za-z]{2,12})/g) || []
       tickerMatches.forEach(t => descTickerQueries.add(t.replace('$', '').toUpperCase()))
 
+      // Tier 1b: capitalised proper nouns in description — treated as ticker queries.
+      // Catches token names like "Jotchua" that appear in descriptions without a $
+      // prefix. Only words capitalised mid-sentence (not after . or sentence-start)
+      // or ANY capitalised word that passes NAME_STOP — conservative but catches
+      // genuine token names reliably.
+      // "Jotchua was tired of looking at you" → JOTCHUA → descTickerQueries
+      const COMMON_SENTENCE_STARTERS = new Set([
+        'the','this','that','these','those','he','she','it','they','we',
+        'his','her','its','our','their','what','when','where','who','how',
+        'all','both','each','some','any','few','more','most','other','such',
+      ])
+      const properNouns = description.match(/\b([A-Z][a-z]{2,}[a-zA-Z0-9]*)\b/g) || []
+      properNouns
+        .map(w => w.toUpperCase())
+        .filter(w =>
+          w.length >= 4 &&
+          !NAME_STOP.has(w.toLowerCase()) &&
+          !COMMON_SENTENCE_STARTERS.has(w.toLowerCase())
+        )
+        .slice(0, 5)
+        .forEach(w => descTickerQueries.add(w))
+
       // Tier 2: meaningful nouns from description
       // min length 4 catches tokens like "gork", "frog", "pepe" etc.
       description
