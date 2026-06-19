@@ -2155,48 +2155,6 @@ const useBetas = (alpha, parentAlpha = null, options = {}) => {
       try { cachedParentMap = JSON.parse(localStorage.getItem('betaplays_parent_map') || '{}') } catch {}
     }
 
-    // ── Parent map scrub: A + C ──────────────────────────────────────
-    // A) Symbol-only naming anchor — evict root/unknown entries where child
-    //    address has zero naming relationship with the stored parent symbol.
-    //    Catches false positives written by earlier useParentAlpha runs.
-    // C) TTL — evict entries older than 30 days with no sourceType (legacy).
-    //    New entries carry savedAt; old ones age out naturally.
-    let scrubCount = 0
-    const scrubbed = Object.fromEntries(
-      Object.entries(cachedParentMap).filter(([childAddr, entry]) => {
-        const sourceType = entry.sourceType || 'root'
-        // C: evict legacy entries with no metadata at all — written before
-        // provenance tracking. These are suspect; new valid relationships
-        // will be re-discovered naturally on next scan of the child token.
-        // Entries with savedAt are kept regardless of age — parent-child
-        // relationships are permanent.
-        if (!entry.savedAt && !entry.sourceType) {
-          scrubCount++
-          console.log(`[ParentMapScrub] Evicting legacy entry — no metadata (C): ${childAddr.slice(0, 8)}`)
-          return false
-        }
-        // A: skip naming anchor for desc-sourced — relationship justified by description
-        if (sourceType === 'desc') return true
-        // A: run naming anchor using stored childSymbol (present on new entries).
-        // Legacy entries without childSymbol fall through — directDerivPassesAnchor
-        // catches them at scan time with full DEX data.
-        if (entry.childSymbol) {
-          const passes = directDerivPassesAnchorStatic(entry.symbol, entry.childSymbol)
-          if (!passes) {
-            scrubCount++
-            console.log(`[ParentMapScrub] Evicting root entry — no anchor (A): $${entry.childSymbol} → $${entry.symbol}`)
-            return false
-          }
-        }
-        return true
-      })
-    )
-    if (scrubCount > 0) {
-      cachedParentMap = scrubbed
-      localStorage.setItem('betaplays_parent_map', JSON.stringify(scrubbed))
-      console.log(`[ParentMapScrub] Removed ${scrubCount} stale entr${scrubCount === 1 ? 'y' : 'ies'} from parent map`)
-    }
-
     // ── Preload stored betas for this address ─────────────────────
     // Two sources, Supabase-first:
     //   1. Supabase beta_relations — cross-device, shared across all users
