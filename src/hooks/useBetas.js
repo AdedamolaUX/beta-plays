@@ -3,6 +3,28 @@ import axios from 'axios'
 import { getSearchTerms, getConcepts, generateTickerVariants, NARRATIVE_CATEGORIES, areCategoriesCompatible, inferCategoryFromTerms } from '../data/lore_map'
 import classifyRelationships from './useAIBetaScoring'
 import { compareLogos, shouldRunVision } from './useImageAnalysis'
+import { extractRootCandidates } from './useParentAlpha'
+
+// Pure function — used by parent map scrub (startup) and direct derivative
+// scan-time check. Takes parent + child symbols only (no DEX name needed).
+const directDerivPassesAnchorStatic = (parentSym, childSym) => {
+  const pSym = (parentSym || '').toUpperCase()
+  const cSym = (childSym  || '').toUpperCase()
+  if (!pSym || !cSym) return false
+  if (cSym.includes(pSym) && pSym.length >= 3) return true
+  if (pSym.includes(cSym) && cSym.length >= 3) return true
+  const parentRoots = extractRootCandidates(pSym)
+  for (const root of parentRoots) {
+    if (root.length < 3) continue
+    if (cSym.includes(root)) return true
+  }
+  const childRoots = extractRootCandidates(cSym)
+  for (const root of childRoots) {
+    if (root.length < 3) continue
+    if (pSym.includes(root)) return true
+  }
+  return false
+}
 
 
 const DEXSCREENER_BASE = 'https://api.dexscreener.com'
@@ -2133,6 +2155,48 @@ const useBetas = (alpha, parentAlpha = null, options = {}) => {
       try { cachedParentMap = JSON.parse(localStorage.getItem('betaplays_parent_map') || '{}') } catch {}
     }
 
+    // ── Parent map scrub: A + C ──────────────────────────────────────
+    // A) Symbol-only naming anchor — evict root/unknown entries where child
+    //    address has zero naming relationship with the stored parent symbol.
+    //    Catches false positives written by earlier useParentAlpha runs.
+    // C) TTL — evict entries older than 30 days with no sourceType (legacy).
+    //    New entries carry savedAt; old ones age out naturally.
+    let scrubCount = 0
+    const scrubbed = Object.fromEntries(
+      Object.entries(cachedParentMap).filter(([childAddr, entry]) => {
+        const sourceType = entry.sourceType || 'root'
+        // C: evict legacy entries with no metadata at all — written before
+        // provenance tracking. These are suspect; new valid relationships
+        // will be re-discovered naturally on next scan of the child token.
+        // Entries with savedAt are kept regardless of age — parent-child
+        // relationships are permanent.
+        if (!entry.savedAt && !entry.sourceType) {
+          scrubCount++
+          console.log(`[ParentMapScrub] Evicting legacy entry — no metadata (C): ${childAddr.slice(0, 8)}`)
+          return false
+        }
+        // A: skip naming anchor for desc-sourced — relationship justified by description
+        if (sourceType === 'desc') return true
+        // A: run naming anchor using stored childSymbol (present on new entries).
+        // Legacy entries without childSymbol fall through — directDerivPassesAnchor
+        // catches them at scan time with full DEX data.
+        if (entry.childSymbol) {
+          const passes = directDerivPassesAnchorStatic(entry.symbol, entry.childSymbol)
+          if (!passes) {
+            scrubCount++
+            console.log(`[ParentMapScrub] Evicting root entry — no anchor (A): $${entry.childSymbol} → $${entry.symbol}`)
+            return false
+          }
+        }
+        return true
+      })
+    )
+    if (scrubCount > 0) {
+      cachedParentMap = scrubbed
+      localStorage.setItem('betaplays_parent_map', JSON.stringify(scrubbed))
+      console.log(`[ParentMapScrub] Removed ${scrubCount} stale entr${scrubCount === 1 ? 'y' : 'ies'} from parent map`)
+    }
+
     // ── Preload stored betas for this address ─────────────────────
     // Two sources, Supabase-first:
     //   1. Supabase beta_relations — cross-device, shared across all users
@@ -2809,13 +2873,17 @@ const useBetas = (alpha, parentAlpha = null, options = {}) => {
       // These are guaranteed betas — the parent relationship was already
       // validated when the child was scanned previously.
       const mergedAddrsForDerivs = new Set(merged.map(b => b.address))
-      const derivChildAddrs = Object.entries(cachedParentMap)
+      // Keep the full entry so we can read sourceType during re-validation
+      const derivChildren = Object.entries(cachedParentMap)
         .filter(([childAddr, parent]) =>
           parent.address === enrichedAlpha.address &&
           childAddr !== enrichedAlpha.address &&
           !mergedAddrsForDerivs.has(childAddr)
         )
-        .map(([childAddr]) => childAddr)
+      const derivChildAddrs    = derivChildren.map(([addr]) => addr)
+      const derivChildSourceMap = Object.fromEntries(
+        derivChildren.map(([addr, parent]) => [addr, parent.sourceType || 'root'])
+      )
 
       let directDerivResults = []
       if (derivChildAddrs.length > 0) {
@@ -2832,14 +2900,46 @@ const useBetas = (alpha, parentAlpha = null, options = {}) => {
               const prev = bestPair[addr]
               if (!prev || (p.volume?.h24 || 0) > (prev.volume?.h24 || 0)) bestPair[addr] = p
             })
+          // Naming anchor re-validation: child symbol/name must share a root
+          // with the parent symbol. Catches stale false-positive map entries
+          // (e.g. $stockcoin → $Jotchua) written by useParentAlpha previously.
+          // Desc-sourced entries (e.g. $Gaejuki → $Jotchua via description) may
+          // not share a symbol root — allowed through if child's DEX name contains
+          // the parent symbol as a substring.
+          const parentSym = enrichedAlpha.symbol.toUpperCase()
+          const parentRoots = extractRootCandidates(parentSym)
+
+          const directDerivPassesAnchor = (childSym, childName) => {
+            // Symbol-level check via shared static function
+            if (directDerivPassesAnchorStatic(parentSym, childSym)) return true
+            // Extra: parent symbol appears anywhere in child's full DEX name
+            const cName = (childName || '').toUpperCase()
+            if (cName.includes(parentSym) && parentSym.length >= 3) return true
+            for (const root of parentRoots) {
+              if (root.length < 3) continue
+              if (cName.split(/\s+/).some(w => w === root)) return true
+            }
+            return false
+          }
+
           directDerivResults = derivChildAddrs
             .map(addr => {
               const pair = bestPair[addr]
               if (!pair) return null
+              const childSym  = pair.baseToken?.symbol || ''
+              const childName = pair.baseToken?.name   || ''
+              const childSourceType = derivChildSourceMap[addr] || 'root'
+              if (childSourceType !== 'desc' && !directDerivPassesAnchor(childSym, childName)) {
+                console.log(`[DirectDeriv] ⚠️ Filtered $${childSym} — no naming anchor with $${enrichedAlpha.symbol} (stale map entry)`)
+                return null
+              }
+              if (childSourceType === 'desc') {
+                console.log(`[DirectDeriv] ✓ $${childSym} — desc-sourced relationship, skipping naming anchor`)
+              }
               return {
                 address:        addr,
-                symbol:         pair.baseToken?.symbol || addr.slice(0, 8),
-                name:           pair.baseToken?.name   || '',
+                symbol:         childSym || addr.slice(0, 8),
+                name:           childName,
                 priceUsd:       pair.priceUsd,
                 priceChange24h: pair.priceChange?.h24 ?? 0,
                 volume24h:      pair.volume?.h24       || 0,
