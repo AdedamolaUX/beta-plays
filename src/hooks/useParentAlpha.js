@@ -6,7 +6,7 @@ const STORAGE_KEY      = 'betaplays_seen_alphas'
 const BACKEND_URL      = import.meta.env.VITE_BACKEND_URL || 'http://localhost:3001'
 
 // ─── Save parent to localStorage + Supabase ──────────────────────
-const saveParentToHistory = (parent, derivative, isDescSourced = false) => {
+const saveParentToHistory = (parent, derivative) => {
   try {
     // Keep localStorage write — fast local session cache
     const existing = JSON.parse(localStorage.getItem(STORAGE_KEY) || '{}')
@@ -20,7 +20,7 @@ const saveParentToHistory = (parent, derivative, isDescSourced = false) => {
     localStorage.setItem(STORAGE_KEY, JSON.stringify(existing))
 
     const parentMap = JSON.parse(localStorage.getItem('betaplays_parent_map') || '{}')
-    parentMap[derivative.address] = { symbol: parent.symbol, address: parent.address, childSymbol: derivative.symbol, sourceType: isDescSourced ? 'desc' : 'root', savedAt: Date.now() }
+    parentMap[derivative.address] = { symbol: parent.symbol, address: parent.address }
     localStorage.setItem('betaplays_parent_map', JSON.stringify(parentMap))
 
     const change = parseFloat(parent.priceChange24h) || 0
@@ -494,9 +494,8 @@ const useParentAlpha = (alpha, liveAlphas = [], resolvedDescription = null) => {
             const totalScore     = baseSim + boost + momentumBoost + mcapTiebreaker
 
             if (baseSim >= minBase && totalScore > bestScore) {
-              bestScore  = totalScore
-              bestMatch  = p
-              bestIsDesc = isDescSourced
+              bestScore = totalScore
+              bestMatch = p
               console.log(
                 `[ParentSearch] Candidate $${cSym}: baseSim=${baseSim.toFixed(2)} ` +
                 `descBoost=${boost} momentum=${momentumBoost} isLive=${isLiveNow} ` +
@@ -590,7 +589,7 @@ const useParentAlpha = (alpha, liveAlphas = [], resolvedDescription = null) => {
         `${foundParent ? '$' + foundParent.symbol : 'none'} (score ${bestScore.toFixed(2)})`
       )
       setParent(foundParent)
-      if (foundParent) saveParentToHistory(foundParent, alpha, bestIsDesc)
+      if (foundParent) saveParentToHistory(foundParent, alpha)
 
     } catch (err) {
       console.warn('Parent alpha lookup failed:', err.message)
