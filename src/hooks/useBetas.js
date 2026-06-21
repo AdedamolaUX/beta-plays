@@ -254,9 +254,10 @@ const loadStoredBetas = (alphaAddress) => {
       .filter(b => {
         const srcs = b.signalSources || []
         const isConfirmed =
-          srcs.includes('ai_match') ||
-          srcs.includes('lp_pair')  ||
-          srcs.includes('og_match')
+          srcs.includes('ai_match')        ||
+          srcs.includes('lp_pair')         ||
+          srcs.includes('og_match')        ||
+          srcs.includes('direct_derivative')
         if (!isConfirmed) {
           console.log(`[BetaStore] Dropped on load $${b.symbol} — no AI/structural confirmation | signals:[${srcs.join(',')}]`)
           return false
@@ -3174,7 +3175,7 @@ const useBetas = (alpha, parentAlpha = null, options = {}) => {
         if (freshAddresses.has(b.address)) return false  // already in fresh list
         const srcs = b.signalSources || []
         // Only keep stored betas that were AI-confirmed or structurally strong
-        const isConfirmed = srcs.includes('ai_match') || srcs.includes('lp_pair') || srcs.includes('og_match')
+        const isConfirmed = srcs.includes('ai_match') || srcs.includes('lp_pair') || srcs.includes('og_match') || srcs.includes('direct_derivative')
         if (!isConfirmed) {
           console.log(`[BetaStore] Dropping unconfirmed stored $${b.symbol} — signals:[${srcs.join(',')}]`)
           return false
