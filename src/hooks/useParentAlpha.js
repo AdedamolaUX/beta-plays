@@ -252,7 +252,7 @@ const PARENT_BLOCKLIST = new Set([
 // Uses extractRootCandidates first (strips BABY/MINI/etc prefixes and
 // COIN/INU/etc suffixes). Falls back to raw substring check.
 // Prevents pure ratio matches with zero naming relationship.
-const hasNamingAnchor = (runnerSymbol, candidateSymbol, candidateName) => {
+export const hasNamingAnchor = (runnerSymbol, candidateSymbol, candidateName) => {
   const rSym  = runnerSymbol.toUpperCase()
   const cSym  = candidateSymbol.toUpperCase()
   const cName = (candidateName || '').toUpperCase()

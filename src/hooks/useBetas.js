@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
 import axios from 'axios'
 import { getSearchTerms, getConcepts, generateTickerVariants, NARRATIVE_CATEGORIES, areCategoriesCompatible, inferCategoryFromTerms } from '../data/lore_map'
+import { hasNamingAnchor } from './useParentAlpha'
 import classifyRelationships from './useAIBetaScoring'
 import { compareLogos, shouldRunVision } from './useImageAnalysis'
 
@@ -2836,6 +2837,25 @@ const useBetas = (alpha, parentAlpha = null, options = {}) => {
             .map(addr => {
               const pair = bestPair[addr]
               if (!pair) return null
+
+              // ── Guardrail: verify child-parent relationship ──────
+              // Desc check: parent symbol/name appears in child description
+              // Naming check: child and parent share a symbol root
+              // Reject if neither passes — filters false positives like $stockcoin
+              const childSym  = pair.baseToken?.symbol || ''
+              const childName = pair.baseToken?.name   || ''
+              const childDesc = (pair.info?.description || '').toLowerCase()
+              const parentSym  = enrichedAlpha.symbol  || ''
+              const parentName = enrichedAlpha.name    || ''
+              const descMentionsParent =
+                childDesc.includes(parentSym.toLowerCase()) ||
+                childDesc.includes(parentName.toLowerCase())
+              const hasAnchor = hasNamingAnchor(childSym, parentSym, parentName)
+              if (!descMentionsParent && !hasAnchor) {
+                console.log(`[DirectDeriv] ⛔ Rejected $${childSym} — no desc mention of $${parentSym} and no naming anchor`)
+                return null
+              }
+
               return {
                 address:        addr,
                 symbol:         pair.baseToken?.symbol || addr.slice(0, 8),
