@@ -2667,7 +2667,7 @@ app.post('/api/refresh-prices', (req, res) => {
 // Body: { derivativeAddress, derivativeSymbol, parentAddress, parentSymbol, parentName, parentLogoUrl, parentMarketCap }
 app.post('/api/record-parent', (req, res) => {
   if (!process.env.DATABASE_URL) return res.json({ ok: true, skipped: 'no db' })
-  const { derivativeAddress, derivativeSymbol, parentAddress, parentSymbol, parentName, parentLogoUrl, parentMarketCap } = req.body
+  const { derivativeAddress, derivativeSymbol, parentAddress, parentSymbol, parentName, parentLogoUrl, parentMarketCap, sourceType } = req.body
   if (!derivativeAddress || !parentAddress) {
     return res.status(400).json({ error: 'derivativeAddress and parentAddress required' })
   }
@@ -2676,15 +2676,16 @@ app.post('/api/record-parent', (req, res) => {
 
   DB_WRITE_QUEUE.run(async () => {
     try {
-      // Upsert the derivative token — set its parent_address + parent_symbol
+      // Upsert the derivative token — set its parent_address + parent_symbol + source_type
       await db.query(`
-        INSERT INTO tokens (address, symbol, parent_address, parent_symbol, last_seen)
-        VALUES ($1, $2, $3, $4, NOW())
+        INSERT INTO tokens (address, symbol, parent_address, parent_symbol, source_type, last_seen)
+        VALUES ($1, $2, $3, $4, $5, NOW())
         ON CONFLICT (address) DO UPDATE SET
           parent_address = EXCLUDED.parent_address,
           parent_symbol  = EXCLUDED.parent_symbol,
+          source_type    = EXCLUDED.source_type,
           last_seen      = NOW()
-      `, [derivativeAddress, derivativeSymbol || '', parentAddress, parentSymbol || ''])
+      `, [derivativeAddress, derivativeSymbol || '', parentAddress, parentSymbol || '', sourceType || 'root'])
 
       // Also ensure the parent token exists in the tokens table
       await db.query(`
@@ -2710,7 +2711,7 @@ app.post('/api/record-parent', (req, res) => {
 // Cached in memory for 5 minutes — called frequently by every useBetas fetchBetas.
 let _parentMapCache     = null
 let _parentMapCacheTime = 0
-const PARENT_MAP_TTL_MS = 5 * 60 * 1000
+const PARENT_MAP_TTL_MS = 5 * 60 * 1000  // cache busted — now includes source_type
 
 app.get('/api/parent-map', async (req, res) => {
   if (!process.env.DATABASE_URL) return res.json({ map: {} })
@@ -2723,14 +2724,14 @@ app.get('/api/parent-map', async (req, res) => {
 
   try {
     const result = await db.query(`
-      SELECT address, parent_address, parent_symbol
+      SELECT address, parent_address, parent_symbol, source_type
       FROM tokens
       WHERE parent_address IS NOT NULL
         AND parent_address != ''
     `)
     const map = {}
     for (const row of result.rows) {
-      map[row.address] = { address: row.parent_address, symbol: row.parent_symbol }
+      map[row.address] = { address: row.parent_address, symbol: row.parent_symbol, sourceType: row.source_type || 'root' }
     }
     _parentMapCache     = map
     _parentMapCacheTime = now

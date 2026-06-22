@@ -45,6 +45,7 @@ const saveParentToHistory = (parent, derivative, sourceType = 'root') => {
       parentName:        parent.name    || null,
       parentLogoUrl:     parent.logoUrl || null,
       parentMarketCap:   parent.marketCap || 0,
+      sourceType:        sourceType || 'root',
     }),
   }).catch(err => console.warn('[ParentMap] Supabase write failed:', err.message))
 }
