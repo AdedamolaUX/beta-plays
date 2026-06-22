@@ -3,6 +3,7 @@ import axios from 'axios'
 import { getSearchTerms, getConcepts, generateTickerVariants, NARRATIVE_CATEGORIES, areCategoriesCompatible, inferCategoryFromTerms } from '../data/lore_map'
 import classifyRelationships from './useAIBetaScoring'
 import { compareLogos, shouldRunVision } from './useImageAnalysis'
+import { hasNamingAnchor } from './useParentAlpha'
 
 
 const DEXSCREENER_BASE = 'https://api.dexscreener.com'
@@ -2837,6 +2838,18 @@ const useBetas = (alpha, parentAlpha = null, options = {}) => {
             .map(addr => {
               const pair = bestPair[addr]
               if (!pair) return null
+
+              // Guardrail: desc-sourced entries pass unconditionally.
+              // root-sourced (or legacy/no sourceType) must have a naming anchor.
+              const entry = cachedParentMap[addr]
+              const srcType = entry?.sourceType || 'root'
+              if (srcType !== 'desc') {
+                const childSym = pair.baseToken?.symbol || ''
+                if (!hasNamingAnchor(childSym, enrichedAlpha.symbol, enrichedAlpha.name)) {
+                  console.log(`[DirectDeriv] ⛔ $${childSym} rejected — root-sourced, no naming anchor to $${enrichedAlpha.symbol}`)
+                  return null
+                }
+              }
 
               return {
                 address:        addr,
