@@ -102,7 +102,8 @@ const fetchDescription = async (alpha) => {
     )
     const pairs = res.data?.pairs || []
     const desc  = pairs[0]?.info?.description || pairs[0]?.baseToken?.description || ''
-    if (desc) console.log(`[ParentSearch] Fetched desc for $${alpha.symbol}: "${desc.slice(0, 60)}..."`)
+    if (desc) console.log(`[ParentSearch] DEX desc for $${alpha.symbol}: "${desc.slice(0, 80)}..."`)
+    else console.log(`[ParentSearch] DEX desc EMPTY for $${alpha.symbol} (pairs: ${pairs.length})`)
     return desc
   } catch {
     return ''
@@ -228,6 +229,10 @@ const NAME_STOP = new Set([
   // Crypto/project generic terms
   'pump', 'moon', 'gem', 'alpha', 'beta', 'degen', 'based', 'sent',
   'community', 'ecosystem', 'protocol', 'platform', 'launch',
+  // All-caps narrative words common in token descriptions (never token names)
+  'finally', 'girlfriend', 'boyfriend', 'officially',
+  'introducing', 'presenting', 'welcome',
+  'never', 'always', 'still', 'already',
 ])
 
 // ─── Infrastructure/stablecoin blocklist ─────────────────────────
@@ -341,12 +346,15 @@ const useParentAlpha = (alpha, liveAlphas = [], resolvedDescription = null) => {
       const tickerMatches = description.match(/\$([A-Za-z]{2,12})/g) || []
       tickerMatches.forEach(t => descTickerQueries.add(t.replace('$', '').toUpperCase()))
 
-      // Tier 1b: capitalised proper nouns (e.g. "Jotchua was tired...")
-      // Capitalisation is the confidence signal — gets same boost as explicit $TICKER.
-      // Regex: starts uppercase, rest mixed/lower, min 4 total chars, not in NAME_STOP.
+      // Tier 1b: capitalised proper nouns (e.g. "Jotchua was tired...") and
+      // ALL-CAPS token names (e.g. "JOTCHUA FINALLY GOT A GIRLFRIEND").
+      // Both get same high-confidence boost as explicit $TICKER.
       description
         .split(/\s+/)
-        .filter(w => /^[A-Z][a-zA-Z]{3,}$/.test(w) && !NAME_STOP.has(w.toLowerCase()))
+        .filter(w =>
+          (/^[A-Z][a-zA-Z]{3,}$/.test(w) || /^[A-Z]{4,}$/.test(w)) &&
+          !NAME_STOP.has(w.toLowerCase())
+        )
         .forEach(w => descTickerQueries.add(w.toUpperCase()))
 
       // Tier 2: meaningful nouns from description
