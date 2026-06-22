@@ -45,7 +45,6 @@ const saveParentToHistory = (parent, derivative, sourceType = 'root') => {
       parentName:        parent.name    || null,
       parentLogoUrl:     parent.logoUrl || null,
       parentMarketCap:   parent.marketCap || 0,
-      sourceType:        sourceType || 'root',
     }),
   }).catch(err => console.warn('[ParentMap] Supabase write failed:', err.message))
 }
@@ -341,6 +340,14 @@ const useParentAlpha = (alpha, liveAlphas = [], resolvedDescription = null) => {
       // Tier 1: explicit $TICKER references
       const tickerMatches = description.match(/\$([A-Za-z]{2,12})/g) || []
       tickerMatches.forEach(t => descTickerQueries.add(t.replace('$', '').toUpperCase()))
+
+      // Tier 1b: capitalised proper nouns (e.g. "Jotchua was tired...")
+      // Capitalisation is the confidence signal — gets same boost as explicit $TICKER.
+      // Regex: starts uppercase, rest mixed/lower, min 4 total chars, not in NAME_STOP.
+      description
+        .split(/\s+/)
+        .filter(w => /^[A-Z][a-zA-Z]{3,}$/.test(w) && !NAME_STOP.has(w.toLowerCase()))
+        .forEach(w => descTickerQueries.add(w.toUpperCase()))
 
       // Tier 2: meaningful nouns from description
       // min length 4 catches tokens like "gork", "frog", "pepe" etc.
