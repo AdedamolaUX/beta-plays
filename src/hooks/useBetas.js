@@ -854,8 +854,30 @@ const fetchDescriptionKeywords = async (alpha) => {
       return { keywords, description: tokenDesc }
     }
 
-    // ── Source 3: DEX /search?q={symbol} ─────────────────────────
     console.log(`[Vector1b] $${alpha.symbol} tokens endpoint empty — trying search fallback`)
+
+    // ── Source 2b: Birdeye token_overview ───────────────────────
+    // Birdeye is the most reliable description source — moved up before
+    // dead DEXScreener search fallbacks to reduce latency.
+    try {
+      const birdeyeRes = await fetch(
+        `${BACKEND_URL}/api/birdeye?endpoint=token_overview&address=${alpha.address}`
+      )
+      if (birdeyeRes.ok) {
+        const birdeyeData = await birdeyeRes.json()
+        const birdeyeDesc = birdeyeData?.data?.extensions?.description ||
+                            birdeyeData?.data?.description || ''
+        if (birdeyeDesc && birdeyeDesc.length > 10) {
+          const raw      = extractDescriptionKeywords(birdeyeDesc, alpha.symbol, alpha.name)
+          const keywords = filterDescriptionKeywords(raw, alpha.symbol, alpha.name || '', birdeyeDesc)
+          console.log(`[Vector1b] $${alpha.symbol} description (Birdeye): "${birdeyeDesc.slice(0, 60)}..."`)
+          console.log(`[Vector1b] $${alpha.symbol} description keywords:`, keywords)
+          return { keywords, description: birdeyeDesc }
+        }
+      }
+    } catch { /* silent */ }
+
+    // ── Source 3: DEX /search?q={symbol} ─────────────────────────
     try {
       const searchRes = await DEX_QUEUE.get(
         `${DEXSCREENER_BASE}/latest/dex/search?q=${encodeURIComponent(alpha.symbol)}`
@@ -920,17 +942,6 @@ const fetchDescriptionKeywords = async (alpha) => {
       } catch { /* silent */ }
     }
 
-    // ── No description found — name fallback ──────────────────────
-    const symbolDesc = alpha.name && alpha.name.toLowerCase() !== alpha.symbol.toLowerCase()
-      ? alpha.name
-      : ''
-    if (symbolDesc) {
-      const raw      = extractDescriptionKeywords(symbolDesc, alpha.symbol, alpha.name)
-      const keywords = filterDescriptionKeywords(raw, alpha.symbol, alpha.name || '', symbolDesc)
-      console.log(`[Vector1b] $${alpha.symbol} — using name as description fallback: "${symbolDesc}"`)
-      return { keywords, description: symbolDesc }
-    }
-
     // ── Source 6: DEXScreener targeted profile lookup ─────────────
     // Targeted address lookup — more reliable than the rolling list.
     // Finds profiles regardless of when they were claimed.
@@ -983,28 +994,6 @@ const fetchDescriptionKeywords = async (alpha) => {
       }
     } catch { /* silent */ }
 
-    // ── Source 7: Birdeye token_overview ─────────────────────────
-    // Birdeye maintains its own token metadata including descriptions.
-    // Goes through backend proxy — BIRDEYE_API_KEY already configured.
-    // Covers tokens that never claimed DEXScreener profile.
-    try {
-      const birdeyeRes = await fetch(
-        `${BACKEND_URL}/api/birdeye?endpoint=token_overview&address=${alpha.address}`
-      )
-      if (birdeyeRes.ok) {
-        const birdeyeData = await birdeyeRes.json()
-        const birdeyeDesc = birdeyeData?.data?.extensions?.description ||
-                            birdeyeData?.data?.description || ''
-        if (birdeyeDesc && birdeyeDesc.length > 10) {
-          const raw      = extractDescriptionKeywords(birdeyeDesc, alpha.symbol, alpha.name)
-          const keywords = filterDescriptionKeywords(raw, alpha.symbol, alpha.name || '', birdeyeDesc)
-          console.log(`[Vector1b] $${alpha.symbol} description (Birdeye): "${birdeyeDesc.slice(0, 60)}..."`)
-          console.log(`[Vector1b] $${alpha.symbol} description keywords:`, keywords)
-          return { keywords, description: birdeyeDesc }
-        }
-      }
-    } catch { /* silent */ }
-
     // ── Source 8: PumpFun API (via backend proxy) ─────────────────
     // PumpFun blocks direct browser fetch (CORS) — goes through backend.
     // PumpFun-launched tokens store descriptions in their own API,
@@ -1026,6 +1015,17 @@ const fetchDescriptionKeywords = async (alpha) => {
         }
       }
     } catch { /* silent */ }
+
+    // ── Name fallback — last resort ────────────────────────────────
+    const symbolDesc = alpha.name && alpha.name.toLowerCase() !== alpha.symbol.toLowerCase()
+      ? alpha.name
+      : ''
+    if (symbolDesc) {
+      const raw      = extractDescriptionKeywords(symbolDesc, alpha.symbol, alpha.name)
+      const keywords = filterDescriptionKeywords(raw, alpha.symbol, alpha.name || '', symbolDesc)
+      console.log(`[Vector1b] $${alpha.symbol} — using name as description fallback: "${symbolDesc}"`)
+      return { keywords, description: symbolDesc }
+    }
 
     console.log(`[Vector1b] $${alpha.symbol} — no description found across all sources`)
     return { keywords: [], description: '' }
