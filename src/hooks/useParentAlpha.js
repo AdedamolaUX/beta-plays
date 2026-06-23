@@ -95,6 +95,8 @@ const fetchDescription = async (alpha) => {
   if (alpha.description && alpha.description.length > 15) {
     return alpha.description
   }
+
+  // Try DEXScreener first
   try {
     const res = await axios.get(
       `${DEXSCREENER_BASE}/latest/dex/tokens/${alpha.address}`,
@@ -102,12 +104,42 @@ const fetchDescription = async (alpha) => {
     )
     const pairs = res.data?.pairs || []
     const desc  = pairs[0]?.info?.description || pairs[0]?.baseToken?.description || ''
-    if (desc) console.log(`[ParentSearch] DEX desc for $${alpha.symbol}: "${desc.slice(0, 80)}..."`)
-    else console.log(`[ParentSearch] DEX desc EMPTY for $${alpha.symbol} (pairs: ${pairs.length})`)
-    return desc
-  } catch {
-    return ''
-  }
+    if (desc) {
+      console.log(`[ParentSearch] DEX desc for $${alpha.symbol}: "${desc.slice(0, 80)}..."`)
+      return desc
+    }
+    console.log(`[ParentSearch] DEX desc EMPTY for $${alpha.symbol} (pairs: ${pairs.length})`)
+  } catch { /* fall through to Birdeye */ }
+
+  // Birdeye fallback 1: token_overview
+  try {
+    const res = await axios.get(
+      `${BACKEND_URL}/api/birdeye?endpoint=token_overview&address=${alpha.address}`,
+      { timeout: 6000 }
+    )
+    const d = res.data?.data
+    const desc = d?.extensions?.description || d?.description || ''
+    if (desc && desc.length > 15) {
+      console.log(`[ParentSearch] Birdeye overview desc for $${alpha.symbol}: "${desc.slice(0, 80)}..."`)
+      return desc
+    }
+  } catch { /* fall through */ }
+
+  // Birdeye fallback 2: token_metadata
+  try {
+    const res = await axios.get(
+      `${BACKEND_URL}/api/birdeye?endpoint=token_metadata&address=${alpha.address}`,
+      { timeout: 6000 }
+    )
+    const d = res.data?.data
+    const desc = d?.extensions?.description || d?.description || ''
+    if (desc && desc.length > 15) {
+      console.log(`[ParentSearch] Birdeye metadata desc for $${alpha.symbol}: "${desc.slice(0, 80)}..."`)
+      return desc
+    }
+  } catch { /* fall through */ }
+
+  return ''
 }
 
 // ─── Edit Distance ───────────────────────────────────────────────
