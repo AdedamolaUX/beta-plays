@@ -426,9 +426,12 @@ const useParentAlpha = (alpha, liveAlphas = [], resolvedDescription = null) => {
         )
       )
 
-      let bestMatch = null
-      let bestScore = 0
-      let bestIsDesc = false
+      // bestBySymbol: symbol → { match, score, isDesc, totalLiq, totalVol, pairCreatedAt }
+      // Tracks best score per symbol across all queries.
+      // When multiple tokens share a symbol (same name, different CA), the
+      // score determines which symbol wins; fundamentals (mcap × age) determine
+      // which token of that symbol wins — prevents a pumping copycat beating the OG.
+      const bestBySymbol = new Map()
 
       searches.forEach((result) => {
         if (result.status !== 'fulfilled') return
@@ -436,43 +439,54 @@ const useParentAlpha = (alpha, liveAlphas = [], resolvedDescription = null) => {
         const pairs = data?.pairs || []
         const boost = getBoost(q)
 
-        pairs
-          .filter(p => {
-            const cSym     = p.baseToken?.symbol?.toUpperCase() || ''
-            const cAddr    = p.baseToken?.address || ''
-            const cMcap    = p.marketCap || p.fdv || 0
-            const cLiq     = p.liquidity?.usd || 0
+        // ── Consolidate pairs by baseToken address ────────────────
+        // DEXScreener returns multiple pairs per token (e.g. Raydium + PumpSwap).
+        // Scoring pairs individually lets a small pumping pair beat the dominant
+        // pair of the same token on momentum alone.
+        // Fix: group by address, pick highest-liq pair as representative, but
+        // carry best momentum signal and total volume across ALL pairs of that token.
+        const pairsByAddress = new Map()
+        pairs.forEach(p => {
+          const addr = p.baseToken?.address || ''
+          if (!addr) return
+          const pLiq       = p.liquidity?.usd || 0
+          const pVol       = p.volume?.h24    || 0
+          const pChange1h  = parseFloat(p.priceChange?.h1  || 0)
+          const pChange24h = parseFloat(p.priceChange?.h24 || 0)
+          const existing   = pairsByAddress.get(addr)
+          if (!existing) {
+            pairsByAddress.set(addr, { rep: p, totalLiq: pLiq, totalVol: pVol, bestChange1h: pChange1h, bestChange24h: pChange24h })
+          } else {
+            existing.totalLiq      += pLiq
+            existing.totalVol      += pVol
+            existing.bestChange1h   = Math.max(existing.bestChange1h,  pChange1h)
+            existing.bestChange24h  = Math.max(existing.bestChange24h, pChange24h)
+            if (pLiq > (existing.rep.liquidity?.usd || 0)) existing.rep = p
+          }
+        })
 
-            // Never treat infrastructure/stablecoin tokens as parents
+        Array.from(pairsByAddress.values())
+          .filter(({ rep: p, totalLiq }) => {
+            const cSym  = p.baseToken?.symbol?.toUpperCase() || ''
+            const cAddr = p.baseToken?.address || ''
+            const cMcap = p.marketCap || p.fdv || 0
+
             if (PARENT_BLOCKLIST.has(cAddr)) return false
 
-            // Naming anchor: runner and candidate must share a root word.
-            // Rejects pure ratio matches with zero naming relationship.
-            // BYPASS: desc-sourced queries already have semantic justification
-            // — the description explicitly named this token. No symbol overlap needed.
             const isDescSourced = descTickerQueries.has(q) || descWordQueries.has(q)
             if (!isDescSourced && !hasNamingAnchor(symbol, cSym, p.baseToken?.name || '')) {
-              if (cLiq > 5_000) {
+              if (totalLiq > 5_000) {
                 console.log(`[ParentFilter] ⛔ No naming anchor — $${symbol} vs $${cSym}`)
               }
               return false
             }
 
             // ── Dynamic liquidity health check ────────────────────
-            // A single fixed ratio fails at scale — 0.1% sounds fine but
-            // $6.5M mcap with $20K liq (0.3%) still passes while being
-            // clearly untradeable. Real liquidity requirements scale with mcap:
-            // larger tokens attract more capital so low liq = red flag.
-            //
+            // Uses consolidated liq across all pairs — reflects full tradeable depth.
             // Tiers (minimum liq/mcap ratio required):
-            //   < $100K mcap  → 1.0% (small token, needs proportional liq)
-            //   $100K–$1M     → 2.0% (mid-small, active trading expected)
-            //   $1M–$10M      → 1.0% (mid cap, at least $10K–$100K liq)
-            //   $10M–$100M    → 0.5% (large, at least $50K–$500K liq)
-            //   > $100M       → 0.2% (mega cap, institutional liquidity norms)
-            //
-            // ALSO: absolute floor of $10K — no token with < $10K liq
-            // is a meaningful parent regardless of its mcap or ratio.
+            //   < $100K mcap  → 1.0% | $100K–$1M → 2.0% | $1M–$10M → 1.0%
+            //   $10M–$100M    → 0.5% | > $100M   → 0.2%
+            // Absolute floor: $10K consolidated liq.
             const getMinLiqRatio = (mcap) => {
               if (mcap < 100_000)    return 0.010
               if (mcap < 1_000_000)  return 0.020
@@ -480,34 +494,36 @@ const useParentAlpha = (alpha, liveAlphas = [], resolvedDescription = null) => {
               if (mcap < 100_000_000) return 0.005
               return 0.002
             }
-            const minRatio       = getMinLiqRatio(cMcap)
-            const liqRatio       = cMcap > 0 ? cLiq / cMcap : 0
-            const hasHealthyRatio = cLiq >= 10_000 && liqRatio >= minRatio
+            const minRatio        = getMinLiqRatio(cMcap)
+            const liqRatio        = cMcap > 0 ? totalLiq / cMcap : 0
+            const hasHealthyRatio = totalLiq >= 10_000 && liqRatio >= minRatio
 
-            // Log rejections for debugging
-            if (cLiq > 0 && !hasHealthyRatio) {
+            if (totalLiq > 0 && !hasHealthyRatio) {
               console.log(
                 `[ParentFilter] Rejected $${p.baseToken?.symbol} — ` +
-                `liq $${Math.round(cLiq).toLocaleString()} / mcap $${Math.round(cMcap).toLocaleString()} ` +
+                `liq $${Math.round(totalLiq).toLocaleString()} / mcap $${Math.round(cMcap).toLocaleString()} ` +
                 `= ${(liqRatio * 100).toFixed(2)}% (need ${(minRatio * 100).toFixed(1)}%)`
               )
             }
 
             return (
               p.chainId === 'solana' &&
-              cMcap > (alpha.marketCap || 0) * 0.5 &&  // original guard kept
-              cLiq  > 5_000 &&                          // original floor kept
+              cMcap > (alpha.marketCap || 0) * 0.5 &&
+              totalLiq > 5_000 &&
               hasHealthyRatio &&
-              p.baseToken?.address !== alpha.address &&
-              cSym !== symbol &&
+              cAddr !== alpha.address &&
+              cSym  !== symbol &&
               cSym.length >= 3 &&
               !/^\d+$/.test(cSym) &&
               !/^[^A-Z]+$/.test(cSym)
             )
           })
-          .forEach(p => {
+          .forEach(({ rep: p, totalLiq, totalVol, bestChange1h, bestChange24h }) => {
             const cSym  = p.baseToken?.symbol?.toUpperCase() || ''
             const cName = p.baseToken?.name?.toUpperCase()   || ''
+            const cAddr = p.baseToken?.address || ''
+            const cMcap = p.marketCap || p.fdv || 0
+
             // Key fix: if the query EXACTLY matches the candidate symbol,
             // score it 1.0. Without this, "PIKACHU" query finding $PIKACHU
             // gets scored as similarity("PEAKYCHU","PIKACHU") = 0.38, losing
@@ -519,41 +535,92 @@ const useParentAlpha = (alpha, liveAlphas = [], resolvedDescription = null) => {
                   similarity(symbol, cSym),
                   similarity(symbol, cName.split(/\s+/).find(w => w.length >= 4) || ''),
                 )
-            // Description queries need only 0.30 base sim to qualify
-            // Symbol-pattern queries need 0.65 to prevent garbage winning
             const minBase = boost > 0 ? 0.30 : 0.65
 
-            // ── Momentum boost — current meta wins ────────────────
-            // A token actively running right now is more likely the
-            // narrative driver than a large but dormant token.
-            // $CHIBI running hard beats $TRUMP (large but quiet) for $ChibiTrump.
-            const change1h  = parseFloat(p.priceChange?.h1  || 0)
-            const change24h = parseFloat(p.priceChange?.h24 || 0)
-            const isLiveNow = liveAddressSet.has(p.baseToken?.address || '')
-
+            // ── Momentum — best change across all pairs of this token ─
+            const isLiveNow = liveAddressSet.has(cAddr)
             const momentumBoost =
-              isLiveNow      ? 0.20 :  // currently on live feed = this IS the meta
-              change1h > 5   ? 0.15 :  // actively running right now
-              change1h > 0   ? 0.10 :  // positive 1h momentum
-              change24h > 0  ? 0.05 :  // at least positive on the day
-              0                        // negative = not the current narrative
+              isLiveNow          ? 0.20 :
+              bestChange1h > 5   ? 0.15 :
+              bestChange1h > 0   ? 0.10 :
+              bestChange24h > 0  ? 0.05 :
+              0
 
-            // mcap is demoted to tiebreaker only (max +0.05)
-            const mcapTiebreaker = Math.min((p.marketCap || p.fdv || 0) / 1_000_000_000, 0.05)
-            const totalScore     = baseSim + boost + momentumBoost + mcapTiebreaker
+            // ── Fundamentals tiebreakers (max +0.08 combined) ─────
+            // mcap: established tokens are larger — max +0.05
+            // volume: active trading confirms real narrative — max +0.03
+            const mcapTiebreaker = Math.min(cMcap / 1_000_000_000, 0.05)
+            const volTiebreaker  = Math.min(totalVol / 10_000_000, 0.03)
+            const totalScore     = baseSim + boost + momentumBoost + mcapTiebreaker + volTiebreaker
 
-            if (baseSim >= minBase && totalScore > bestScore) {
-              bestScore = totalScore
-              bestMatch = p
-              bestIsDesc = descTickerQueries.has(q) || descWordQueries.has(q)
+            if (baseSim >= minBase) {
+              // Track ALL qualifying candidates per symbol (symbol → array).
+              // Same symbol can appear with different CAs (OG vs copycat).
+              // We resolve which CA wins after the loop via fundamentals rank.
+              // Dedupe by CA: if same address seen again with higher score, update in place.
+              if (!bestBySymbol.has(cSym)) bestBySymbol.set(cSym, [])
+              const bucket   = bestBySymbol.get(cSym)
+              const existing = bucket.find(e => (e.match.baseToken?.address || '') === cAddr)
+              if (existing) {
+                if (totalScore > existing.score) {
+                  existing.score  = totalScore
+                  existing.isDesc = existing.isDesc || descTickerQueries.has(q) || descWordQueries.has(q)
+                }
+              } else {
+                bucket.push({
+                  match:         p,
+                  score:         totalScore,
+                  isDesc:        descTickerQueries.has(q) || descWordQueries.has(q),
+                  totalLiq,
+                  totalVol,
+                  pairCreatedAt: p.pairCreatedAt || 0,
+                })
+              }
               console.log(
-                `[ParentSearch] Candidate $${cSym}: baseSim=${baseSim.toFixed(2)} ` +
-                `descBoost=${boost} momentum=${momentumBoost} isLive=${isLiveNow} ` +
+                `[ParentSearch] Candidate $${cSym} (${(p.baseToken?.address||'').slice(0,8)}): ` +
+                `baseSim=${baseSim.toFixed(2)} descBoost=${boost} momentum=${momentumBoost} ` +
+                `liq=$${Math.round(totalLiq).toLocaleString()} vol=$${Math.round(totalVol).toLocaleString()} ` +
                 `total=${totalScore.toFixed(2)} via query "${q}"`
               )
             }
           })
       })
+
+      // ── Resolve winner ────────────────────────────────────────────
+      // Step 1: For each symbol with multiple CAs (same name, different token),
+      //         pick the CA with the best fundamentals rank: mcap × log(ageDays+1).
+      //         This ensures the OG beats a pumping copycat launched yesterday.
+      // Step 2: Among all symbols, pick the one with the highest score.
+      const fundamentalsRank = (entry) => {
+        const mcap    = entry.match.marketCap || entry.match.fdv || 0
+        const ageMs   = Date.now() - (entry.pairCreatedAt || Date.now())
+        const ageDays = Math.max(ageMs / 86_400_000, 0)
+        return mcap * Math.log(ageDays + 1)
+      }
+
+      let bestMatch = null
+      let bestScore = 0
+      let bestIsDesc = false
+
+      for (const [sym, candidates] of bestBySymbol) {
+        // Pick the best CA for this symbol: most fundamental if collision, else only entry
+        const winner = candidates.length === 1
+          ? candidates[0]
+          : candidates.reduce((a, b) => fundamentalsRank(a) >= fundamentalsRank(b) ? a : b)
+
+        if (winner.score > bestScore) {
+          bestScore  = winner.score
+          bestMatch  = winner.match
+          bestIsDesc = winner.isDesc
+          if (candidates.length > 1) {
+            console.log(
+              `[ParentSearch] Symbol collision $${sym}: ${candidates.length} CAs — ` +
+              `picked ${(winner.match.baseToken?.address||'').slice(0,8)} by fundamentals ` +
+              `(mcap=$${Math.round(winner.match.marketCap||0).toLocaleString()})`
+            )
+          }
+        }
+      }
 
       // ── Step 4: Semantic alignment gate ──────────────────────────
       // Prevents cross-universe mismatches like $PANDU → $IRAN.
