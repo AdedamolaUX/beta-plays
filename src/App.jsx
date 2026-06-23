@@ -6304,6 +6304,12 @@ export default function App() {
           const addr = pair.baseToken?.address
           if (!addr || seen.has(addr)) return false
           if (/[^\x00-\x7F]/.test(pair.baseToken?.symbol || '')) return false // non-ASCII symbol spam
+          // Credibility filter — fake tokens have inflated mcap but near-zero vol/txns
+          const _mcap = pair.marketCap || pair.fdv || 0
+          const _vol  = pair.volume?.h24 || 0
+          const _txns = (pair.txns?.h24?.buys || 0) + (pair.txns?.h24?.sells || 0)
+          if (_mcap > 1_000_000 && _vol < 100) return false
+          if (_mcap > 10_000_000 && _txns < 20) return false
           seen.add(addr)
           return true
         })
