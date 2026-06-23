@@ -6290,7 +6290,8 @@ export default function App() {
         if (sym.includes(q))              score += 20
         // Boost by liquidity (log scale so it doesn't dominate)
         const liq = p.liquidity?.usd || 0
-        if (liq > 0) score += Math.log10(liq) * 2
+        const vol = p.volume?.h24 || 0
+        if (vol > 0) score += Math.log10(vol + 1) * 3
 
         return { pair: p, score }
       })
