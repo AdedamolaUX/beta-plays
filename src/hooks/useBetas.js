@@ -763,6 +763,11 @@ const scoreDescKeyword = (kw, symbol, name, description) => {
   if (kwLower.length >= 4 && symLower.includes(kwLower))  return 2.5
   if (kwLower.length >= 4 && nameLower.includes(kwLower)) return 1.8
 
+  // Capitalised proper noun in original description → name-level confidence
+  // e.g. "Jotchua was tired..." — 'jotchua' keyword capitalised in source = 2.0
+  const capitalisedInDesc = new RegExp(`\\b${kw[0].toUpperCase()}${kw.slice(1)}\\b`).test(description || '')
+  if (capitalisedInDesc) return 2.0
+
   // Description-only: base 1pt + frequency bonus, cap 1.9
   const escaped = kw.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
   const matches  = descLower.match(new RegExp(`\\b${escaped}\\b`, 'g'))

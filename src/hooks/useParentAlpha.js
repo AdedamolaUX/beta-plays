@@ -455,10 +455,12 @@ const useParentAlpha = (alpha, liveAlphas = [], resolvedDescription = null) => {
           const pChange24h = parseFloat(p.priceChange?.h24 || 0)
           const existing   = pairsByAddress.get(addr)
           if (!existing) {
-            pairsByAddress.set(addr, { rep: p, totalLiq: pLiq, totalVol: pVol, bestChange1h: pChange1h, bestChange24h: pChange24h })
+            const pTxns = (p.txns?.h24?.buys || 0) + (p.txns?.h24?.sells || 0)
+            pairsByAddress.set(addr, { rep: p, totalLiq: pLiq, totalVol: pVol, totalTxns: pTxns, bestChange1h: pChange1h, bestChange24h: pChange24h })
           } else {
             existing.totalLiq      += pLiq
             existing.totalVol      += pVol
+            existing.totalTxns     += (p.txns?.h24?.buys || 0) + (p.txns?.h24?.sells || 0)
             existing.bestChange1h   = Math.max(existing.bestChange1h,  pChange1h)
             existing.bestChange24h  = Math.max(existing.bestChange24h, pChange24h)
             if (pLiq > (existing.rep.liquidity?.usd || 0)) existing.rep = p
@@ -466,7 +468,7 @@ const useParentAlpha = (alpha, liveAlphas = [], resolvedDescription = null) => {
         })
 
         Array.from(pairsByAddress.values())
-          .filter(({ rep: p, totalLiq }) => {
+          .filter(({ rep: p, totalLiq, totalVol, totalTxns }) => {
             const cSym  = p.baseToken?.symbol?.toUpperCase() || ''
             const cAddr = p.baseToken?.address || ''
             const cMcap = p.marketCap || p.fdv || 0
@@ -504,6 +506,19 @@ const useParentAlpha = (alpha, liveAlphas = [], resolvedDescription = null) => {
                 `liq $${Math.round(totalLiq).toLocaleString()} / mcap $${Math.round(cMcap).toLocaleString()} ` +
                 `= ${(liqRatio * 100).toFixed(2)}% (need ${(minRatio * 100).toFixed(1)}%)`
               )
+            }
+
+            // Ghost token guard — two checks:
+            // 1. Near-zero activity: vol < $1K AND txns < 10 → dead/fake token
+            // 2. Vol/mcap credibility: large mcap must have proportional trading.
+            //    Real $10M+ tokens turn over at least 0.1% daily. Ghost tokens don't.
+            //    This catches $10B fake mcap with $1K volume without capping real tokens.
+            const isGhost = totalVol < 1_000 && totalTxns < 10
+            const minVolForMcap = cMcap > 10_000_000 ? cMcap * 0.001 : 0
+            const failsCredibility = minVolForMcap > 0 && totalVol < minVolForMcap
+            if (isGhost || failsCredibility) {
+              console.log(`[ParentFilter] ⛔ ${isGhost ? 'Ghost' : 'Low-vol'} token $${p.baseToken?.symbol} — vol=$${Math.round(totalVol)} mcap=$${Math.round(cMcap).toLocaleString()} txns=${totalTxns}`)
+              return false
             }
 
             return (
@@ -592,10 +607,14 @@ const useParentAlpha = (alpha, liveAlphas = [], resolvedDescription = null) => {
       //         This ensures the OG beats a pumping copycat launched yesterday.
       // Step 2: Among all symbols, pick the one with the highest score.
       const fundamentalsRank = (entry) => {
+        // No mcap cap — legitimate large parents ($WIF, $BONK) must not be penalised.
+        // Ghost tokens are caught by the credibility filter before reaching this point.
         const mcap    = entry.match.marketCap || entry.match.fdv || 0
+        const vol     = entry.totalVol || 0
         const ageMs   = Date.now() - (entry.pairCreatedAt || Date.now())
         const ageDays = Math.max(ageMs / 86_400_000, 0)
-        return mcap * Math.log(ageDays + 1)
+        const ageFactor = Math.log(ageDays + 1)
+        return (mcap * 0.6 + vol * 50 * 0.4) * ageFactor
       }
 
       let bestMatch = null
