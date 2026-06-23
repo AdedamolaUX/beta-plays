@@ -6303,6 +6303,7 @@ export default function App() {
         .filter(({ pair }) => {
           const addr = pair.baseToken?.address
           if (!addr || seen.has(addr)) return false
+          if (/[^\x00-\x7F]/.test(pair.baseToken?.symbol || '')) return false // non-ASCII symbol spam
           seen.add(addr)
           return true
         })
