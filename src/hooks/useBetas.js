@@ -1616,9 +1616,6 @@ const isHealthyBetaLiquidity = (p) => {
   const liq  = p.liquidity?.usd || 0
   const mcap = p.marketCap || p.fdv || 0
 
-  // Block non-ASCII symbols — unicode homoglyph spam (e.g. $mɔ)
-  if (/[^\x00-\x7F]/.test(p.baseToken?.symbol || '')) return false
-
   // Absolute floor — ghost tokens have < $500 liq
   if (liq < 500) return false
 

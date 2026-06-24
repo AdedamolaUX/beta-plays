@@ -6260,7 +6260,6 @@ export default function App() {
         .filter(({ pair }) => {
           const addr = pair.baseToken?.address
           if (!addr || seen.has(addr)) return false
-          if (/[^\x00-\x7F]/.test(pair.baseToken?.symbol || '')) return false // non-ASCII symbol spam
           // Credibility filter — fake tokens have inflated mcap but near-zero vol/txns
           const _mcap = pair.marketCap || pair.fdv || 0
           const _vol  = pair.volume?.h24 || 0

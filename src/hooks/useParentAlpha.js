@@ -474,7 +474,6 @@ const useParentAlpha = (alpha, liveAlphas = [], resolvedDescription = null) => {
             const cMcap = p.marketCap || p.fdv || 0
 
             if (PARENT_BLOCKLIST.has(cAddr)) return false
-            if (/[^\x00-\x7F]/.test(cSym)) return false // non-ASCII symbol spam
 
             const isDescSourced = descTickerQueries.has(q) || descWordQueries.has(q)
             if (!isDescSourced && !hasNamingAnchor(symbol, cSym, p.baseToken?.name || '')) {

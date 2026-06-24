@@ -404,8 +404,7 @@ const formatAlpha = (pair, source = 'boost', extraDescription = '') => ({
 // ─── Junk filter ─────────────────────────────────────────────────
 const JUNK_SYMBOLS = new Set(['SOL', 'USDC', 'USDT', 'WSOL', 'BTC', 'ETH', 'WBTC'])
 const isJunk = (alpha) =>
-  JUNK_SYMBOLS.has(alpha.symbol.toUpperCase()) || (alpha.marketCap || 0) === 0 ||
-  /[^\x00-\x7F]/.test(alpha.symbol || '')
+  JUNK_SYMBOLS.has(alpha.symbol.toUpperCase()) || (alpha.marketCap || 0) === 0
 
 // ─── Source 1: DEXScreener boosted tokens ───────────────────────
 const fetchBoostedAlphas = async () => {
