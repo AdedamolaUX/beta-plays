@@ -386,6 +386,16 @@ const LatencyDot = () => {
 // Runners: symbol + 24h% change. Narratives: emoji + label + total vol.
 // Auto-scrolls, pauses on hover.
 const NarrativeTicker = ({ liveAlphas = [], sznCards = [] }) => {
+  const tickerRef = useRef(null)
+  useEffect(() => {
+    const el = tickerRef.current
+    if (!el) return
+    const onVisibility = () => {
+      el.style.animationPlayState = document.hidden ? 'paused' : 'running'
+    }
+    document.addEventListener('visibilitychange', onVisibility)
+    return () => document.removeEventListener('visibilitychange', onVisibility)
+  }, [])
   if (!liveAlphas.length && !sznCards.length) return null
 
   // Build ticker items — runners first, then narratives
@@ -442,7 +452,7 @@ const NarrativeTicker = ({ liveAlphas = [], sznCards = [] }) => {
         fontFamily: "'Syne', var(--font-display), sans-serif",
       }}
     >
-      <div style={{
+      <div ref={tickerRef} style={{
         display: 'inline-flex',
         alignItems: 'center',
         whiteSpace: 'nowrap',
