@@ -3809,7 +3809,6 @@ const openJupiterSwap = (token, walletContextState) => {
   Jupiter.init({
     displayMode: 'integrated',
     integratedTargetId: 'jupiter-plugin-inner',
-    endpoint: 'https://mainnet.helius-rpc.com/?api-key=a6f9ba84-1abf-4c90-8e04-fc0a61294407',
     enableWalletPassthrough: true,
     formProps: {
       initialInputMint: 'So11111111111111111111111111111111111111112',
