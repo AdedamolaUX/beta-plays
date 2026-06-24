@@ -3769,7 +3769,7 @@ const NominateSearchBar = () => {
 let isJupiterOpen = false
 let _walletContextState = null // kept in sync by App useEffect
 
-const openJupiterSwap = (token) => {
+const openJupiterSwap = (token, walletContextState) => {
   if (!token?.address) return
 
   const Jupiter = window.Jupiter
@@ -3811,6 +3811,8 @@ const openJupiterSwap = (token) => {
     displayMode: 'integrated',
     integratedTargetId: 'jupiter-plugin-inner',
     enableWalletPassthrough: true,
+    passthroughWalletContextState: walletContextState,
+    onRequestConnectWallet: () => { /* wallet already connected via passthrough */ },
     formProps: {
       initialInputMint: 'So11111111111111111111111111111111111111112',
       initialOutputMint: token.address,
@@ -3824,12 +3826,6 @@ const openJupiterSwap = (token) => {
       console.warn('[Jupiter] Swap error:', error)
     },
   })
-  // Sync wallet after init completes — plugin needs a tick to mount
-  setTimeout(() => {
-    if (_walletContextState && window.Jupiter?.syncProps) {
-      window.Jupiter.syncProps({ passthroughWalletContextState: _walletContextState })
-    }
-  }, 100)
 }
 // ─── Beta Row ────────────────────────────────────────────────────
 
@@ -6427,7 +6423,7 @@ export default function App() {
           <button className="mobile-back-btn" onClick={() => setMobileView('list')}>← RUNNERS</button>
           {isSzn
             ? <SznPanel  szn={selectedAlpha}   onListBeta={() => setShowListModal(selectedAlpha || true)} onOpenDrawer={setDrawerToken} />
-            : <BetaPanel alpha={selectedAlpha} liveAlphas={appLiveAlphas} onListBeta={() => setShowListModal(selectedAlpha || true)} onOpenDrawer={setDrawerToken} onSwap={(t) => openJupiterSwap(t)} onScrollToAlpha={handleScrollToAlpha} onCustomSearch={handleSearchCustomAlpha} customAlphaLoading={customAlphaLoading} customAlphaError={customAlphaError} settings={settings} isAuthed={isAuthed} authToken={authToken} authWallet={authWallet} onBoostSuccess={(boost) => { console.log('[App] Boost confirmed:', boost.token_symbol, 'slot', boost.slot_number) }} isPro={isPro} onUpgrade={() => setShowProModal(true)} />
+            : <BetaPanel alpha={selectedAlpha} liveAlphas={appLiveAlphas} onListBeta={() => setShowListModal(selectedAlpha || true)} onOpenDrawer={setDrawerToken} onSwap={(t) => openJupiterSwap(t, walletContextState)} onScrollToAlpha={handleScrollToAlpha} onCustomSearch={handleSearchCustomAlpha} customAlphaLoading={customAlphaLoading} customAlphaError={customAlphaError} settings={settings} isAuthed={isAuthed} authToken={authToken} authWallet={authWallet} onBoostSuccess={(boost) => { console.log('[App] Boost confirmed:', boost.token_symbol, 'slot', boost.slot_number) }} isPro={isPro} onUpgrade={() => setShowProModal(true)} />
           }
         </div>
       </div>
@@ -6612,7 +6608,7 @@ export default function App() {
             token={drawerToken}
             alpha={selectedAlpha}
             onClose={() => setDrawerToken(null)}
-            onSwap={(t) => { setDrawerToken(null); openJupiterSwap(t) }}
+            onSwap={(t) => { setDrawerToken(null); openJupiterSwap(t, walletContextState) }}
           />
         </>,
         document.body
