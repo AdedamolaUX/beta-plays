@@ -6091,10 +6091,9 @@ export default function App() {
     localStorage.removeItem('betaplays_wallet')
     setAuthToken(null)
     setAuthWallet(null)
-    // Note: we don't call disconnect() — it crashes React 19 + wallet adapter
-    // due to portal removeChild conflict. User stays wallet-connected but loses JWT.
-    // They can disconnect from Phantom extension directly if needed.
-  }, [])
+    // Open wallet picker so user can connect a different wallet if needed
+    setTimeout(() => setWalletModalVisible(true), 100)
+  }, [setWalletModalVisible])
 
   const { settings, updateSetting, resetSettings } = useSettings()
 

@@ -1123,6 +1123,11 @@ body {
 
 .wallet-adapter-modal-overlay {
   background: rgba(0,0,0,0.8) !important;
+  z-index: 99999 !important;
+}
+
+.wallet-adapter-modal {
+  z-index: 99999 !important;
 }
 
 .wallet-adapter-collapse-ul .wallet-adapter-button {
