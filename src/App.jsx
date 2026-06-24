@@ -3809,6 +3809,7 @@ const openJupiterSwap = (token) => {
   Jupiter.init({
     displayMode: 'integrated',
     integratedTargetId: 'jupiter-plugin-inner',
+    strictTokenList: false,
     formProps: {
       initialInputMint: 'So11111111111111111111111111111111111111112',
       initialOutputMint: token.address,
