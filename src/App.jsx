@@ -3767,6 +3767,7 @@ const NominateSearchBar = () => {
 // No referralAccount for now — causes init error until properly registered
 // under the Plugin project. Re-add once confirmed working end-to-end.
 let isJupiterOpen = false
+let _walletContextState = null // kept in sync by App useEffect
 
 const openJupiterSwap = (token) => {
   if (!token?.address) return
@@ -3809,6 +3810,7 @@ const openJupiterSwap = (token) => {
   Jupiter.init({
     displayMode: 'integrated',
     integratedTargetId: 'jupiter-plugin-inner',
+    enableWalletPassthrough: true,
     formProps: {
       initialInputMint: 'So11111111111111111111111111111111111111112',
       initialOutputMint: token.address,
@@ -3822,6 +3824,12 @@ const openJupiterSwap = (token) => {
       console.warn('[Jupiter] Swap error:', error)
     },
   })
+  // Sync wallet after init completes — plugin needs a tick to mount
+  setTimeout(() => {
+    if (_walletContextState && window.Jupiter?.syncProps) {
+      window.Jupiter.syncProps({ passthroughWalletContextState: _walletContextState })
+    }
+  }, 100)
 }
 // ─── Beta Row ────────────────────────────────────────────────────
 
@@ -5997,6 +6005,13 @@ export default function App() {
   // ── Wallet auth ──────────────────────────────────────────────────
   const { publicKey, signMessage, connected, sendTransaction } = useWallet()
   const { setVisible: setWalletModalVisible } = useWalletModal()
+  const walletContextState = useWallet()
+  useEffect(() => {
+    _walletContextState = walletContextState
+    if (window.Jupiter?.syncProps) {
+      window.Jupiter.syncProps({ passthroughWalletContextState: walletContextState })
+    }
+  }, [connected])
   const [showWalletModal, setShowWalletModal] = useState(false)
   const [authToken,    setAuthToken]    = useState(() => localStorage.getItem('betaplays_jwt') || null)
   const [authWallet,   setAuthWallet]   = useState(() => localStorage.getItem('betaplays_wallet') || null)
