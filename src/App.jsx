@@ -3769,7 +3769,7 @@ const NominateSearchBar = () => {
 const openJupiterSwap = (token) => {
   if (!token?.address) return
   const SOL_MINT = 'So11111111111111111111111111111111111111112'
-  window.open(`https://jup.ag/swap?inputMint=${SOL_MINT}&outputMint=${token.address}`, '_blank', 'noopener,noreferrer')
+  window.open(`https://jup.ag/swap?sell=${SOL_MINT}&buy=${token.address}`, '_blank', 'noopener,noreferrer')
 }
 // ─── Beta Row ────────────────────────────────────────────────────
 
