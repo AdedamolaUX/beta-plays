@@ -3768,7 +3768,8 @@ const NominateSearchBar = () => {
 // under the Plugin project. Re-add once confirmed working end-to-end.
 const openJupiterSwap = (token) => {
   if (!token?.address) return
-  window.open(`https://jup.ag/swap/SOL-${token.address}`, '_blank', 'noopener,noreferrer')
+  const SOL_MINT = 'So11111111111111111111111111111111111111112'
+  window.open(`https://jup.ag/swap?inputMint=${SOL_MINT}&outputMint=${token.address}`, '_blank', 'noopener,noreferrer')
 }
 // ─── Beta Row ────────────────────────────────────────────────────
 
