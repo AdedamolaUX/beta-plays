@@ -1064,15 +1064,16 @@ body {
   to   { transform: translateX(0);    opacity: 1; }
 }
 /* ─── Wallet Adapter Modal Overrides ──────────────────────────── */
-.wallet-adapter-modal-wrapper {
+/* Wallet adapter overrides — body prefix for specificity over adapter stylesheet */
+body .wallet-adapter-modal-wrapper {
   background: #1a2133 !important;
-  border: 1px solid rgba(0,212,255,0.25) !important;
+  border: 1px solid rgba(0,212,255,0.3) !important;
   border-radius: 16px !important;
   font-family: var(--font-mono) !important;
-  box-shadow: 0 0 40px rgba(0,212,255,0.12), 0 20px 60px rgba(0,0,0,0.95) !important;
+  box-shadow: 0 0 40px rgba(0,212,255,0.15), 0 20px 60px rgba(0,0,0,0.95) !important;
 }
 
-.wallet-adapter-modal-title {
+body .wallet-adapter-modal-title {
   font-family: var(--font-display) !important;
   font-size: 18px !important;
   font-weight: 700 !important;
@@ -1080,62 +1081,63 @@ body {
   letter-spacing: 0.02em !important;
 }
 
-.wallet-adapter-modal-list li {
+body .wallet-adapter-modal-list li {
   font-family: var(--font-mono) !important;
 }
 
-.wallet-adapter-button {
+body .wallet-adapter-button {
   font-family: var(--font-mono) !important;
   font-size: 13px !important;
   font-weight: 600 !important;
   background: #1e2a3a !important;
-  border: 1px solid rgba(255,255,255,0.12) !important;
+  border: 1px solid rgba(255,255,255,0.15) !important;
   border-radius: 10px !important;
   color: #ffffff !important;
   transition: all 0.15s ease !important;
 }
 
-.wallet-adapter-button:hover {
-  background: rgba(0,212,255,0.08) !important;
-  border-color: rgba(0,212,255,0.4) !important;
-  color: var(--cyan) !important;
+body .wallet-adapter-button:hover {
+  background: rgba(0,212,255,0.12) !important;
+  border-color: rgba(0,212,255,0.5) !important;
+  color: #00d4ff !important;
 }
 
-.wallet-adapter-button-trigger {
-  background: var(--surface-2) !important;
+body .wallet-adapter-button-trigger {
+  background: #1e2a3a !important;
 }
 
-.wallet-adapter-modal-list .wallet-adapter-button {
+body .wallet-adapter-modal-list .wallet-adapter-button {
   width: 100% !important;
   justify-content: space-between !important;
   padding: 14px 18px !important;
 }
 
-.wallet-adapter-modal-list-more {
+body .wallet-adapter-modal-list-more {
   font-family: var(--font-mono) !important;
   font-size: 12px !important;
-  color: var(--text-secondary) !important;
+  color: rgba(255,255,255,0.5) !important;
 }
 
-.wallet-adapter-modal-list-more:hover {
-  color: var(--cyan) !important;
+body .wallet-adapter-modal-list-more:hover {
+  color: #00d4ff !important;
 }
 
-.wallet-adapter-modal-overlay {
+body .wallet-adapter-modal-overlay {
   background: rgba(0,0,0,0.85) !important;
   z-index: 99999 !important;
 }
 
-.wallet-adapter-modal {
+body .wallet-adapter-modal {
   z-index: 99999 !important;
 }
 
-.wallet-adapter-collapse-ul .wallet-adapter-button {
-  background: var(--surface-2) !important;
+body .wallet-adapter-collapse-ul .wallet-adapter-button {
+  background: #1e2a3a !important;
 }
 
-.wallet-adapter-button p {
+body .wallet-adapter-button p {
   font-family: var(--font-mono) !important;
+  color: #ffffff !important;
 }
 /* ============================================================
    BETAPLAYS LANDING PAGE — lp-* namespace
