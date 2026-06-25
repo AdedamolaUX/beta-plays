@@ -6,7 +6,7 @@ import App from './App.jsx'
 import LandingPage from './LandingPage.jsx'
 import { ConnectionProvider, WalletProvider } from '@solana/wallet-adapter-react'
 import { WalletModalProvider } from '@solana/wallet-adapter-react-ui'
-import { PhantomWalletAdapter, SolflareWalletAdapter } from '@solana/wallet-adapter-wallets'
+import { PhantomWalletAdapter, SolflareWalletAdapter, WalletConnectWalletAdapter } from '@solana/wallet-adapter-wallets'
 import '@solana/wallet-adapter-react-ui/styles.css'
 
 class ErrorBoundary extends Component {
@@ -30,6 +30,18 @@ function Root () {
   const wallets = useMemo(() => [
     new PhantomWalletAdapter(),
     new SolflareWalletAdapter(),
+    new WalletConnectWalletAdapter({
+      network: 'mainnet-beta',
+      options: {
+        projectId: '01a7314408e23e20dbc552a68f8f8881',
+        metadata: {
+          name: 'BetaPlays',
+          description: 'Solana beta token discovery',
+          url: 'https://betaplays.fun',
+          icons: ['https://betaplays.fun/favicon.ico'],
+        },
+      },
+    }),
   ], [])
 
   return (
