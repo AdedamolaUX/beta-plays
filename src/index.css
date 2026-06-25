@@ -1065,18 +1065,18 @@ body {
 }
 /* ─── Wallet Adapter Modal Overrides ──────────────────────────── */
 .wallet-adapter-modal-wrapper {
-  background: var(--surface-1) !important;
-  border: 1px solid var(--border) !important;
+  background: #1a2133 !important;
+  border: 1px solid rgba(0,212,255,0.25) !important;
   border-radius: 16px !important;
   font-family: var(--font-mono) !important;
-  box-shadow: 0 0 40px rgba(0,212,255,0.08), 0 20px 60px rgba(0,0,0,0.9) !important;
+  box-shadow: 0 0 40px rgba(0,212,255,0.12), 0 20px 60px rgba(0,0,0,0.95) !important;
 }
 
 .wallet-adapter-modal-title {
   font-family: var(--font-display) !important;
   font-size: 18px !important;
   font-weight: 700 !important;
-  color: var(--text-primary) !important;
+  color: #ffffff !important;
   letter-spacing: 0.02em !important;
 }
 
@@ -1088,10 +1088,10 @@ body {
   font-family: var(--font-mono) !important;
   font-size: 13px !important;
   font-weight: 600 !important;
-  background: var(--surface-2) !important;
-  border: 1px solid var(--border) !important;
+  background: #1e2a3a !important;
+  border: 1px solid rgba(255,255,255,0.12) !important;
   border-radius: 10px !important;
-  color: var(--text-primary) !important;
+  color: #ffffff !important;
   transition: all 0.15s ease !important;
 }
 
@@ -1122,7 +1122,7 @@ body {
 }
 
 .wallet-adapter-modal-overlay {
-  background: rgba(0,0,0,0.8) !important;
+  background: rgba(0,0,0,0.85) !important;
   z-index: 99999 !important;
 }
 
