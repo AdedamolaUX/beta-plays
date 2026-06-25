@@ -7,7 +7,7 @@ import LandingPage from './LandingPage.jsx'
 import { ConnectionProvider, WalletProvider } from '@solana/wallet-adapter-react'
 import { WalletModalProvider } from '@solana/wallet-adapter-react-ui'
 import { PhantomWalletAdapter, SolflareWalletAdapter, WalletConnectWalletAdapter } from '@solana/wallet-adapter-wallets'
-import '@solana/wallet-adapter-react-ui/styles.css'
+// wallet-adapter styles intentionally omitted — custom styles in index.css
 
 class ErrorBoundary extends Component {
   constructor(props) { super(props); this.state = { error: null } }
