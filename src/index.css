@@ -2490,6 +2490,11 @@ body {
     align-items: center !important;
     text-align: center !important;
   }
+  .beta-row-metric {
+    display: flex !important;
+    flex-direction: column !important;
+    gap: 2px !important;
+  }
   .beta-row-metric-label {
     font-family: var(--font-mono) !important;
     font-size: 9px !important;
@@ -2499,28 +2504,11 @@ body {
   }
   .beta-row-metric-value {
     font-family: var(--font-number) !important;
+    font-variant-numeric: tabular-nums !important;
     font-size: 12px !important;
     font-weight: 700 !important;
     color: var(--text-primary) !important;
     white-space: nowrap !important;
-  }
-  .beta-row-metric {
-    display: flex !important;
-    flex-direction: column !important;
-    gap: 2px !important;
-  }
-  .beta-row-metric-label {
-    font-family: var(--font-mono) !important;
-    font-size: 7px !important;
-    color: var(--text-muted) !important;
-    text-transform: uppercase !important;
-    letter-spacing: 0.6px !important;
-  }
-  .beta-row-metric-value {
-    font-family: var(--font-number) !important;
-    font-size: 12px !important;
-    font-weight: 700 !important;
-    color: var(--text-primary) !important;
   }
   .beta-row-metric-value.positive { color: var(--neon-green) !important; }
   .beta-row-metric-value.negative { color: var(--red) !important; }
