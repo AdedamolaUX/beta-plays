@@ -2711,12 +2711,30 @@ app.post('/api/record-parent', (req, res) => {
 // Cached in memory for 5 minutes — called frequently by every useBetas fetchBetas.
 let _parentMapCache     = null
 let _parentMapCacheTime = 0
-const PARENT_MAP_TTL_MS = 5 * 60 * 1000  // cache busted — now includes source_type
+const PARENT_MAP_TTL_MS = 30 * 60 * 1000  // 30 min — reduces Supabase egress
 
 app.get('/api/parent-map', async (req, res) => {
   if (!process.env.DATABASE_URL) return res.json({ map: {} })
 
-  // Serve from cache if fresh
+  // Single-token lookup — called by useParentAlpha on cache miss
+  const { address } = req.query
+  if (address) {
+    try {
+      const result = await db.query(
+        `SELECT address, parent_address, parent_symbol, source_type
+         FROM tokens WHERE address = $1 AND parent_address IS NOT NULL AND parent_address != ''`,
+        [address]
+      )
+      if (result.rows.length === 0) return res.json({ map: {} })
+      const row = result.rows[0]
+      return res.json({ map: { [row.address]: { address: row.parent_address, symbol: row.parent_symbol, sourceType: row.source_type || 'root' } } })
+    } catch (err) {
+      console.error('[DB] parent-map single lookup error:', err.message)
+      return res.status(500).json({ error: 'db read failed' })
+    }
+  }
+
+  // Full dump — serve from cache if fresh
   const now = Date.now()
   if (_parentMapCache && (now - _parentMapCacheTime) < PARENT_MAP_TTL_MS) {
     return res.json({ map: _parentMapCache })
@@ -2738,7 +2756,6 @@ app.get('/api/parent-map', async (req, res) => {
     return res.json({ map })
   } catch (err) {
     console.error('[DB] parent-map error:', err.message)
-    // Return stale cache if available rather than erroring
     if (_parentMapCache) return res.json({ map: _parentMapCache })
     return res.status(500).json({ error: 'db read failed' })
   }

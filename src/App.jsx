@@ -2316,10 +2316,8 @@ const AlphaBoard = ({ selectedAlpha, onSelect, onNewRunners, onLiveAlphas, onSzn
       }).catch(() => {})
     }
 
-    fetch(`${BACKEND_URL}/api/parent-map`)
-      .then(r => r.ok ? r.json() : { map: {} })
-      .then(({ map }) => applyParentMapAndReport({ ...localParentMap, ...map }))
-      .catch(() => applyParentMapAndReport(localParentMap))
+    // Use localStorage only for report-alphas warmup — avoids full dump on every feed refresh
+    applyParentMapAndReport(localParentMap)
   }, [liveAlphas, coolingAlphas])
 
   const rawList =

@@ -49,39 +49,26 @@ const saveParentToHistory = (parent, derivative, sourceType = 'root') => {
   }).catch(err => console.warn('[ParentMap] Supabase write failed:', err.message))
 }
 
-// ─── Load parent map from Supabase ───────────────────────────────
-// Returns { [derivativeAddress]: { symbol, address } }
-// Same shape as betaplays_parent_map in localStorage.
-// Falls back to localStorage if Supabase is unavailable.
-let _parentMapCache     = null
-let _parentMapCacheTime = 0
-const PARENT_MAP_TTL_MS = 5 * 60 * 1000  // 5 minutes
-
-const loadParentMap = async () => {
-  const now = Date.now()
-  if (_parentMapCache && (now - _parentMapCacheTime) < PARENT_MAP_TTL_MS) {
-    return _parentMapCache
-  }
+// ─── Load parent for a specific address from Supabase ───────────
+// Queries a single token's parent — no full dump, no growing payload.
+// Merges result into localStorage so subsequent reads are instant.
+const loadParentForAddress = async (address) => {
   try {
-    const res = await fetch(`${BACKEND_URL}/api/parent-map`)
+    const res = await fetch(`${BACKEND_URL}/api/parent-map?address=${encodeURIComponent(address)}`)
     if (!res.ok) throw new Error('parent-map fetch failed')
     const { map } = await res.json()
-    if (map && Object.keys(map).length > 0) {
-      // Merge with localStorage so locally-discovered parents aren't lost
+    if (map && map[address]) {
+      // Write result into localStorage for instant reads next time
       const local = JSON.parse(localStorage.getItem('betaplays_parent_map') || '{}')
-      const merged = { ...local, ...map }  // Supabase wins on conflict
-      localStorage.setItem('betaplays_parent_map', JSON.stringify(merged))
-      _parentMapCache     = merged
-      _parentMapCacheTime = now
-      console.log(`[ParentMap] Loaded ${Object.keys(map).length} parent relationship(s) from Supabase`)
-      return merged
+      local[address] = map[address]
+      localStorage.setItem('betaplays_parent_map', JSON.stringify(local))
+      console.log(`[ParentMap] Loaded parent for ${address.slice(0,8)}: $${map[address].symbol}`)
+      return map[address]
     }
-  } catch { /* fall through to localStorage */ }
-
-  // Fallback: localStorage
-  try {
-    return JSON.parse(localStorage.getItem('betaplays_parent_map') || '{}')
-  } catch { return {} }
+  } catch (err) {
+    console.warn('[ParentMap] Single lookup failed:', err.message)
+  }
+  return null
 }
 
 // ─── Fetch token description from DEXScreener ────────────────────
@@ -348,6 +335,30 @@ const useParentAlpha = (alpha, liveAlphas = [], resolvedDescription = null) => {
     setParent(null)
 
     const symbol = alpha.symbol.toUpperCase()
+
+    // ── Step 0: Check localStorage then Supabase before running discovery ──
+    // Avoids full DEXScreener search when parent is already known.
+    try {
+      const localMap = JSON.parse(localStorage.getItem('betaplays_parent_map') || '{}')
+      if (localMap[alpha.address]) {
+        const cached = localMap[alpha.address]
+        console.log(`[ParentSearch] Cache hit for $${symbol}: $${cached.symbol}`)
+        // We have address+symbol but not full token data — still need to setParent with
+        // minimal shape so DERIV badge renders. Full data comes from useBetas price refresh.
+        setParent({ address: cached.address, symbol: cached.symbol, name: cached.symbol, priceUsd: '0', marketCap: 0, liquidity: 0, volume24h: 0, priceChange24h: 0, logoUrl: null })
+        setLoading(false)
+        return
+      }
+    } catch { /* fall through */ }
+
+    // localStorage miss — check Supabase for cross-device hit
+    const supabaseParent = await loadParentForAddress(alpha.address)
+    if (supabaseParent) {
+      console.log(`[ParentSearch] Supabase hit for $${symbol}: $${supabaseParent.symbol}`)
+      setParent({ address: supabaseParent.address, symbol: supabaseParent.symbol, name: supabaseParent.symbol, priceUsd: '0', marketCap: 0, liquidity: 0, volume24h: 0, priceChange24h: 0, logoUrl: null })
+      setLoading(false)
+      return
+    }
 
     // Build live address set inside callback — always fresh
     const liveAddressSet = new Set((liveAlphas || []).map(a => a.address).filter(Boolean))
