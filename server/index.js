@@ -3160,47 +3160,51 @@ app.get('/api/beta-history', async (req, res) => {
 //   - their confirmed beta relationships with performance data
 //   - narrative category
 //   - source breakdown
+// Cache keyed by days — users can switch 7/30/90 day views, each gets its own cache entry
+const PAST_RUNNERS_TTL_MS = 15 * 60 * 1000  // 15 minutes
+const _pastRunnersCache   = new Map()         // key: days → { data, ts }
+
 app.get('/api/past-runners', async (req, res) => {
   if (!process.env.DATABASE_URL) return res.json({ runners: [] })
   const days  = Math.min(parseInt(req.query.days)  || 30, 90)
   const limit = Math.min(parseInt(req.query.limit) || 50, 100)
 
+  // Serve from cache if fresh — all users share one DB read per 15 minutes per day-range
+  const cached = _pastRunnersCache.get(days)
+  if (cached && (Date.now() - cached.ts) < PAST_RUNNERS_TTL_MS) {
+    return res.json({ runners: cached.data })
+  }
+
   try {
-    // One row per token — aggregate run data + latest snapshot
-    const runnersResult = await db.query(`
+    // Fix 2: single query replaces N+1 loop — fetch runners + top 5 betas in one round trip
+    // LEFT JOIN LATERAL picks the top 5 betas per runner ordered by confirmed_count DESC.
+    const result = await db.query(`
       SELECT
         t.address,
         t.symbol,
         t.name,
-        t.logo_url            AS "logoUrl",
-        t.peak_mcap           AS "peakMcap",
-        t.first_seen          AS "firstSeen",
-        t.last_seen           AS "lastSeen",
+        t.logo_url                AS "logoUrl",
+        t.peak_mcap               AS "peakMcap",
+        t.first_seen              AS "firstSeen",
+        t.last_seen               AS "lastSeen",
         t.category,
-        COUNT(r.id)           AS "runCount",
-        MAX(r.mcap)           AS "maxMcap",
-        MAX(r.price)          AS "maxPrice",
-        AVG(r.price_change_24h) AS "avgChange24h",
+        COUNT(r.id)               AS "runCount",
+        MAX(r.mcap)               AS "maxMcap",
+        MAX(r.price)              AS "maxPrice",
+        AVG(r.price_change_24h)   AS "avgChange24h",
         array_agg(DISTINCT r.source) FILTER (WHERE r.source IS NOT NULL) AS sources,
-        (SELECT COUNT(*) FROM beta_relations br WHERE br.alpha_address = t.address) AS "betaCount",
-        (SELECT MAX(br.confirmed_count) FROM beta_relations br WHERE br.alpha_address = t.address) AS "topBetaConfirmedCount"
+        COUNT(DISTINCT br_all.beta_address)           AS "betaCount",
+        MAX(br_all.confirmed_count)                   AS "topBetaConfirmedCount",
+        json_agg(top_betas.*) FILTER (WHERE top_betas.address IS NOT NULL) AS "topBetas"
       FROM tokens t
       JOIN alpha_runs r ON r.token_address = t.address
-      WHERE r.timestamp > NOW() - ($1 || ' days')::INTERVAL
-      GROUP BY t.address, t.symbol, t.name, t.logo_url, t.peak_mcap, t.first_seen, t.last_seen, t.category
-      ORDER BY COUNT(r.id) DESC, MAX(r.mcap) DESC
-      LIMIT $2
-    `, [days, limit])
-
-    // For each runner, fetch its top 5 confirmed betas
-    const runners = []
-    for (const runner of runnersResult.rows) {
-      const betasResult = await db.query(`
+      LEFT JOIN beta_relations br_all ON br_all.alpha_address = t.address
+      LEFT JOIN LATERAL (
         SELECT
           br.beta_address                AS address,
-          t.symbol,
-          t.name,
-          t.logo_url                     AS "logoUrl",
+          bt.symbol,
+          bt.name,
+          bt.logo_url                    AS "logoUrl",
           br.signals,
           br.score,
           br.relationship_type           AS "relationshipType",
@@ -3210,34 +3214,42 @@ app.get('/api/past-runners', async (req, res) => {
           br.beta_mcap_at_detection      AS "mcapAtDetection",
           br.alpha_price_at_detection    AS "alphaPriceAtDetection"
         FROM beta_relations br
-        JOIN tokens t ON t.address = br.beta_address
-        WHERE br.alpha_address = $1
+        JOIN tokens bt ON bt.address = br.beta_address
+        WHERE br.alpha_address = t.address
         ORDER BY br.confirmed_count DESC, br.score DESC
         LIMIT 5
-      `, [runner.address])
+      ) top_betas ON true
+      WHERE r.timestamp > NOW() - ($1 || ' days')::INTERVAL
+      GROUP BY t.address, t.symbol, t.name, t.logo_url, t.peak_mcap, t.first_seen, t.last_seen, t.category
+      ORDER BY COUNT(r.id) DESC, MAX(r.mcap) DESC
+      LIMIT $2
+    `, [days, limit])
 
-      runners.push({
-        ...runner,
-        runCount:    parseInt(runner.runCount)    || 0,
-        betaCount:   parseInt(runner.betaCount)   || 0,
-        peakMcap:    parseFloat(runner.peakMcap)  || 0,
-        maxMcap:     parseFloat(runner.maxMcap)   || 0,
-        firstSeen:   runner.firstSeen  ? new Date(runner.firstSeen).getTime()  : null,
-        lastSeen:    runner.lastSeen   ? new Date(runner.lastSeen).getTime()   : null,
-        topBetas:    betasResult.rows.map(b => ({
-          ...b,
-          confirmedCount: parseInt(b.confirmedCount) || 0,
-          firstSeen:      b.firstSeen ? new Date(b.firstSeen).getTime() : null,
-          priceAtDetection:      parseFloat(b.priceAtDetection)      || null,
-          mcapAtDetection:       parseFloat(b.mcapAtDetection)       || null,
-          alphaPriceAtDetection: parseFloat(b.alphaPriceAtDetection) || null,
-        })),
-      })
-    }
+    const runners = result.rows.map(runner => ({
+      ...runner,
+      runCount:  parseInt(runner.runCount)  || 0,
+      betaCount: parseInt(runner.betaCount) || 0,
+      peakMcap:  parseFloat(runner.peakMcap) || 0,
+      maxMcap:   parseFloat(runner.maxMcap)  || 0,
+      firstSeen: runner.firstSeen ? new Date(runner.firstSeen).getTime() : null,
+      lastSeen:  runner.lastSeen  ? new Date(runner.lastSeen).getTime()  : null,
+      topBetas:  (runner.topBetas || []).map(b => ({
+        ...b,
+        confirmedCount:        parseInt(b.confirmedCount)          || 0,
+        firstSeen:             b.firstSeen ? new Date(b.firstSeen).getTime() : null,
+        priceAtDetection:      parseFloat(b.priceAtDetection)      || null,
+        mcapAtDetection:       parseFloat(b.mcapAtDetection)       || null,
+        alphaPriceAtDetection: parseFloat(b.alphaPriceAtDetection) || null,
+      })),
+    }))
 
+    _pastRunnersCache.set(days, { data: runners, ts: Date.now() })
     return res.json({ runners })
   } catch (err) {
     console.error('[DB] past-runners error:', err.message)
+    // Return stale cache if available rather than erroring
+    const stale = _pastRunnersCache.get(days)
+    if (stale) return res.json({ runners: stale.data })
     return res.status(500).json({ error: 'db read failed' })
   }
 })
