@@ -572,6 +572,13 @@ body {
   justify-content: space-between;
 }
 
+/* Desktop: cap token name width so long tickers truncate with ellipsis */
+@media (min-width: 769px) {
+  .alpha-card .token-name {
+    max-width: 110px;
+  }
+}
+
 .token-info {
   display: flex;
   align-items: center;

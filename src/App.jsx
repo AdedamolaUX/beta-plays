@@ -1293,6 +1293,7 @@ const AlphaCard = ({ alpha, isSelected, onClick, isWatched, onToggleWatch, isCal
             <div style={{ display: 'flex', alignItems: 'center', gap: 4, flexWrap: 'nowrap', overflow: 'hidden' }}>
               <div
                 className="token-name alpha-sym-copy"
+                title={`$${alpha.symbol}`}
                 style={{ flexShrink: 0, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}
                 onClick={e => { e.stopPropagation(); copyCA() }}
                 onTouchStart={onTouchStart}
