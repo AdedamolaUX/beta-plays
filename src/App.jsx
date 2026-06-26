@@ -3820,7 +3820,7 @@ const BetaRow = ({ beta, alpha, isPinned, isBoosted, isListed, trenchOnly, onOpe
       {/* ── Mobile card layout — hidden on desktop ── */}
       <div className="beta-card-top">
         <div className="beta-card-left">
-          <div className="token-icon" style={{ width: 32, height: 32, fontSize: 9, flexShrink: 0, borderRadius: '50%', background: 'var(--surface-3)', border: '1px solid var(--border)', display: 'flex', alignItems: 'center', justifyContent: 'center', overflow: 'hidden' }}>
+          <div className="token-icon" style={{ width: 36, height: 36, fontSize: 9, flexShrink: 0, borderRadius: '50%', background: 'var(--surface-3)', border: '1px solid var(--border)', display: 'flex', alignItems: 'center', justifyContent: 'center', overflow: 'hidden' }}>
             {beta.logoUrl ? <img src={beta.logoUrl} alt={beta.symbol} style={{ width: '100%', height: '100%', objectFit: 'cover' }} /> : beta.symbol.slice(0, 3)}
           </div>
           <div style={{ minWidth: 0 }}>

@@ -2376,17 +2376,7 @@ body {
     position: relative !important;
   }
 
-  /* Tighter token icon on mobile — matches alpha card */
-  .beta-card-top .token-icon {
-    width: 28px !important;
-    height: 28px !important;
-    flex-shrink: 0 !important;
-  }
-  .beta-card-top .token-icon img {
-    width: 28px !important;
-    height: 28px !important;
-    border-radius: 50% !important;
-  }
+  /* Token icon matches alpha card at 36px — set in JSX inline style */
 
   /* Hide original grid children — but NOT on szn-row */
   .beta-row:not(.szn-row) > .token-info,
@@ -2489,8 +2479,8 @@ body {
     justify-content: space-between !important;
     width: 100% !important;
     border-top: 1px solid var(--border) !important;
-    padding-top: 8px !important;
-    margin-top: 4px !important;
+    padding-top: 6px !important;
+    margin-top: 2px !important;
   }
   .beta-row-metric {
     display: flex !important;
