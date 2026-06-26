@@ -2451,43 +2451,6 @@ const AlphaBoard = ({ selectedAlpha, onSelect, onNewRunners, onLiveAlphas, onSzn
 
   const isEmpty = !loading && displayList.length === 0
 
-  // History tab removed — use Past Runners tab instead
-
-  useEffect(() => {
-    const liveSet = new Set(liveAlphas.map(a => a.address))
-
-    const fetchHistory = async () => {
-      try {
-        const res = await fetch(`${BACKEND_URL}/api/history?days=7`)
-        if (!res.ok) throw new Error('history api failed')
-        const { tokens } = await res.json()
-        if (Array.isArray(tokens) && tokens.length > 0) {
-          const filtered = tokens
-            .filter(a => a && a.symbol && a.address && !liveSet.has(a.address))
-            .sort((a, b) => new Date(b.lastSeen || 0) - new Date(a.lastSeen || 0))
-            .slice(0, 50)
-          setHistoryAlphas(filtered)
-          return
-        }
-      } catch { /* fall through to localStorage */ }
-
-      // Fallback: localStorage (works offline, pre-DB data)
-      try {
-        const seen = JSON.parse(localStorage.getItem('betaplays_seen_alphas') || '{}')
-        const cutoff = Date.now() - 7 * 24 * 60 * 60 * 1000
-        const filtered = Object.values(seen)
-          .filter(a => a && typeof a === 'object' && a.symbol && a.address &&
-            !liveSet.has(a.address) &&
-            ((a.lastSeen && a.lastSeen > cutoff) || (a.timestamp && a.timestamp > cutoff)))
-          .sort((a, b) => (b.lastSeen || b.timestamp || 0) - (a.lastSeen || a.timestamp || 0))
-          .slice(0, 50)
-        setHistoryAlphas(filtered)
-      } catch { setHistoryAlphas([]) }
-    }
-
-    fetchHistory()
-  }, [liveAlphas])
-
   // ── Past Runners tab — historical alpha runners with beta performance ──
   const [pastRunners,        setPastRunners]        = useState([])
   const [pastRunnersLoading, setPastRunnersLoading] = useState(false)
