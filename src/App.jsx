@@ -2560,7 +2560,7 @@ const AlphaBoard = ({ selectedAlpha, onSelect, onNewRunners, onLiveAlphas, onSzn
       </div>
 
       {/* Tabs — scrollable single row */}
-      <div style={{
+      <div className="alpha-tab-strip" style={{
         display: 'flex', gap: 2,
         background: 'var(--surface-2)', padding: 3,
         borderRadius: 'var(--radius-md)', border: '1px solid var(--border)',
@@ -3029,7 +3029,7 @@ const AlphaBoard = ({ selectedAlpha, onSelect, onNewRunners, onLiveAlphas, onSzn
               <div key={alpha.id || alpha.address} data-address={alpha.address}>
                 <PositioningCard
                   alpha={alpha}
-                  isSelected={selectedAlpha?.id === alpha.id}
+                  isSelected={selectedAlpha?.address === alpha.address}
                   onClick={() => onSelect(alpha)}
                   isWatched={watched}
                   onToggleWatch={handleToggleWatch}
@@ -3052,7 +3052,7 @@ const AlphaBoard = ({ selectedAlpha, onSelect, onNewRunners, onLiveAlphas, onSzn
               )}
               <AlphaCard
                 alpha={alpha}
-                isSelected={selectedAlpha?.id === alpha.id}
+                isSelected={selectedAlpha?.address === alpha.address}
                 onClick={() => onSelect(alpha)}
                 isWatched={watched}
                 onToggleWatch={handleToggleWatch}

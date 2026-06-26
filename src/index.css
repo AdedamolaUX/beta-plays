@@ -441,13 +441,17 @@ body {
 }
 
 /* Tab strip scrollbar — thin on desktop, hidden on mobile (mobile overrides below) */
-.alpha-board > div[style*="overflowX"] {
+.alpha-board > div[style*="overflowX"],
+.alpha-tab-strip {
   scrollbar-width: thin;
   scrollbar-color: var(--neon-dim) transparent;
 }
-.alpha-board > div[style*="overflowX"]::-webkit-scrollbar { height: 3px; }
-.alpha-board > div[style*="overflowX"]::-webkit-scrollbar-track { background: transparent; }
-.alpha-board > div[style*="overflowX"]::-webkit-scrollbar-thumb { background: var(--neon-dim); border-radius: 2px; }
+.alpha-board > div[style*="overflowX"]::-webkit-scrollbar,
+.alpha-tab-strip::-webkit-scrollbar { height: 3px; }
+.alpha-board > div[style*="overflowX"]::-webkit-scrollbar-track,
+.alpha-tab-strip::-webkit-scrollbar-track { background: transparent; }
+.alpha-board > div[style*="overflowX"]::-webkit-scrollbar-thumb,
+.alpha-tab-strip::-webkit-scrollbar-thumb { background: var(--neon-dim); border-radius: 2px; }
 
 .alpha-board-header {
   display: flex;
@@ -2569,11 +2573,13 @@ body {
   /* ── Scrollable tabs & filter rows ── */
   /* Hide scrollbar on inline-styled tab row */
   .alpha-board > div[style*="overflowX"],
-  .alpha-board > div > div[style*="overflowX"] {
+  .alpha-board > div > div[style*="overflowX"],
+  .alpha-tab-strip {
     scrollbar-width: none !important;
   }
   .alpha-board > div[style*="overflowX"]::-webkit-scrollbar,
-  .alpha-board > div > div[style*="overflowX"]::-webkit-scrollbar {
+  .alpha-board > div > div[style*="overflowX"]::-webkit-scrollbar,
+  .alpha-tab-strip::-webkit-scrollbar {
     display: none !important;
   }
   .tab-row, .filter-tabs, .alpha-tabs, .source-filter-row {
@@ -2594,17 +2600,6 @@ body {
     -ms-overflow-style: none;
   }
   .settings-panel-scroll::-webkit-scrollbar { display: none; }
-
-  /* Hide scrollbars on main scrollable lists — mobile only */
-  .alpha-list,
-  .mobile-beta-wrapper .beta-panel,
-  .scroll-y {
-    scrollbar-width: none !important;
-    -ms-overflow-style: none !important;
-  }
-  .alpha-list::-webkit-scrollbar,
-  .mobile-beta-wrapper .beta-panel::-webkit-scrollbar,
-  .scroll-y::-webkit-scrollbar { display: none !important; }
 
   /* ── Misc ── */
   .alpha-board { padding: 10px; }
