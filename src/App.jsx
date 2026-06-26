@@ -1079,7 +1079,7 @@ const PositioningCard = ({ alpha, isSelected, onClick, isWatched, onToggleWatch 
     <div
       className={`card alpha-card ${isSelected ? 'active' : ''}`}
       onClick={onClick}
-      style={{ borderColor: isSelected ? 'var(--cyan)' : `${scoreColor}33` }}
+      style={{ borderColor: isSelected ? 'var(--cyan)' : 'var(--border)' }}
     >
       {/* Header */}
       <div className="alpha-card-top">
