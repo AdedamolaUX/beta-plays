@@ -1422,8 +1422,7 @@ const AlphaCard = ({ alpha, isSelected, onClick, isWatched, onToggleWatch, isCal
             </div>
           </div>
         </div>
-        <div className="alpha-card-right" style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 4 }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 5, flexWrap: 'nowrap' }}>
+        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 4 }}>
           <div className={`token-change ${isPositive ? 'positive' : 'negative'}`}>
             {isPositive ? '+' : ''}{change.toFixed(1)}%
           </div>
@@ -1532,7 +1531,6 @@ const AlphaCard = ({ alpha, isSelected, onClick, isWatched, onToggleWatch, isCal
             </span>
             </Tooltip>
             <XSearchButton symbol={alpha.symbol} onClick={e => e.stopPropagation()} />
-          </div>
           </div>
         </div>
       </div>
