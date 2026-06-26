@@ -2514,6 +2514,7 @@ const AlphaBoard = ({ selectedAlpha, onSelect, onNewRunners, onLiveAlphas, onSzn
               }
               if (e.key === 'Escape') setSearchQuery('')
             }}
+            className="alpha-search-input"
             style={{
               background: 'transparent', border: 'none', outline: 'none',
               fontFamily: 'var(--font-display)', fontSize: 11, fontWeight: 600,
