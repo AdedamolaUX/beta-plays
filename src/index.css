@@ -612,10 +612,19 @@ body {
     gap: 4px;
     justify-content: flex-end;
   }
-  .ac-star-group button {
+  .ac-star-group { align-items: center; }
+  .ac-alert-wrap { align-items: center; }
+  /* Uniform size for all buttons in star group, including nested (alert wrapper) */
+  .ac-star-group button,
+  .ac-star-group > div > button {
     font-size: 8px !important;
     padding: 1px 4px !important;
     line-height: 1.5 !important;
+  }
+  /* Alert wrapper div — strip any layout contribution */
+  .ac-star-group > div {
+    display: flex;
+    align-items: center;
   }
   .alpha-card .token-name {
     max-width: 110px;
