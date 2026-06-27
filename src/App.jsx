@@ -1291,9 +1291,10 @@ const AlphaCard = ({ alpha, isSelected, onClick, isWatched, onToggleWatch, isCal
           </div>
           <div>
             <div style={{ display: 'flex', alignItems: 'center', gap: 4, flexWrap: 'nowrap', overflow: 'hidden' }}>
+              <Tooltip text={`$${alpha.symbol}`}>
               <div
                 className="token-name alpha-sym-copy"
-                style={{ flexShrink: 0, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}
+                style={{ flexShrink: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}
                 onClick={e => { e.stopPropagation(); copyCA() }}
                 onTouchStart={onTouchStart}
                 onTouchEnd={onTouchEnd}
@@ -1303,6 +1304,7 @@ const AlphaCard = ({ alpha, isSelected, onClick, isWatched, onToggleWatch, isCal
                   ? <span style={{ color: 'var(--neon-green)', fontSize: 9, fontFamily: 'var(--font-mono)', fontWeight: 700 }}>✓ copied</span>
                   : `$${alpha.symbol}`}
               </div>
+              </Tooltip>
               {derivative && (
                 <Tooltip text={parentSymbol ? `Derivative of $${parentSymbol}` : 'Derivative token — shares narrative with a parent alpha'}>
                   <span className="badge badge-new alpha-card-badge alpha-badge-desktop-hide" style={{ fontSize: 11, padding: '1px 3px', cursor: 'default' }}>🧬</span>
