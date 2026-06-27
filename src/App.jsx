@@ -1422,13 +1422,12 @@ const AlphaCard = ({ alpha, isSelected, onClick, isWatched, onToggleWatch, isCal
             </div>
           </div>
         </div>
-        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 4 }}>
-          <div className={`token-change ${isPositive ? 'positive' : 'negative'}`}>
+        <div className="ac-right" style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 4 }}>
+          <div className={`token-change ac-pct-mobile ${isPositive ? 'positive' : 'negative'}`}>
             {isPositive ? '+' : ''}{change.toFixed(1)}%
           </div>
-          {/* Actions: star + folio call + DEX link */}
-          <div className="ac-actions" style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 3 }}>
-            <div className="ac-row1" style={{ display: 'flex', alignItems: 'center', gap: 3 }}>
+          <div className="ac-row-top" style={{ display: 'flex', alignItems: 'center', gap: 4, justifyContent: 'flex-end' }}>
+            <div className="ac-star-group" style={{ display: 'flex', alignItems: 'center', gap: 3 }}>
             <Tooltip text={isWatched ? 'Remove from watchlist' : 'Add to watchlist'}>
             <button
               onClick={e => { e.stopPropagation(); onToggleWatch?.(alpha) }}
@@ -1511,8 +1510,12 @@ const AlphaCard = ({ alpha, isSelected, onClick, isWatched, onToggleWatch, isCal
               >{isCalled ? '🎯' : '◎'}</button>
               </Tooltip>
             )}
-            </div>{/* end ac-row1 */}
-            <div className="ac-row2" style={{ display: 'flex', alignItems: 'center', gap: 3 }}>
+            </div>
+            <div className={`token-change ac-pct-top ${isPositive ? 'positive' : 'negative'}`}>
+              {isPositive ? '+' : ''}{change.toFixed(1)}%
+            </div>
+          </div>
+          <div className="ac-row-bot" style={{ display: 'flex', alignItems: 'center', gap: 4, justifyContent: 'flex-end' }}>
             <Tooltip text="Open on DEXScreener">
             <span
               onClick={e => {
@@ -1534,8 +1537,7 @@ const AlphaCard = ({ alpha, isSelected, onClick, isWatched, onToggleWatch, isCal
             </span>
             </Tooltip>
             <XSearchButton symbol={alpha.symbol} onClick={e => e.stopPropagation()} />
-            </div>{/* end ac-row2 */}
-          </div>{/* end ac-actions */}
+          </div>
         </div>
       </div>
       <div className="alpha-card-metrics">

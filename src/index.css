@@ -572,18 +572,51 @@ body {
   justify-content: space-between;
 }
 
-/* Desktop only: Option A layout + uniform button sizes */
-@media (min-width: 769px) {
-  .ac-actions {
-    flex-direction: column-reverse;
+/* Base: hidden until media query activates */
+.ac-pct-mobile { display: block; }
+.ac-pct-top { display: none; }
+.ac-star-group { display: flex; align-items: center; gap: 3px; }
+
+/* Mobile: % on top, then ONE row of star+dex+x */
+@media (max-width: 768px) {
+  .ac-row-top {
+    display: contents;
   }
-  /* ⭐🔔◎ — uniform size to match DEX/X */
-  .ac-row1 button {
+  .ac-pct-top { display: none; }
+  .ac-row-bot {
+    display: flex;
+    align-items: center;
+    gap: 5px;
+  }
+  .ac-star-group {
+    display: flex;
+    align-items: center;
+    gap: 5px;
+    order: -1;
+  }
+}
+
+/* Desktop: % inline with star group on row 1, DEX+X on row 2 */
+@media (min-width: 769px) {
+  .ac-pct-mobile { display: none; }
+  .ac-pct-top { display: block; }
+  .ac-row-top {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    justify-content: flex-end;
+  }
+  .ac-row-bot {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    justify-content: flex-end;
+  }
+  .ac-star-group button {
     font-size: 8px !important;
     padding: 1px 4px !important;
     line-height: 1.5 !important;
   }
-  /* Token name truncation */
   .alpha-card .token-name {
     max-width: 110px;
   }
