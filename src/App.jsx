@@ -1293,7 +1293,6 @@ const AlphaCard = ({ alpha, isSelected, onClick, isWatched, onToggleWatch, isCal
             <div style={{ display: 'flex', alignItems: 'center', gap: 4, flexWrap: 'nowrap', overflow: 'hidden' }}>
               <div
                 className="token-name alpha-sym-copy"
-                title={`$${alpha.symbol}`}
                 style={{ flexShrink: 0, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}
                 onClick={e => { e.stopPropagation(); copyCA() }}
                 onTouchStart={onTouchStart}
@@ -1428,7 +1427,8 @@ const AlphaCard = ({ alpha, isSelected, onClick, isWatched, onToggleWatch, isCal
             {isPositive ? '+' : ''}{change.toFixed(1)}%
           </div>
           {/* Actions: star + folio call + DEX link */}
-          <div style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
+          <div className="ac-actions" style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 3 }}>
+            <div className="ac-row1" style={{ display: 'flex', alignItems: 'center', gap: 3 }}>
             <Tooltip text={isWatched ? 'Remove from watchlist' : 'Add to watchlist'}>
             <button
               onClick={e => { e.stopPropagation(); onToggleWatch?.(alpha) }}
@@ -1511,6 +1511,8 @@ const AlphaCard = ({ alpha, isSelected, onClick, isWatched, onToggleWatch, isCal
               >{isCalled ? '🎯' : '◎'}</button>
               </Tooltip>
             )}
+            </div>{/* end ac-row1 */}
+            <div className="ac-row2" style={{ display: 'flex', alignItems: 'center', gap: 3 }}>
             <Tooltip text="Open on DEXScreener">
             <span
               onClick={e => {
@@ -1528,11 +1530,12 @@ const AlphaCard = ({ alpha, isSelected, onClick, isWatched, onToggleWatch, isCal
               onMouseEnter={e => e.currentTarget.style.color = 'var(--cyan)'}
               onMouseLeave={e => e.currentTarget.style.color = 'var(--text-muted)'}
             >
-              DEX ↗
+              DEX
             </span>
             </Tooltip>
             <XSearchButton symbol={alpha.symbol} onClick={e => e.stopPropagation()} />
-          </div>
+            </div>{/* end ac-row2 */}
+          </div>{/* end ac-actions */}
         </div>
       </div>
       <div className="alpha-card-metrics">

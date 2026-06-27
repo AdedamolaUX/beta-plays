@@ -572,8 +572,18 @@ body {
   justify-content: space-between;
 }
 
-/* Desktop: cap token name width so long tickers truncate with ellipsis */
+/* Desktop only: Option A layout + uniform button sizes */
 @media (min-width: 769px) {
+  .ac-actions {
+    flex-direction: column-reverse;
+  }
+  /* ⭐🔔◎ — uniform size to match DEX/X */
+  .ac-row1 button {
+    font-size: 8px !important;
+    padding: 1px 4px !important;
+    line-height: 1.5 !important;
+  }
+  /* Token name truncation */
   .alpha-card .token-name {
     max-width: 110px;
   }
