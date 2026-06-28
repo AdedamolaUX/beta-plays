@@ -1517,7 +1517,7 @@ const AlphaCard = ({ alpha, isSelected, onClick, isWatched, onToggleWatch, isCal
               {isPositive ? '+' : ''}{change.toFixed(1)}%
             </div>
             {/* mobile-only DEX+X inline */}
-            <div className="ac-dex-mobile" style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+            <div className="ac-dex-mobile">
               <Tooltip text="Open on DEXScreener">
               <span
                 onClick={e => {

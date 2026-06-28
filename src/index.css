@@ -576,6 +576,7 @@ body {
 .ac-pct-mobile { display: block; }
 .ac-pct-top { display: none; }
 .ac-star-group { display: flex; align-items: center; gap: 3px; }
+.ac-dex-mobile { display: flex; align-items: center; gap: 4px; }
 
 /* Mobile: single row — % star [alert] [folio] DEX X */
 @media (max-width: 768px) {
