@@ -572,31 +572,24 @@ body {
   justify-content: space-between;
 }
 
-/* Base: hidden until media query activates */
+/* Base */
 .ac-pct-mobile { display: block; }
 .ac-pct-top { display: none; }
 .ac-star-group { display: flex; align-items: center; gap: 3px; }
-.ac-dex-mobile { display: flex; align-items: center; gap: 4px; }
+/* Two-block mobile/desktop toggle */
+.ac-right-mobile { display: flex; flex-direction: column; align-items: flex-end; gap: 4px; }
+.ac-right-desktop { display: none; }
 
-/* Mobile: single row — % star [alert] [folio] DEX X */
+/* Mobile: single-row layout via ac-right-mobile */
 @media (max-width: 768px) {
-  .ac-row-top {
-    display: flex;
-    align-items: center;
-    gap: 4px;
-    justify-content: flex-end;
-  }
-  .ac-pct-top { display: none; }
-  .ac-row-bot { display: none; }
-  .ac-star-group {
-    display: flex;
-    align-items: center;
-    gap: 4px;
-  }
+  .ac-right-mobile { display: flex; }
+  .ac-right-desktop { display: none; }
 }
 
 /* Desktop: % inline with star group on row 1, DEX+X on row 2 */
 @media (min-width: 769px) {
+  .ac-right-mobile { display: none; }
+  .ac-right-desktop { display: flex; }
   .ac-pct-mobile { display: none; }
   .ac-pct-top { display: block; }
   .ac-row-top {
@@ -613,7 +606,6 @@ body {
   }
   .ac-star-group { align-items: center; }
   .ac-alert-wrap { align-items: center; }
-  .ac-dex-mobile { display: none; }
   /* Uniform size for all buttons in star group, including nested (alert wrapper) */
   .ac-star-group button,
   .ac-star-group > div > button {
