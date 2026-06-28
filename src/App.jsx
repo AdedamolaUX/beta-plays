@@ -1425,10 +1425,10 @@ const AlphaCard = ({ alpha, isSelected, onClick, isWatched, onToggleWatch, isCal
           </div>
         </div>
         <div className="ac-right" style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 4 }}>
-          <div className={`token-change ac-pct-mobile ${isPositive ? 'positive' : 'negative'}`}>
-            {isPositive ? '+' : ''}{change.toFixed(1)}%
-          </div>
           <div className="ac-row-top" style={{ display: 'flex', alignItems: 'center', gap: 4, justifyContent: 'flex-end' }}>
+            <div className={`token-change ac-pct-mobile ${isPositive ? 'positive' : 'negative'}`}>
+              {isPositive ? '+' : ''}{change.toFixed(1)}%
+            </div>
             <div className="ac-star-group" style={{ display: 'flex', alignItems: 'center', gap: 3 }}>
             <Tooltip text={isWatched ? 'Remove from watchlist' : 'Add to watchlist'}>
             <button
@@ -1516,7 +1516,32 @@ const AlphaCard = ({ alpha, isSelected, onClick, isWatched, onToggleWatch, isCal
             <div className={`token-change ac-pct-top ${isPositive ? 'positive' : 'negative'}`}>
               {isPositive ? '+' : ''}{change.toFixed(1)}%
             </div>
+            {/* mobile-only DEX+X inline */}
+            <div className="ac-dex-mobile" style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+              <Tooltip text="Open on DEXScreener">
+              <span
+                onClick={e => {
+                  e.stopPropagation()
+                  const url = alpha.dexUrl || `https://dexscreener.com/solana/${alpha.address}`
+                  window.open(url, '_blank')
+                }}
+                style={{
+                  fontFamily: 'var(--font-mono)', fontSize: 8,
+                  color: 'var(--text-muted)', cursor: 'pointer',
+                  padding: '1px 4px', borderRadius: 3,
+                  border: '1px solid rgba(255,255,255,0.08)',
+                  transition: 'color 0.15s',
+                }}
+                onMouseEnter={e => e.currentTarget.style.color = 'var(--cyan)'}
+                onMouseLeave={e => e.currentTarget.style.color = 'var(--text-muted)'}
+              >
+                DEX
+              </span>
+              </Tooltip>
+              <XSearchButton symbol={alpha.symbol} onClick={e => e.stopPropagation()} />
+            </div>
           </div>
+          {/* desktop-only second row */}
           <div className="ac-row-bot" style={{ display: 'flex', alignItems: 'center', gap: 4, justifyContent: 'flex-end' }}>
             <Tooltip text="Open on DEXScreener">
             <span

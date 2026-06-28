@@ -577,22 +577,20 @@ body {
 .ac-pct-top { display: none; }
 .ac-star-group { display: flex; align-items: center; gap: 3px; }
 
-/* Mobile: % on top, then ONE row of star+dex+x */
+/* Mobile: single row — % star [alert] [folio] DEX X */
 @media (max-width: 768px) {
   .ac-row-top {
-    display: contents;
-  }
-  .ac-pct-top { display: none; }
-  .ac-row-bot {
     display: flex;
     align-items: center;
-    gap: 5px;
+    gap: 4px;
+    justify-content: flex-end;
   }
+  .ac-pct-top { display: none; }
+  .ac-row-bot { display: none; }
   .ac-star-group {
     display: flex;
     align-items: center;
-    gap: 5px;
-    order: -1;
+    gap: 4px;
   }
 }
 
@@ -614,6 +612,7 @@ body {
   }
   .ac-star-group { align-items: center; }
   .ac-alert-wrap { align-items: center; }
+  .ac-dex-mobile { display: none; }
   /* Uniform size for all buttons in star group, including nested (alert wrapper) */
   .ac-star-group button,
   .ac-star-group > div > button {
