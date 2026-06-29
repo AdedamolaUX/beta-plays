@@ -580,16 +580,16 @@ body {
 .ac-right-mobile { display: flex; flex-direction: column; align-items: flex-end; gap: 4px; }
 .ac-right-desktop { display: none; }
 
-/* Mobile: single-row layout via ac-right-mobile */
+/* Mobile: ac-right-mobile shown, desktop hidden */
 @media (max-width: 768px) {
-  .ac-right-mobile { display: flex; }
+  .ac-right-mobile { display: flex; flex-direction: column; align-items: flex-end; gap: 4px; }
   .ac-right-desktop { display: none; }
 }
 
 /* Desktop: % inline with star group on row 1, DEX+X on row 2 */
 @media (min-width: 769px) {
   .ac-right-mobile { display: none; }
-  .ac-right-desktop { display: flex; }
+  .ac-right-desktop { display: flex; flex-direction: column; align-items: flex-end; gap: 4px; }
   .ac-pct-mobile { display: none; }
   .ac-pct-top { display: block; }
   .ac-row-top {

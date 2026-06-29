@@ -1426,10 +1426,10 @@ const AlphaCard = ({ alpha, isSelected, onClick, isWatched, onToggleWatch, isCal
         </div>
         {/* MOBILE right column — hidden on desktop */}
         <div className="ac-right-mobile">
-          <div className={`token-change ${isPositive ? 'positive' : 'negative'}`} style={{ fontFamily: 'var(--font-number)', fontSize: 15, fontWeight: 700, textAlign: 'right' }}>
-            {isPositive ? '+' : ''}{change.toFixed(1)}%
-          </div>
           <div style={{ display: 'flex', alignItems: 'center', gap: 4, justifyContent: 'flex-end' }}>
+            <span className={`token-change ${isPositive ? 'positive' : 'negative'}`} style={{ fontFamily: 'var(--font-number)', fontSize: 15, fontWeight: 700 }}>
+              {isPositive ? '+' : ''}{change.toFixed(1)}%
+            </span>
             <button
               onClick={e => { e.stopPropagation(); onToggleWatch?.(alpha) }}
               style={{
