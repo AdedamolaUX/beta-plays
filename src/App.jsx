@@ -1435,8 +1435,9 @@ const AlphaCard = ({ alpha, isSelected, onClick, isWatched, onToggleWatch, isCal
               style={{
                 background: isWatched ? 'rgba(255,184,0,0.12)' : 'rgba(255,255,255,0.06)',
                 border: `1px solid ${isWatched ? 'rgba(255,184,0,0.4)' : 'rgba(255,255,255,0.12)'}`,
-                borderRadius: 4, cursor: 'pointer', padding: '1px 5px',
-                fontSize: 11, lineHeight: 1.6, color: isWatched ? 'var(--amber)' : 'var(--text-secondary)',
+                borderRadius: 6, cursor: 'pointer', padding: '6px 10px',
+                fontSize: 14, lineHeight: 1, color: isWatched ? 'var(--amber)' : 'var(--text-secondary)',
+                minHeight: 36,
               }}
             >{isWatched ? '⭐' : '☆'}</button>
             <Tooltip text="Open on DEXScreener">
@@ -1447,17 +1448,18 @@ const AlphaCard = ({ alpha, isSelected, onClick, isWatched, onToggleWatch, isCal
                 window.open(url, '_blank')
               }}
               style={{
-                fontFamily: 'var(--font-mono)', fontSize: 8,
+                fontFamily: 'var(--font-mono)', fontSize: 11,
                 color: 'var(--text-muted)', cursor: 'pointer',
-                padding: '1px 4px', borderRadius: 3,
+                padding: '6px 10px', borderRadius: 6,
                 border: '1px solid rgba(255,255,255,0.08)',
-                transition: 'color 0.15s',
+                transition: 'color 0.15s', display: 'inline-flex',
+                alignItems: 'center', minHeight: 36,
               }}
               onMouseEnter={e => e.currentTarget.style.color = 'var(--cyan)'}
               onMouseLeave={e => e.currentTarget.style.color = 'var(--text-muted)'}
             >DEX</span>
             </Tooltip>
-            <XSearchButton symbol={alpha.symbol} onClick={e => e.stopPropagation()} />
+            <XSearchButton symbol={alpha.symbol} onClick={e => e.stopPropagation()} style={{ padding: '6px 10px', fontSize: 11, borderRadius: 6, minHeight: 36, display: 'inline-flex', alignItems: 'center' }} />
           </div>
         </div>
 
