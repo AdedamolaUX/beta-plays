@@ -1427,8 +1427,8 @@ const AlphaCard = ({ alpha, isSelected, onClick, isWatched, onToggleWatch, isCal
         {/* MOBILE right column — hidden on desktop */}
         <div className="ac-right-mobile">
           <div style={{ display: 'flex', alignItems: 'center', gap: 4, justifyContent: 'flex-end' }}>
-            <span className={`token-change ${isPositive ? 'positive' : 'negative'}`} style={{ fontFamily: 'var(--font-number)', fontSize: 15, fontWeight: 700 }}>
-              {isPositive ? '+' : ''}{change.toFixed(1)}%
+            <span className={`token-change ${isPositive ? 'positive' : 'negative'}`} style={{ fontFamily: 'var(--font-number)', fontSize: 13, fontWeight: 700 }}>
+              {isPositive ? '+' : ''}{change.toFixed(0)}%
             </span>
             <button
               onClick={e => { e.stopPropagation(); onToggleWatch?.(alpha) }}
@@ -1464,6 +1464,9 @@ const AlphaCard = ({ alpha, isSelected, onClick, isWatched, onToggleWatch, isCal
         {/* DESKTOP right column — hidden on mobile */}
         <div className="ac-right ac-right-desktop">
           <div className="ac-row-top" style={{ display: 'flex', alignItems: 'center', gap: 4, justifyContent: 'flex-end' }}>
+            <div className={`token-change ac-pct-top ${isPositive ? 'positive' : 'negative'}`}>
+              {isPositive ? '+' : ''}{change.toFixed(0)}%
+            </div>
             <div className="ac-star-group" style={{ display: 'flex', alignItems: 'center', gap: 3 }}>
             <Tooltip text={isWatched ? 'Remove from watchlist' : 'Add to watchlist'}>
             <button
@@ -1547,9 +1550,6 @@ const AlphaCard = ({ alpha, isSelected, onClick, isWatched, onToggleWatch, isCal
               >{isCalled ? '🎯' : '◎'}</button>
               </Tooltip>
             )}
-            </div>
-            <div className={`token-change ac-pct-top ${isPositive ? 'positive' : 'negative'}`}>
-              {isPositive ? '+' : ''}{change.toFixed(1)}%
             </div>
           </div>
           <div className="ac-row-bot" style={{ display: 'flex', alignItems: 'center', gap: 4, justifyContent: 'flex-end' }}>
