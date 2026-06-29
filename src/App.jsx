@@ -1107,7 +1107,7 @@ const PositioningCard = ({ alpha, isSelected, onClick, isWatched, onToggleWatch 
           </div>
         </div>
         {/* Actions: star + DEX link */}
-        <div style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
+        <div className="positioning-actions" style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
           <Tooltip text={isWatched ? 'Remove from watchlist' : 'Add to watchlist'}>
           <button
             onClick={e => { e.stopPropagation(); onToggleWatch?.(alpha) }}
