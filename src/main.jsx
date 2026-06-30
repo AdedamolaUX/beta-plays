@@ -27,22 +27,26 @@ class ErrorBoundary extends Component {
 const RPC_ENDPOINT = 'https://api.mainnet-beta.solana.com'
 
 function Root () {
-  const wallets = useMemo(() => [
-    new PhantomWalletAdapter(),
-    new SolflareWalletAdapter(),
-    new WalletConnectWalletAdapter({
-      network: 'mainnet-beta',
-      options: {
-        projectId: '01a7314408e23e20dbc552a68f8f8881',
-        metadata: {
-          name: 'BetaPlays',
-          description: 'Solana beta token discovery',
-          url: 'https://betaplays.fun',
-          icons: ['https://betaplays.fun/favicon.ico'],
+  const wallets = useMemo(() => {
+    const list = [new PhantomWalletAdapter(), new SolflareWalletAdapter()]
+    try {
+      list.push(new WalletConnectWalletAdapter({
+        network: 'mainnet-beta',
+        options: {
+          projectId: '01a7314408e23e20dbc552a68f8f8881',
+          metadata: {
+            name: 'BetaPlays',
+            description: 'Solana beta token discovery',
+            url: 'https://betaplays.fun',
+            icons: ['https://betaplays.fun/favicon.ico'],
+          },
         },
-      },
-    }),
-  ], [])
+      }))
+    } catch (err) {
+      console.error('[WalletConnect] adapter failed to init:', err)
+    }
+    return list
+  }, [])
 
   return (
     <ConnectionProvider endpoint={RPC_ENDPOINT}>
