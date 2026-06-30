@@ -183,13 +183,14 @@ const Tooltip = ({ text, children }) => {
 // ─── X / Twitter Search Button ───────────────────────────────────
 // Opens a Twitter/X search for the token symbol in a new tab.
 // Placed next to the DEX button on alpha cards, beta rows, and drawer.
-const XSearchButton = ({ symbol, onClick, style = {} }) => {
+const XSearchButton = ({ symbol, onClick, style = {}, className = '' }) => {
   if (!symbol) return null
   const query = encodeURIComponent(`$${symbol}`)
   const url   = `https://twitter.com/search?q=${query}&f=live`
   return (
     <Tooltip text="Search on X / Twitter">
       <span
+        className={className}
         onClick={e => { e.stopPropagation(); if (onClick) onClick(e); window.open(url, '_blank') }}
         style={{
           fontFamily: 'var(--font-mono)', fontSize: 8,
@@ -1111,6 +1112,7 @@ const PositioningCard = ({ alpha, isSelected, onClick, isWatched, onToggleWatch 
         <div className="positioning-actions" style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
           <Tooltip text={isWatched ? 'Remove from watchlist' : 'Add to watchlist'}>
           <button
+            className="pa-btn"
             onClick={e => { e.stopPropagation(); onToggleWatch?.(alpha) }}
             style={{
               background: isWatched ? 'rgba(255,184,0,0.12)' : 'rgba(255,255,255,0.06)',
@@ -1125,13 +1127,14 @@ const PositioningCard = ({ alpha, isSelected, onClick, isWatched, onToggleWatch 
           </Tooltip>
           <Tooltip text="Open on DEXScreener">
           <span
+            className="pa-btn"
             onClick={e => { e.stopPropagation(); window.open(alpha.dexUrl || `https://dexscreener.com/solana/${alpha.address}`, '_blank') }}
             style={{ fontFamily: 'var(--font-mono)', fontSize: 8, color: 'var(--text-muted)', cursor: 'pointer', padding: '1px 4px', borderRadius: 3, border: '1px solid rgba(255,255,255,0.08)' }}
             onMouseEnter={e => e.currentTarget.style.color = 'var(--cyan)'}
             onMouseLeave={e => e.currentTarget.style.color = 'var(--text-muted)'}
           >DEX ↗</span>
           </Tooltip>
-          <XSearchButton symbol={alpha.symbol} onClick={e => e.stopPropagation()} />
+          <XSearchButton symbol={alpha.symbol} onClick={e => e.stopPropagation()} className="pa-btn" />
         </div>
       </div>
 

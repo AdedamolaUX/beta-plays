@@ -585,8 +585,7 @@ body {
   .positioning-actions {
     gap: 4px !important;
   }
-  .positioning-actions button,
-  .positioning-actions span {
+  .positioning-actions .pa-btn {
     padding: 4px 8px !important;
     font-size: 11px !important;
     border-radius: 5px !important;
