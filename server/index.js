@@ -3176,53 +3176,74 @@ app.get('/api/past-runners', async (req, res) => {
   }
 
   try {
-    // Fix 2: single query replaces N+1 loop — fetch runners + top 5 betas in one round trip
-    // LEFT JOIN LATERAL picks the top 5 betas per runner ordered by confirmed_count DESC.
+    // Fix 3 (S55): restructured to avoid fan-out duplication.
+    // Previously, joining alpha_runs (one-to-many) and beta_relations (one-to-many)
+    // in the same query before GROUP BY produced a cross product — a token with
+    // 4970 runs and 14 betas could fan out to ~350k intermediate rows, corrupting
+    // both COUNT(r.id) ("runCount") and json_agg(top_betas.*) ("topBetas") with
+    // massive duplication. Fix: collapse run stats into a one-row-per-token CTE
+    // FIRST, then attach betaCount/topBetas via LATERAL joins against that already-
+    // collapsed CTE, so neither LATERAL ever fires more than once per token.
     const result = await db.query(`
+      WITH runner_stats AS (
+        SELECT
+          t.address,
+          t.symbol,
+          t.name,
+          t.logo_url                AS "logoUrl",
+          t.peak_mcap               AS "peakMcap",
+          t.first_seen              AS "firstSeen",
+          t.last_seen               AS "lastSeen",
+          t.category,
+          COUNT(r.id)               AS "runCount",
+          MAX(r.mcap)               AS "maxMcap",
+          MAX(r.price)              AS "maxPrice",
+          AVG(r.price_change_24h)   AS "avgChange24h",
+          array_agg(DISTINCT r.source) FILTER (WHERE r.source IS NOT NULL) AS sources
+        FROM tokens t
+        JOIN alpha_runs r ON r.token_address = t.address
+        WHERE r.timestamp > NOW() - ($1 || ' days')::INTERVAL
+        GROUP BY t.address, t.symbol, t.name, t.logo_url, t.peak_mcap, t.first_seen, t.last_seen, t.category
+        ORDER BY COUNT(r.id) DESC, MAX(r.mcap) DESC
+        LIMIT $2
+      )
       SELECT
-        t.address,
-        t.symbol,
-        t.name,
-        t.logo_url                AS "logoUrl",
-        t.peak_mcap               AS "peakMcap",
-        t.first_seen              AS "firstSeen",
-        t.last_seen               AS "lastSeen",
-        t.category,
-        COUNT(r.id)               AS "runCount",
-        MAX(r.mcap)               AS "maxMcap",
-        MAX(r.price)              AS "maxPrice",
-        AVG(r.price_change_24h)   AS "avgChange24h",
-        array_agg(DISTINCT r.source) FILTER (WHERE r.source IS NOT NULL) AS sources,
-        COUNT(DISTINCT br_all.beta_address)           AS "betaCount",
-        MAX(br_all.confirmed_count)                   AS "topBetaConfirmedCount",
-        json_agg(top_betas.*) FILTER (WHERE top_betas.address IS NOT NULL) AS "topBetas"
-      FROM tokens t
-      JOIN alpha_runs r ON r.token_address = t.address
-      LEFT JOIN beta_relations br_all ON br_all.alpha_address = t.address
+        rs.*,
+        COALESCE(beta_counts."betaCount", 0)       AS "betaCount",
+        beta_counts."topBetaConfirmedCount"        AS "topBetaConfirmedCount",
+        top_betas."topBetas"
+      FROM runner_stats rs
       LEFT JOIN LATERAL (
         SELECT
-          br.beta_address                AS address,
-          bt.symbol,
-          bt.name,
-          bt.logo_url                    AS "logoUrl",
-          br.signals,
-          br.score,
-          br.relationship_type           AS "relationshipType",
-          br.confirmed_count             AS "confirmedCount",
-          br.first_seen                  AS "firstSeen",
-          br.beta_price_at_detection     AS "priceAtDetection",
-          br.beta_mcap_at_detection      AS "mcapAtDetection",
-          br.alpha_price_at_detection    AS "alphaPriceAtDetection"
-        FROM beta_relations br
-        JOIN tokens bt ON bt.address = br.beta_address
-        WHERE br.alpha_address = t.address
-        ORDER BY br.confirmed_count DESC, br.score DESC
-        LIMIT 5
+          COUNT(DISTINCT br_all.beta_address) AS "betaCount",
+          MAX(br_all.confirmed_count)         AS "topBetaConfirmedCount"
+        FROM beta_relations br_all
+        WHERE br_all.alpha_address = rs.address
+      ) beta_counts ON true
+      LEFT JOIN LATERAL (
+        SELECT json_agg(b.*) AS "topBetas"
+        FROM (
+          SELECT
+            br.beta_address                AS address,
+            bt.symbol,
+            bt.name,
+            bt.logo_url                    AS "logoUrl",
+            br.signals,
+            br.score,
+            br.relationship_type           AS "relationshipType",
+            br.confirmed_count             AS "confirmedCount",
+            br.first_seen                  AS "firstSeen",
+            br.beta_price_at_detection     AS "priceAtDetection",
+            br.beta_mcap_at_detection      AS "mcapAtDetection",
+            br.alpha_price_at_detection    AS "alphaPriceAtDetection"
+          FROM beta_relations br
+          JOIN tokens bt ON bt.address = br.beta_address
+          WHERE br.alpha_address = rs.address
+          ORDER BY br.confirmed_count DESC, br.score DESC
+          LIMIT 5
+        ) b
       ) top_betas ON true
-      WHERE r.timestamp > NOW() - ($1 || ' days')::INTERVAL
-      GROUP BY t.address, t.symbol, t.name, t.logo_url, t.peak_mcap, t.first_seen, t.last_seen, t.category
-      ORDER BY COUNT(r.id) DESC, MAX(r.mcap) DESC
-      LIMIT $2
+      ORDER BY rs."runCount" DESC, rs."maxMcap" DESC
     `, [days, limit])
 
     const runners = result.rows.map(runner => ({
@@ -3253,6 +3274,64 @@ app.get('/api/past-runners', async (req, res) => {
     return res.status(500).json({ error: 'db read failed' })
   }
 })
+
+// GET /api/runner-betas?address=<alpha_address>&limit=50&offset=0
+// On-demand full beta list for a single past runner (Past Runners tab "view all" expand).
+// Kept as a separate endpoint rather than bloating /api/past-runners, since most runners
+// are only ever expanded by a small fraction of users — fetch full list only when asked.
+app.get('/api/runner-betas', async (req, res) => {
+  if (!process.env.DATABASE_URL) return res.json({ betas: [], total: 0 })
+  const address = req.query.address
+  if (!address) return res.status(400).json({ error: 'address required' })
+  const limit  = Math.min(parseInt(req.query.limit)  || 50, 100)
+  const offset = Math.max(parseInt(req.query.offset) || 0, 0)
+
+  try {
+    const result = await db.query(`
+      SELECT
+        br.beta_address                AS address,
+        bt.symbol,
+        bt.name,
+        bt.logo_url                    AS "logoUrl",
+        br.signals,
+        br.score,
+        br.relationship_type           AS "relationshipType",
+        br.confirmed_count             AS "confirmedCount",
+        br.first_seen                  AS "firstSeen",
+        br.beta_price_at_detection     AS "priceAtDetection",
+        br.beta_mcap_at_detection      AS "mcapAtDetection",
+        br.alpha_price_at_detection    AS "alphaPriceAtDetection",
+        COUNT(*) OVER()                AS "totalCount"
+      FROM beta_relations br
+      JOIN tokens bt ON bt.address = br.beta_address
+      WHERE br.alpha_address = $1
+      ORDER BY br.confirmed_count DESC, br.score DESC
+      LIMIT $2 OFFSET $3
+    `, [address, limit, offset])
+
+    const total = result.rows[0]?.totalCount ? parseInt(result.rows[0].totalCount) : 0
+    const betas = result.rows.map(b => ({
+      address:                b.address,
+      symbol:                 b.symbol,
+      name:                   b.name,
+      logoUrl:                b.logoUrl,
+      signals:                b.signals,
+      score:                  b.score,
+      relationshipType:       b.relationshipType,
+      confirmedCount:         parseInt(b.confirmedCount)          || 0,
+      firstSeen:              b.firstSeen ? new Date(b.firstSeen).getTime() : null,
+      priceAtDetection:       parseFloat(b.priceAtDetection)      || null,
+      mcapAtDetection:        parseFloat(b.mcapAtDetection)       || null,
+      alphaPriceAtDetection:  parseFloat(b.alphaPriceAtDetection) || null,
+    }))
+
+    return res.json({ betas, total, offset, limit })
+  } catch (err) {
+    console.error('[DB] runner-betas error:', err.message)
+    return res.status(500).json({ error: 'db read failed' })
+  }
+})
+
 // Replaces per-user localStorage caches with a single server-side cache in Supabase.
 // One API call serves all users. TTL: score=10min, vision=24h (matches old localStorage TTLs).
 

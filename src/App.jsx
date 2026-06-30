@@ -2519,6 +2519,36 @@ const AlphaBoard = ({ selectedAlpha, onSelect, onNewRunners, onLiveAlphas, onSzn
       .finally(() => setPastRunnersLoading(false))
   }, [activeTab, pastRunnersDays])
 
+  // address -> { open, loading, betas, total, error }. "View all betas" expand state.
+  const [expandedBetas, setExpandedBetas] = useState({})
+
+  const toggleRunnerBetas = (address) => {
+    setExpandedBetas(prev => {
+      const existing = prev[address]
+      if (existing?.open) {
+        return { ...prev, [address]: { ...existing, open: false } }
+      }
+      if (existing?.betas) {
+        return { ...prev, [address]: { ...existing, open: true } }
+      }
+      return { ...prev, [address]: { open: true, loading: true, betas: null, total: 0, error: false } }
+    })
+  }
+
+  useEffect(() => {
+    const toFetch = Object.entries(expandedBetas).find(([, v]) => v.open && v.loading && !v.betas)
+    if (!toFetch) return
+    const [address] = toFetch
+    fetch(`${BACKEND_URL}/api/runner-betas?address=${address}&limit=100`)
+      .then(r => r.json())
+      .then(({ betas, total }) => {
+        setExpandedBetas(prev => ({ ...prev, [address]: { open: true, loading: false, betas: Array.isArray(betas) ? betas : [], total: total || 0, error: false } }))
+      })
+      .catch(() => {
+        setExpandedBetas(prev => ({ ...prev, [address]: { open: true, loading: false, betas: [], total: 0, error: true } }))
+      })
+  }, [expandedBetas])
+
   const tabs = [
     { key: 'live',        label: '🔥 Live',           count: liveAlphas.length        },
     { key: 'narratives',  label: '🌊 ACTIVE NARRATIVES', count: sznCards.length        },
@@ -3319,42 +3349,72 @@ const AlphaBoard = ({ selectedAlpha, onSelect, onNewRunners, onLiveAlphas, onSzn
                   </div>
 
                   {/* Top betas */}
-                  {runner.topBetas?.length > 0 && (
-                    <div style={{ borderTop: '1px solid rgba(255,255,255,0.06)', paddingTop: 8 }}>
-                      <div style={{ fontFamily: 'var(--font-mono)', fontSize: 8, color: 'var(--text-muted)', marginBottom: 5, letterSpacing: 1 }}>TOP CONFIRMED BETAS</div>
-                      <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-                        {runner.topBetas.map(beta => {
-                          const hasPrice = beta.priceAtDetection > 0
-                          return (
-                            <div
-                              key={beta.address}
-                              style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '4px 6px', background: 'rgba(255,255,255,0.03)', borderRadius: 6 }}
-                              onClick={e => { e.stopPropagation(); window.open(`https://dexscreener.com/solana/${beta.address}`, '_blank') }}
-                            >
-                              {beta.logoUrl
-                                ? <img src={beta.logoUrl} alt="" style={{ width: 16, height: 16, borderRadius: '50%', flexShrink: 0 }} onError={e => { e.target.style.display = 'none' }} />
-                                : <div style={{ width: 16, height: 16, borderRadius: '50%', background: 'rgba(255,255,255,0.08)', flexShrink: 0 }} />
-                              }
-                              <span style={{ fontFamily: 'var(--font-display)', fontSize: 11, color: 'var(--text-primary)', flex: 1 }}>${beta.symbol}</span>
-                              {beta.confirmedCount > 1 && (
-                                <span style={{ fontFamily: 'var(--font-mono)', fontSize: 8, color: 'var(--text-muted)' }}>×{beta.confirmedCount}</span>
-                              )}
-                              {beta.relationshipType && (
-                                <span style={{ fontFamily: 'var(--font-mono)', fontSize: 7, color: 'var(--cyan)', background: 'rgba(0,212,255,0.08)', borderRadius: 3, padding: '1px 4px' }}>{beta.relationshipType}</span>
-                              )}
-                              {hasPrice && (
-                                <span style={{ fontFamily: 'var(--font-mono)', fontSize: 8, color: 'var(--text-muted)' }}>
-                                  @ ${beta.priceAtDetection < 0.001
-                                    ? beta.priceAtDetection.toExponential(2)
-                                    : beta.priceAtDetection.toFixed(4)}
-                                </span>
-                              )}
-                            </div>
-                          )
-                        })}
+                  {runner.topBetas?.length > 0 && (() => {
+                    const expandState = expandedBetas[runner.address]
+                    const hasMore = runner.betaCount > runner.topBetas.length
+                    const renderBetaRow = (beta, idx) => {
+                      const hasPrice = beta.priceAtDetection > 0
+                      return (
+                        <div
+                          key={`${beta.address}-${idx}`}
+                          style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '4px 6px', background: 'rgba(255,255,255,0.03)', borderRadius: 6 }}
+                          onClick={e => { e.stopPropagation(); window.open(`https://dexscreener.com/solana/${beta.address}`, '_blank') }}
+                        >
+                          {beta.logoUrl
+                            ? <img src={beta.logoUrl} alt="" style={{ width: 16, height: 16, borderRadius: '50%', flexShrink: 0 }} onError={e => { e.target.style.display = 'none' }} />
+                            : <div style={{ width: 16, height: 16, borderRadius: '50%', background: 'rgba(255,255,255,0.08)', flexShrink: 0 }} />
+                          }
+                          <span style={{ fontFamily: 'var(--font-display)', fontSize: 11, color: 'var(--text-primary)', flex: 1 }}>${beta.symbol}</span>
+                          {beta.confirmedCount > 1 && (
+                            <span style={{ fontFamily: 'var(--font-mono)', fontSize: 8, color: 'var(--text-muted)' }}>×{beta.confirmedCount}</span>
+                          )}
+                          {beta.relationshipType && (
+                            <span style={{ fontFamily: 'var(--font-mono)', fontSize: 7, color: 'var(--cyan)', background: 'rgba(0,212,255,0.08)', borderRadius: 3, padding: '1px 4px' }}>{beta.relationshipType}</span>
+                          )}
+                          {hasPrice && (
+                            <span style={{ fontFamily: 'var(--font-mono)', fontSize: 8, color: 'var(--text-muted)' }}>
+                              @ ${beta.priceAtDetection < 0.001
+                                ? beta.priceAtDetection.toExponential(2)
+                                : beta.priceAtDetection.toFixed(4)}
+                            </span>
+                          )}
+                        </div>
+                      )
+                    }
+                    return (
+                      <div style={{ borderTop: '1px solid rgba(255,255,255,0.06)', paddingTop: 8 }}>
+                        <div style={{ fontFamily: 'var(--font-mono)', fontSize: 8, color: 'var(--text-muted)', marginBottom: 5, letterSpacing: 1 }}>TOP CONFIRMED BETAS</div>
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                          {runner.topBetas.map(renderBetaRow)}
+                        </div>
+                        {hasMore && (
+                          <button
+                            onClick={e => { e.stopPropagation(); toggleRunnerBetas(runner.address) }}
+                            style={{
+                              marginTop: 6, width: '100%', textAlign: 'center',
+                              background: 'transparent', border: 'none', cursor: 'pointer',
+                              fontFamily: 'var(--font-mono)', fontSize: 9, color: 'var(--cyan)', padding: '4px 0',
+                            }}
+                          >
+                            {expandState?.open
+                              ? '▲ Hide full list'
+                              : `▼ View all ${runner.betaCount} betas`}
+                          </button>
+                        )}
+                        {hasMore && expandState?.open && (
+                          <div style={{ display: 'flex', flexDirection: 'column', gap: 4, marginTop: 4 }}>
+                            {expandState.loading && (
+                              <div style={{ fontFamily: 'var(--font-mono)', fontSize: 9, color: 'var(--text-muted)', textAlign: 'center', padding: '8px 0' }}>Loading…</div>
+                            )}
+                            {expandState.error && (
+                              <div style={{ fontFamily: 'var(--font-mono)', fontSize: 9, color: 'var(--red)', textAlign: 'center', padding: '8px 0' }}>Failed to load. Tap to retry.</div>
+                            )}
+                            {!expandState.loading && !expandState.error && expandState.betas?.map(renderBetaRow)}
+                          </div>
+                        )}
                       </div>
-                    </div>
-                  )}
+                    )
+                  })()}
                 </div>
               )
             })}
