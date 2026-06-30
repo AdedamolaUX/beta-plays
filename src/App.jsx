@@ -44,7 +44,7 @@ const shortAddress = (addr) =>
   addr ? `${addr.slice(0, 4)}...${addr.slice(-4)}` : ''
 
 // ─── Copy CA Button ───────────────────────────────────────────────
-const CopyAddress = ({ address, style = {} }) => {
+const CopyAddress = ({ address, style = {}, className = '' }) => {
   const [copied, setCopied] = useState(false)
   const [pos, setPos] = useState(null)
   const ref = useRef(null)
@@ -78,8 +78,9 @@ const CopyAddress = ({ address, style = {} }) => {
   const hideTip = () => setPos(null)
 
   return (
-    <span ref={ref} style={{ position: 'relative', display: 'inline-flex', alignItems: 'center', ...style }}>
+    <span ref={ref} className={className} style={{ position: 'relative', display: 'inline-flex', alignItems: 'center', ...style }}>
       <span
+        className="copy-ca-glyph"
         onClick={handleCopy}
         onMouseEnter={showTip}
         onMouseLeave={hideTip}
@@ -1099,7 +1100,7 @@ const PositioningCard = ({ alpha, isSelected, onClick, isWatched, onToggleWatch 
               </span>
             </div>
             <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
-              <CopyAddress address={alpha.address} />
+              <CopyAddress address={alpha.address} className="positioning-ca" />
               <span style={{ fontFamily: 'var(--font-mono)', fontSize: 8, color: 'var(--text-muted)' }}>
                 {alpha.ageDays}d ago
               </span>

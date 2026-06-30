@@ -582,6 +582,9 @@ body {
 
 /* Mobile: positioning card touch targets */
 @media (max-width: 768px) {
+  .positioning-actions {
+    gap: 4px !important;
+  }
   .positioning-actions button,
   .positioning-actions span {
     padding: 4px 8px !important;
@@ -590,6 +593,10 @@ body {
     min-height: 32px;
     display: inline-flex;
     align-items: center;
+  }
+  .positioning-ca .copy-ca-glyph {
+    font-size: 14px !important;
+    padding: 3px 8px !important;
   }
 }
 
