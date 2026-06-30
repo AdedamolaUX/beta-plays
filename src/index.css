@@ -1133,33 +1133,53 @@ body {
   from { transform: translateX(100%); opacity: 0; }
   to   { transform: translateX(0);    opacity: 1; }
 }
-/* ─── Wallet Adapter Modal Overrides ──────────────────────────── */
-/* Structural positioning — library stylesheet not imported, so we
-   must define layout ourselves (theme-only rules above are not enough) */
+/* ─── Wallet Adapter Modal Overrides ──────────────────────── */
+/* Structural rules below mirror the actual @solana/wallet-adapter-react-ui
+   default stylesheet (which we don't import — styles.css omitted since S51).
+   Theme colors layered on top via !important. */
 .wallet-adapter-modal {
   position: fixed !important;
   top: 0 !important;
   left: 0 !important;
   right: 0 !important;
   bottom: 0 !important;
-  display: flex !important;
-  align-items: center !important;
-  justify-content: center !important;
-  padding: 16px !important;
+  overflow-y: auto !important;
+  z-index: 99999 !important;
+  background: rgba(0,0,0,0.8) !important;
 }
+
 .wallet-adapter-modal-overlay {
   position: fixed !important;
   top: 0 !important;
   left: 0 !important;
   right: 0 !important;
   bottom: 0 !important;
+  background: rgba(0,0,0,0.8) !important;
 }
+
+.wallet-adapter-modal-container {
+  display: flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  margin: 3rem !important;
+  min-height: calc(100vh - 6rem) !important;
+}
+
+@media (max-width: 480px) {
+  .wallet-adapter-modal-container {
+    margin: 1rem !important;
+    min-height: calc(100vh - 2rem) !important;
+  }
+}
+
 .wallet-adapter-modal-wrapper {
+  box-sizing: border-box !important;
   position: relative !important;
+  display: flex !important;
+  align-items: center !important;
+  flex-direction: column !important;
   width: 100% !important;
   max-width: 400px !important;
-  max-height: 90vh !important;
-  overflow-y: auto !important;
   background: var(--surface-1) !important;
   border: 1px solid var(--border) !important;
   border-radius: 16px !important;
@@ -1167,26 +1187,72 @@ body {
   box-shadow: 0 0 40px rgba(0,212,255,0.08), 0 20px 60px rgba(0,0,0,0.9) !important;
 }
 
+.wallet-adapter-modal-wrapper .wallet-adapter-button {
+  width: 100% !important;
+}
+
+.wallet-adapter-modal-button-close {
+  display: flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  position: absolute !important;
+  top: 14px !important;
+  right: 14px !important;
+  padding: 10px !important;
+  cursor: pointer !important;
+  background: rgba(255,255,255,0.06) !important;
+  border: none !important;
+  border-radius: 50% !important;
+}
+
+.wallet-adapter-modal-button-close svg {
+  fill: var(--text-muted) !important;
+}
+
+.wallet-adapter-modal-button-close:hover svg {
+  fill: var(--cyan) !important;
+}
+
 .wallet-adapter-modal-title {
   font-family: var(--font-display) !important;
   font-size: 18px !important;
   font-weight: 700 !important;
+  line-height: 1.4 !important;
+  margin: 0 !important;
+  padding: 32px 32px 16px 32px !important;
+  text-align: center !important;
   color: var(--text-primary) !important;
   letter-spacing: 0.02em !important;
 }
 
+.wallet-adapter-modal-list {
+  margin: 0 0 12px 0 !important;
+  padding: 0 24px !important;
+  width: 100% !important;
+  list-style: none !important;
+  box-sizing: border-box !important;
+}
+
 .wallet-adapter-modal-list li {
   font-family: var(--font-mono) !important;
+  margin-bottom: 8px !important;
 }
 
 .wallet-adapter-button {
+  position: relative !important;
+  display: flex !important;
+  align-items: center !important;
   font-family: var(--font-mono) !important;
   font-size: 13px !important;
   font-weight: 600 !important;
+  height: 48px !important;
+  line-height: 48px !important;
+  padding: 0 16px !important;
   background: var(--surface-2) !important;
   border: 1px solid var(--border) !important;
   border-radius: 10px !important;
   color: var(--text-primary) !important;
+  cursor: pointer !important;
   transition: all 0.15s ease !important;
 }
 
@@ -1200,13 +1266,55 @@ body {
   background: var(--surface-2) !important;
 }
 
+.wallet-adapter-button-end-icon,
+.wallet-adapter-button-start-icon,
+.wallet-adapter-button-end-icon img,
+.wallet-adapter-button-start-icon img {
+  display: flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  width: 24px !important;
+  height: 24px !important;
+}
+
+.wallet-adapter-button-start-icon {
+  margin-right: 12px !important;
+}
+
+.wallet-adapter-button-end-icon {
+  margin-left: 12px !important;
+}
+
 .wallet-adapter-modal-list .wallet-adapter-button {
   width: 100% !important;
-  justify-content: space-between !important;
-  padding: 14px 18px !important;
+  justify-content: flex-start !important;
+  font-weight: 500 !important;
+  border-radius: 10px !important;
+  font-size: 13px !important;
+}
+
+.wallet-adapter-modal-list .wallet-adapter-button-end-icon,
+.wallet-adapter-modal-list .wallet-adapter-button-start-icon,
+.wallet-adapter-modal-list .wallet-adapter-button-end-icon img,
+.wallet-adapter-modal-list .wallet-adapter-button-start-icon img {
+  width: 24px !important;
+  height: 24px !important;
+}
+
+.wallet-adapter-modal-list .wallet-adapter-button span {
+  margin-left: auto !important;
+  font-size: 11px !important;
+  opacity: 0.6 !important;
 }
 
 .wallet-adapter-modal-list-more {
+  cursor: pointer !important;
+  border: none !important;
+  padding: 8px 24px 20px 24px !important;
+  align-self: flex-start !important;
+  display: flex !important;
+  align-items: center !important;
+  background: transparent !important;
   font-family: var(--font-mono) !important;
   font-size: 12px !important;
   color: var(--text-secondary) !important;
@@ -1216,13 +1324,18 @@ body {
   color: var(--cyan) !important;
 }
 
-.wallet-adapter-modal-overlay {
-  background: rgba(0,0,0,0.8) !important;
-  z-index: 99999 !important;
+.wallet-adapter-modal-list-more svg {
+  fill: currentColor !important;
+  margin-left: 6px !important;
 }
 
-.wallet-adapter-modal {
-  z-index: 99999 !important;
+.wallet-adapter-modal-middle {
+  width: 100% !important;
+  display: flex !important;
+  flex-direction: column !important;
+  align-items: center !important;
+  padding: 0 24px 24px 24px !important;
+  box-sizing: border-box !important;
 }
 
 .wallet-adapter-collapse-ul .wallet-adapter-button {
