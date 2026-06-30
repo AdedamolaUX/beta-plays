@@ -1155,6 +1155,7 @@ body {
   right: 0 !important;
   bottom: 0 !important;
   background: rgba(0,0,0,0.8) !important;
+  z-index: 1040 !important;
 }
 
 .wallet-adapter-modal-container {
@@ -1178,6 +1179,7 @@ body {
   display: flex !important;
   align-items: center !important;
   flex-direction: column !important;
+  z-index: 1050 !important;
   width: 100% !important;
   max-width: 400px !important;
   background: var(--surface-1) !important;
