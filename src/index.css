@@ -597,6 +597,9 @@ body {
     font-size: 14px !important;
     padding: 3px 8px !important;
   }
+  .pa-dex-arrow {
+    display: none;
+  }
 }
 
 /* Mobile: ac-right-mobile shown, desktop hidden */

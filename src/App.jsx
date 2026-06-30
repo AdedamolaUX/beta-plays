@@ -1132,7 +1132,7 @@ const PositioningCard = ({ alpha, isSelected, onClick, isWatched, onToggleWatch 
             style={{ fontFamily: 'var(--font-mono)', fontSize: 8, color: 'var(--text-muted)', cursor: 'pointer', padding: '1px 4px', borderRadius: 3, border: '1px solid rgba(255,255,255,0.08)' }}
             onMouseEnter={e => e.currentTarget.style.color = 'var(--cyan)'}
             onMouseLeave={e => e.currentTarget.style.color = 'var(--text-muted)'}
-          >DEX ↗</span>
+          >DEX<span className="pa-dex-arrow"> ↗</span></span>
           </Tooltip>
           <XSearchButton symbol={alpha.symbol} onClick={e => e.stopPropagation()} className="pa-btn" />
         </div>
