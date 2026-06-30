@@ -1134,7 +1134,32 @@ body {
   to   { transform: translateX(0);    opacity: 1; }
 }
 /* ─── Wallet Adapter Modal Overrides ──────────────────────────── */
+/* Structural positioning — library stylesheet not imported, so we
+   must define layout ourselves (theme-only rules above are not enough) */
+.wallet-adapter-modal {
+  position: fixed !important;
+  top: 0 !important;
+  left: 0 !important;
+  right: 0 !important;
+  bottom: 0 !important;
+  display: flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  padding: 16px !important;
+}
+.wallet-adapter-modal-overlay {
+  position: fixed !important;
+  top: 0 !important;
+  left: 0 !important;
+  right: 0 !important;
+  bottom: 0 !important;
+}
 .wallet-adapter-modal-wrapper {
+  position: relative !important;
+  width: 100% !important;
+  max-width: 400px !important;
+  max-height: 90vh !important;
+  overflow-y: auto !important;
   background: var(--surface-1) !important;
   border: 1px solid var(--border) !important;
   border-radius: 16px !important;
