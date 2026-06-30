@@ -3285,9 +3285,9 @@ const AlphaBoard = ({ selectedAlpha, onSelect, onNewRunners, onLiveAlphas, onSzn
                   style={{
                     background:   'var(--surface-2)',
                     border:       '1px solid var(--border)',
-                    borderRadius: 10,
-                    padding:      '12px 14px',
-                    marginBottom: 6,
+                    borderRadius: 14,
+                    padding:      '14px 16px',
+                    marginBottom: 7,
                     cursor:       'pointer',
                     transition:   'border-color 0.15s, background 0.15s',
                   }}
@@ -3301,49 +3301,46 @@ const AlphaBoard = ({ selectedAlpha, onSelect, onNewRunners, onLiveAlphas, onSzn
                   }}
                 >
                   {/* Token header row */}
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 9, marginBottom: 8 }}>
-                    {runner.logoUrl
-                      ? <img src={runner.logoUrl} alt="" style={{ width: 30, height: 30, borderRadius: '50%', flexShrink: 0 }} onError={e => { e.target.style.display = 'none' }} />
-                      : <div style={{ width: 30, height: 30, borderRadius: '50%', background: 'rgba(0,212,255,0.08)', border: '1px solid rgba(0,212,255,0.2)', flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', fontFamily: 'var(--font-display)', fontSize: 11, fontWeight: 800, color: 'var(--cyan)' }}>{(runner.symbol || '?')[0]}</div>
-                    }
-                    <div style={{ flex: 1, minWidth: 0 }}>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: 5, flexWrap: 'wrap' }}>
-                        <span style={{ fontFamily: 'var(--font-display)', fontSize: 13, fontWeight: 800, color: 'var(--text-primary)', letterSpacing: '0.01em' }}>${runner.symbol}</span>
-                        {runner.runCount > 1 && (
-                          <span style={{ fontFamily: 'var(--font-mono)', fontSize: 7, color: 'var(--amber)', background: 'rgba(255,170,0,0.1)', border: '1px solid rgba(255,170,0,0.25)', borderRadius: 3, padding: '1px 5px', fontWeight: 700 }}>
-                            🔄 {runner.runCount}×
-                          </span>
-                        )}
-                        {runner.category && (
-                          <span style={{ fontFamily: 'var(--font-mono)', fontSize: 7, color: 'var(--cyan)', background: 'rgba(0,212,255,0.07)', border: '1px solid rgba(0,212,255,0.18)', borderRadius: 3, padding: '1px 5px' }}>
-                            {runner.category}
-                          </span>
-                        )}
-                      </div>
-                      <div style={{ fontFamily: 'var(--font-body)', fontSize: 9, color: 'var(--text-muted)', marginTop: 2 }}>
-                        {runner.name} · {lastSeenLabel}
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10, marginBottom: 10 }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 10, minWidth: 0 }}>
+                      {runner.logoUrl
+                        ? <img src={runner.logoUrl} alt="" style={{ width: 36, height: 36, borderRadius: 10, flexShrink: 0 }} onError={e => { e.target.style.display = 'none' }} />
+                        : <div style={{ width: 36, height: 36, borderRadius: 10, background: '#161b24', flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', fontFamily: 'var(--font-display)', fontSize: 12, fontWeight: 800, color: 'var(--cyan)' }}>{(runner.symbol || '?')[0]}</div>
+                      }
+                      <div style={{ minWidth: 0 }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+                          <span style={{ fontFamily: 'var(--font-display)', fontSize: 16, fontWeight: 800, color: 'var(--text-primary)', letterSpacing: '0.01em' }}>${runner.symbol}</span>
+                          {runner.category && (
+                            <span style={{ fontFamily: 'var(--font-body)', fontWeight: 500, fontSize: 9, color: 'var(--cyan)', background: 'rgba(0,212,255,0.1)', borderRadius: 10, padding: '2px 7px' }}>
+                              {runner.category}
+                            </span>
+                          )}
+                        </div>
+                        <div style={{ fontFamily: 'var(--font-body)', fontSize: 10, color: 'var(--text-secondary)', marginTop: 2 }}>
+                          {runner.name} · {lastSeenLabel}
+                        </div>
                       </div>
                     </div>
-                    <div style={{ textAlign: 'right', flexShrink: 0 }}>
-                      <div style={{ fontFamily: 'var(--font-mono)', fontSize: 7, color: 'var(--text-muted)', letterSpacing: 0.5, marginBottom: 2 }}>ATH</div>
-                      <div style={{ fontFamily: 'var(--font-mono)', fontSize: 12, fontWeight: 700, color: 'var(--neon-green)' }}>{peakFmt}</div>
+                    <div style={{ background: 'rgba(0,255,153,0.08)', border: '1px solid rgba(0,255,153,0.25)', borderRadius: 8, padding: '5px 10px', textAlign: 'center', flexShrink: 0 }}>
+                      <div style={{ fontFamily: 'var(--font-body)', fontSize: 8, color: '#5fa98a', letterSpacing: 0.5 }}>ATH</div>
+                      <div style={{ fontFamily: 'var(--font-display)', fontWeight: 700, fontSize: 13, color: 'var(--neon-green)' }}>{peakFmt}</div>
                     </div>
                   </div>
 
                   {/* Stats row */}
-                  <div style={{ display: 'flex', gap: 12, marginBottom: runner.topBetas?.length > 0 ? 10 : 0 }}>
-                    <div>
-                      <div style={{ fontFamily: 'var(--font-mono)', fontSize: 8, color: 'var(--text-muted)' }}>TIMES RAN</div>
-                      <div style={{ fontFamily: 'var(--font-display)', fontSize: 11, color: 'var(--text-primary)' }}>{runner.runCount}</div>
+                  <div style={{ display: 'flex', background: 'rgba(255,255,255,0.025)', borderRadius: 8, overflow: 'hidden', marginBottom: runner.topBetas?.length > 0 ? 12 : 0 }}>
+                    <div style={{ flex: 1, padding: '8px 4px', textAlign: 'center', borderRight: '1px solid rgba(255,255,255,0.05)' }}>
+                      <div style={{ fontFamily: 'var(--font-body)', fontSize: 9, color: 'var(--text-secondary)' }}>Times ran</div>
+                      <div style={{ fontFamily: 'var(--font-display)', fontWeight: 700, fontSize: 14, color: 'var(--text-primary)' }}>{runner.runCount}</div>
                     </div>
-                    <div>
-                      <div style={{ fontFamily: 'var(--font-mono)', fontSize: 8, color: 'var(--text-muted)' }}>BETAS FOUND</div>
-                      <div style={{ fontFamily: 'var(--font-display)', fontSize: 11, color: 'var(--text-primary)' }}>{runner.betaCount}</div>
+                    <div style={{ flex: 1, padding: '8px 4px', textAlign: 'center', borderRight: sources ? '1px solid rgba(255,255,255,0.05)' : 'none' }}>
+                      <div style={{ fontFamily: 'var(--font-body)', fontSize: 9, color: 'var(--text-secondary)' }}>Betas found</div>
+                      <div style={{ fontFamily: 'var(--font-display)', fontWeight: 700, fontSize: 14, color: 'var(--text-primary)' }}>{runner.betaCount}</div>
                     </div>
                     {sources && (
-                      <div>
-                        <div style={{ fontFamily: 'var(--font-mono)', fontSize: 8, color: 'var(--text-muted)' }}>SOURCE</div>
-                        <div style={{ fontFamily: 'var(--font-mono)', fontSize: 9, color: 'var(--text-secondary)', textTransform: 'uppercase' }}>{sources}</div>
+                      <div style={{ flex: 1, padding: '8px 4px', textAlign: 'center' }}>
+                        <div style={{ fontFamily: 'var(--font-body)', fontSize: 9, color: 'var(--text-secondary)' }}>Source</div>
+                        <div style={{ fontFamily: 'var(--font-body)', fontSize: 9, color: 'var(--text-muted)', paddingTop: 2 }}>{sources}</div>
                       </div>
                     )}
                   </div>
@@ -3357,22 +3354,22 @@ const AlphaBoard = ({ selectedAlpha, onSelect, onNewRunners, onLiveAlphas, onSzn
                       return (
                         <div
                           key={`${beta.address}-${idx}`}
-                          style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '4px 6px', background: 'rgba(255,255,255,0.03)', borderRadius: 6 }}
+                          style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '6px 8px', background: 'rgba(255,255,255,0.025)', borderRadius: 8 }}
                           onClick={e => { e.stopPropagation(); window.open(`https://dexscreener.com/solana/${beta.address}`, '_blank') }}
                         >
                           {beta.logoUrl
                             ? <img src={beta.logoUrl} alt="" style={{ width: 16, height: 16, borderRadius: '50%', flexShrink: 0 }} onError={e => { e.target.style.display = 'none' }} />
                             : <div style={{ width: 16, height: 16, borderRadius: '50%', background: 'rgba(255,255,255,0.08)', flexShrink: 0 }} />
                           }
-                          <span style={{ fontFamily: 'var(--font-display)', fontSize: 11, color: 'var(--text-primary)', flex: 1 }}>${beta.symbol}</span>
+                          <span style={{ fontFamily: 'var(--font-body)', fontWeight: 700, fontSize: 12, color: 'var(--text-primary)', flex: 1 }}>${beta.symbol}</span>
                           {beta.confirmedCount > 1 && (
-                            <span style={{ fontFamily: 'var(--font-mono)', fontSize: 8, color: 'var(--text-muted)' }}>×{beta.confirmedCount}</span>
+                            <span style={{ fontFamily: 'var(--font-body)', fontSize: 10, color: 'var(--text-secondary)' }}>×{beta.confirmedCount}</span>
                           )}
                           {beta.relationshipType && (
-                            <span style={{ fontFamily: 'var(--font-mono)', fontSize: 7, color: 'var(--cyan)', background: 'rgba(0,212,255,0.08)', borderRadius: 3, padding: '1px 4px' }}>{beta.relationshipType}</span>
+                            <span style={{ fontFamily: 'var(--font-body)', fontWeight: 500, fontSize: 9, color: 'var(--cyan)', background: 'rgba(0,212,255,0.1)', borderRadius: 10, padding: '2px 7px' }}>{beta.relationshipType.charAt(0) + beta.relationshipType.slice(1).toLowerCase()}</span>
                           )}
                           {hasPrice && (
-                            <span style={{ fontFamily: 'var(--font-mono)', fontSize: 8, color: 'var(--text-muted)' }}>
+                            <span style={{ fontFamily: 'var(--font-mono)', fontSize: 9, color: 'var(--text-muted)' }}>
                               @ ${beta.priceAtDetection < 0.001
                                 ? beta.priceAtDetection.toExponential(2)
                                 : beta.priceAtDetection.toFixed(4)}
@@ -3382,32 +3379,32 @@ const AlphaBoard = ({ selectedAlpha, onSelect, onNewRunners, onLiveAlphas, onSzn
                       )
                     }
                     return (
-                      <div style={{ borderTop: '1px solid rgba(255,255,255,0.06)', paddingTop: 8 }}>
-                        <div style={{ fontFamily: 'var(--font-mono)', fontSize: 8, color: 'var(--text-muted)', marginBottom: 5, letterSpacing: 1 }}>TOP CONFIRMED BETAS</div>
-                        <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                      <div style={{ borderTop: '1px solid rgba(255,255,255,0.06)', paddingTop: 10 }}>
+                        <div style={{ fontFamily: 'var(--font-body)', fontWeight: 500, fontSize: 10, color: 'var(--text-secondary)', marginBottom: 7 }}>Top confirmed betas</div>
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: 5 }}>
                           {runner.topBetas.map(renderBetaRow)}
                         </div>
                         {hasMore && (
                           <button
                             onClick={e => { e.stopPropagation(); toggleRunnerBetas(runner.address) }}
                             style={{
-                              marginTop: 6, width: '100%', textAlign: 'center',
-                              background: 'transparent', border: 'none', cursor: 'pointer',
-                              fontFamily: 'var(--font-mono)', fontSize: 9, color: 'var(--cyan)', padding: '4px 0',
+                              marginTop: 9, width: '100%', textAlign: 'center',
+                              background: 'rgba(0,212,255,0.08)', border: 'none', borderRadius: 8, cursor: 'pointer',
+                              fontFamily: 'var(--font-body)', fontWeight: 500, fontSize: 10, color: 'var(--cyan)', padding: '7px 0',
                             }}
                           >
                             {expandState?.open
-                              ? '▲ Hide full list'
-                              : `▼ View all ${runner.betaCount} betas`}
+                              ? 'Hide full list'
+                              : `View all ${runner.betaCount} betas`}
                           </button>
                         )}
                         {hasMore && expandState?.open && (
-                          <div style={{ display: 'flex', flexDirection: 'column', gap: 4, marginTop: 4 }}>
+                          <div style={{ display: 'flex', flexDirection: 'column', gap: 5, marginTop: 5 }}>
                             {expandState.loading && (
-                              <div style={{ fontFamily: 'var(--font-mono)', fontSize: 9, color: 'var(--text-muted)', textAlign: 'center', padding: '8px 0' }}>Loading…</div>
+                              <div style={{ fontFamily: 'var(--font-body)', fontSize: 10, color: 'var(--text-muted)', textAlign: 'center', padding: '8px 0' }}>Loading…</div>
                             )}
                             {expandState.error && (
-                              <div style={{ fontFamily: 'var(--font-mono)', fontSize: 9, color: 'var(--red)', textAlign: 'center', padding: '8px 0' }}>Failed to load. Tap to retry.</div>
+                              <div style={{ fontFamily: 'var(--font-body)', fontSize: 10, color: 'var(--red)', textAlign: 'center', padding: '8px 0' }}>Failed to load. Tap to retry.</div>
                             )}
                             {!expandState.loading && !expandState.error && expandState.betas?.map(renderBetaRow)}
                           </div>
