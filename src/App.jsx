@@ -3309,21 +3309,33 @@ const AlphaBoard = ({ selectedAlpha, onSelect, onNewRunners, onLiveAlphas, onSzn
                       }
                       <div style={{ minWidth: 0, overflow: 'hidden' }}>
                         <div style={{ display: 'flex', alignItems: 'center', gap: 6, minWidth: 0 }}>
-                          <span style={{ fontFamily: 'var(--font-display)', fontSize: 16, fontWeight: 800, color: 'var(--text-primary)', letterSpacing: '0.01em', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', minWidth: 0 }}>${runner.symbol}</span>
+                          <Tooltip text={`$${runner.symbol} · ${runner.name}`}>
+                            <span style={{ fontFamily: 'var(--font-display)', fontSize: 16, fontWeight: 800, color: 'var(--text-primary)', letterSpacing: '0.01em', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', minWidth: 0, cursor: 'default' }}>${runner.symbol}</span>
+                          </Tooltip>
                           {runner.category && (
                             <span className="badge" style={{ color: 'var(--cyan)', background: 'rgba(0,212,255,0.1)', borderColor: 'rgba(0,212,255,0.3)', flexShrink: 0 }}>
                               {runner.category}
                             </span>
                           )}
                         </div>
-                        <div style={{ fontFamily: 'var(--font-body)', fontSize: 10, color: 'var(--text-secondary)', marginTop: 2, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                        <div style={{ fontFamily: 'var(--font-mono)', fontSize: 9, color: 'var(--text-secondary)', marginTop: 2, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                           {runner.name} · {lastSeenLabel}
                         </div>
                       </div>
                     </div>
-                    <div style={{ background: 'rgba(0,255,153,0.08)', border: '1px solid rgba(0,255,153,0.25)', borderRadius: 8, padding: '5px 10px', textAlign: 'center', flexShrink: 0 }}>
-                      <div style={{ fontFamily: 'var(--font-mono)', fontSize: 8, color: '#5fa98a', letterSpacing: 0.5 }}>ATH</div>
-                      <div style={{ fontFamily: 'var(--font-display)', fontWeight: 700, fontSize: 13, color: 'var(--neon-green)' }}>{peakFmt}</div>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexShrink: 0 }}>
+                      <Tooltip text="Open on DEXScreener">
+                        <span
+                          onClick={e => { e.stopPropagation(); window.open(`https://dexscreener.com/solana/${runner.address}`, '_blank') }}
+                          style={{ fontFamily: 'var(--font-mono)', fontSize: 8, color: 'var(--text-muted)', cursor: 'pointer', padding: '1px 4px', borderRadius: 3, border: '1px solid rgba(255,255,255,0.08)' }}
+                          onMouseEnter={e => e.currentTarget.style.color = 'var(--cyan)'}
+                          onMouseLeave={e => e.currentTarget.style.color = 'var(--text-muted)'}
+                        >DEX</span>
+                      </Tooltip>
+                      <div style={{ background: 'rgba(0,255,153,0.08)', border: '1px solid rgba(0,255,153,0.25)', borderRadius: 8, padding: '5px 10px', textAlign: 'center' }}>
+                        <div style={{ fontFamily: 'var(--font-mono)', fontSize: 8, color: '#5fa98a', letterSpacing: 0.5 }}>ATH</div>
+                        <div style={{ fontFamily: 'var(--font-display)', fontWeight: 700, fontSize: 13, color: 'var(--neon-green)' }}>{peakFmt}</div>
+                      </div>
                     </div>
                   </div>
 
