@@ -3302,27 +3302,27 @@ const AlphaBoard = ({ selectedAlpha, onSelect, onNewRunners, onLiveAlphas, onSzn
                 >
                   {/* Token header row */}
                   <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10, marginBottom: 10 }}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 10, minWidth: 0 }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 10, minWidth: 0, flex: 1, overflow: 'hidden' }}>
                       {runner.logoUrl
                         ? <img src={runner.logoUrl} alt="" style={{ width: 36, height: 36, borderRadius: 10, flexShrink: 0 }} onError={e => { e.target.style.display = 'none' }} />
                         : <div style={{ width: 36, height: 36, borderRadius: 10, background: '#161b24', flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', fontFamily: 'var(--font-display)', fontSize: 12, fontWeight: 800, color: 'var(--cyan)' }}>{(runner.symbol || '?')[0]}</div>
                       }
-                      <div style={{ minWidth: 0 }}>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
-                          <span style={{ fontFamily: 'var(--font-display)', fontSize: 16, fontWeight: 800, color: 'var(--text-primary)', letterSpacing: '0.01em' }}>${runner.symbol}</span>
+                      <div style={{ minWidth: 0, overflow: 'hidden' }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 6, minWidth: 0 }}>
+                          <span style={{ fontFamily: 'var(--font-display)', fontSize: 16, fontWeight: 800, color: 'var(--text-primary)', letterSpacing: '0.01em', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', minWidth: 0 }}>${runner.symbol}</span>
                           {runner.category && (
-                            <span style={{ fontFamily: 'var(--font-body)', fontWeight: 500, fontSize: 9, color: 'var(--cyan)', background: 'rgba(0,212,255,0.1)', borderRadius: 10, padding: '2px 7px' }}>
+                            <span className="badge" style={{ color: 'var(--cyan)', background: 'rgba(0,212,255,0.1)', borderColor: 'rgba(0,212,255,0.3)', flexShrink: 0 }}>
                               {runner.category}
                             </span>
                           )}
                         </div>
-                        <div style={{ fontFamily: 'var(--font-body)', fontSize: 10, color: 'var(--text-secondary)', marginTop: 2 }}>
+                        <div style={{ fontFamily: 'var(--font-body)', fontSize: 10, color: 'var(--text-secondary)', marginTop: 2, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                           {runner.name} · {lastSeenLabel}
                         </div>
                       </div>
                     </div>
                     <div style={{ background: 'rgba(0,255,153,0.08)', border: '1px solid rgba(0,255,153,0.25)', borderRadius: 8, padding: '5px 10px', textAlign: 'center', flexShrink: 0 }}>
-                      <div style={{ fontFamily: 'var(--font-body)', fontSize: 8, color: '#5fa98a', letterSpacing: 0.5 }}>ATH</div>
+                      <div style={{ fontFamily: 'var(--font-mono)', fontSize: 8, color: '#5fa98a', letterSpacing: 0.5 }}>ATH</div>
                       <div style={{ fontFamily: 'var(--font-display)', fontWeight: 700, fontSize: 13, color: 'var(--neon-green)' }}>{peakFmt}</div>
                     </div>
                   </div>
@@ -3330,17 +3330,17 @@ const AlphaBoard = ({ selectedAlpha, onSelect, onNewRunners, onLiveAlphas, onSzn
                   {/* Stats row */}
                   <div style={{ display: 'flex', background: 'rgba(255,255,255,0.025)', borderRadius: 8, overflow: 'hidden', marginBottom: runner.topBetas?.length > 0 ? 12 : 0 }}>
                     <div style={{ flex: 1, padding: '8px 4px', textAlign: 'center', borderRight: '1px solid rgba(255,255,255,0.05)' }}>
-                      <div style={{ fontFamily: 'var(--font-body)', fontSize: 9, color: 'var(--text-secondary)' }}>Times ran</div>
+                      <div style={{ fontFamily: 'var(--font-mono)', fontSize: 8, color: 'var(--text-muted)', letterSpacing: '0.5px', textTransform: 'uppercase' }}>Times ran</div>
                       <div style={{ fontFamily: 'var(--font-display)', fontWeight: 700, fontSize: 14, color: 'var(--text-primary)' }}>{runner.runCount}</div>
                     </div>
                     <div style={{ flex: 1, padding: '8px 4px', textAlign: 'center', borderRight: sources ? '1px solid rgba(255,255,255,0.05)' : 'none' }}>
-                      <div style={{ fontFamily: 'var(--font-body)', fontSize: 9, color: 'var(--text-secondary)' }}>Betas found</div>
+                      <div style={{ fontFamily: 'var(--font-mono)', fontSize: 8, color: 'var(--text-muted)', letterSpacing: '0.5px', textTransform: 'uppercase' }}>Betas found</div>
                       <div style={{ fontFamily: 'var(--font-display)', fontWeight: 700, fontSize: 14, color: 'var(--text-primary)' }}>{runner.betaCount}</div>
                     </div>
                     {sources && (
                       <div style={{ flex: 1, padding: '8px 4px', textAlign: 'center' }}>
-                        <div style={{ fontFamily: 'var(--font-body)', fontSize: 9, color: 'var(--text-secondary)' }}>Source</div>
-                        <div style={{ fontFamily: 'var(--font-body)', fontSize: 9, color: 'var(--text-muted)', paddingTop: 2 }}>{sources}</div>
+                        <div style={{ fontFamily: 'var(--font-mono)', fontSize: 8, color: 'var(--text-muted)', letterSpacing: '0.5px', textTransform: 'uppercase' }}>Source</div>
+                        <div style={{ fontFamily: 'var(--font-mono)', fontSize: 9, color: 'var(--text-secondary)', paddingTop: 2 }}>{sources}</div>
                       </div>
                     )}
                   </div>
@@ -3361,12 +3361,12 @@ const AlphaBoard = ({ selectedAlpha, onSelect, onNewRunners, onLiveAlphas, onSzn
                             ? <img src={beta.logoUrl} alt="" style={{ width: 16, height: 16, borderRadius: '50%', flexShrink: 0 }} onError={e => { e.target.style.display = 'none' }} />
                             : <div style={{ width: 16, height: 16, borderRadius: '50%', background: 'rgba(255,255,255,0.08)', flexShrink: 0 }} />
                           }
-                          <span style={{ fontFamily: 'var(--font-body)', fontWeight: 700, fontSize: 12, color: 'var(--text-primary)', flex: 1 }}>${beta.symbol}</span>
+                          <span style={{ fontFamily: 'var(--font-display)', fontWeight: 700, fontSize: 13, color: 'var(--text-primary)', flex: 1 }}>${beta.symbol}</span>
                           {beta.confirmedCount > 1 && (
-                            <span style={{ fontFamily: 'var(--font-body)', fontSize: 10, color: 'var(--text-secondary)' }}>×{beta.confirmedCount}</span>
+                            <span style={{ fontFamily: 'var(--font-mono)', fontSize: 8, color: 'var(--text-muted)' }}>×{beta.confirmedCount}</span>
                           )}
                           {beta.relationshipType && (
-                            <span style={{ fontFamily: 'var(--font-body)', fontWeight: 500, fontSize: 9, color: 'var(--cyan)', background: 'rgba(0,212,255,0.1)', borderRadius: 10, padding: '2px 7px' }}>{beta.relationshipType.charAt(0) + beta.relationshipType.slice(1).toLowerCase()}</span>
+                            <span className="badge" style={{ color: 'var(--cyan)', background: 'rgba(0,212,255,0.1)', borderColor: 'rgba(0,212,255,0.3)' }}>{beta.relationshipType}</span>
                           )}
                           {hasPrice && (
                             <span style={{ fontFamily: 'var(--font-mono)', fontSize: 9, color: 'var(--text-muted)' }}>
@@ -3380,7 +3380,7 @@ const AlphaBoard = ({ selectedAlpha, onSelect, onNewRunners, onLiveAlphas, onSzn
                     }
                     return (
                       <div style={{ borderTop: '1px solid rgba(255,255,255,0.06)', paddingTop: 10 }}>
-                        <div style={{ fontFamily: 'var(--font-body)', fontWeight: 500, fontSize: 10, color: 'var(--text-secondary)', marginBottom: 7 }}>Top confirmed betas</div>
+                        <div style={{ fontFamily: 'var(--font-mono)', fontSize: 8, color: 'var(--text-muted)', letterSpacing: '1px', textTransform: 'uppercase', marginBottom: 7 }}>Top confirmed betas</div>
                         <div style={{ display: 'flex', flexDirection: 'column', gap: 5 }}>
                           {runner.topBetas.map(renderBetaRow)}
                         </div>
@@ -3390,7 +3390,7 @@ const AlphaBoard = ({ selectedAlpha, onSelect, onNewRunners, onLiveAlphas, onSzn
                             style={{
                               marginTop: 9, width: '100%', textAlign: 'center',
                               background: 'rgba(0,212,255,0.08)', border: 'none', borderRadius: 8, cursor: 'pointer',
-                              fontFamily: 'var(--font-body)', fontWeight: 500, fontSize: 10, color: 'var(--cyan)', padding: '7px 0',
+                              fontFamily: 'var(--font-mono)', fontSize: 9, letterSpacing: '0.5px', color: 'var(--cyan)', padding: '7px 0',
                             }}
                           >
                             {expandState?.open
@@ -3401,10 +3401,10 @@ const AlphaBoard = ({ selectedAlpha, onSelect, onNewRunners, onLiveAlphas, onSzn
                         {hasMore && expandState?.open && (
                           <div style={{ display: 'flex', flexDirection: 'column', gap: 5, marginTop: 5 }}>
                             {expandState.loading && (
-                              <div style={{ fontFamily: 'var(--font-body)', fontSize: 10, color: 'var(--text-muted)', textAlign: 'center', padding: '8px 0' }}>Loading…</div>
+                              <div style={{ fontFamily: 'var(--font-mono)', fontSize: 9, color: 'var(--text-muted)', textAlign: 'center', padding: '8px 0' }}>Loading…</div>
                             )}
                             {expandState.error && (
-                              <div style={{ fontFamily: 'var(--font-body)', fontSize: 10, color: 'var(--red)', textAlign: 'center', padding: '8px 0' }}>Failed to load. Tap to retry.</div>
+                              <div style={{ fontFamily: 'var(--font-mono)', fontSize: 9, color: 'var(--red)', textAlign: 'center', padding: '8px 0' }}>Failed to load.</div>
                             )}
                             {!expandState.loading && !expandState.error && expandState.betas?.map(renderBetaRow)}
                           </div>
