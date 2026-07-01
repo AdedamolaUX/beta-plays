@@ -3278,10 +3278,7 @@ const AlphaBoard = ({ selectedAlpha, onSelect, onNewRunners, onLiveAlphas, onSzn
               return (
                 <div
                   key={runner.address}
-                  onClick={() => {
-                    onSelect(runnerAsAlpha)
-                    setActiveTab('live')  // switch to live tab so beta panel is visible
-                  }}
+                  onClick={() => onSelect(runnerAsAlpha)}
                   style={{
                     background:   'var(--surface-2)',
                     border:       '1px solid var(--border)',
